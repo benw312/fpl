@@ -1,0 +1,39 @@
+# FPL CLI
+
+Local, read-only Fantasy Premier League planning tool. Python CLI over the
+official (undocumented) FPL API. No credentials, no team submission.
+
+## Stack
+Typer (CLI) · Rich (output) · HTTPX (API) · Pydantic (models)
+SQLite + raw JSON snapshots (cache) · pytest (mocked API)
+
+## Platform
+Developed and run on Linux.
+
+## Current state
+Implemented: api/official.py, api/models.py, domain/rules.py,
+domain/squad.py, storage/cache.py, cli.py, presentation.py, tests/test_rules.py
+
+Not yet written: transport.py, domain/transfers.py, domain/optimizer.py
+Note: plan specifies a `presentation/` package; currently a flat module.
+
+## Rules
+- Derive FPL rules from the live API snapshot. Never hardcode squad limits,
+  budgets or deadlines — they come from bootstrap-static.
+- Prices are integer units: 1000 = £100.0m. Never store as float.
+- The API is undocumented and may change. Cached snapshots must keep the
+  app usable during failures — preserve stale-cache fallback behaviour.
+- Every optimiser recommendation must pass the same validator used for
+  manual squad planning.
+
+## Conventions
+- UK English.
+- Task branch per change: `git checkout -b task/<short-name>`. Never commit
+  to main.
+- Tests use a synthetic dataset and mocked responses. No live API in tests.
+- Flag gaps and assumptions in [square brackets] rather than inventing detail.
+
+## Commands
+- Install: `pip install -e ".[dev]"`
+- Test: `pytest -q`
+- Run: `fpl sync` / `fpl players list` / `fpl squad validate squad.json`

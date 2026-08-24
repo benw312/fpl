@@ -1,6 +1,6 @@
 # FPL CLI
 
-A local, read-only Fantasy Premier League planning tool for Windows terminals.
+A local, read-only Fantasy Premier League planning tool.
 
 ## Status
 
@@ -14,15 +14,15 @@ The official endpoints are undocumented and may change. Cached snapshots are ret
 
 ## Setup
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-py -m pip install -e ".[dev]"
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
 ## Commands
 
-```powershell
+```bash
 fpl sync
 fpl players list --position MID --available-only
 fpl squad validate squad.json
