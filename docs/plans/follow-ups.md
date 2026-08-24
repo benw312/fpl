@@ -73,3 +73,60 @@ it becomes relevant once per-player `element-summary/{id}` responses and histori
 gameweek data are cached, where a single JSON blob stops being a sensible shape.
 
 **Not urgent.** Revisit when the second and third endpoints land.
+
+---
+
+## FU-5 — Chips (wildcard, free hit, bench boost, triple captain)
+
+**Deferred from:** [transfers.md](transfers.md), "Chips: deferred, with schema
+reserved".
+
+`domain/transfers.py` implements ordinary transfer application, rollover, hits
+and selling prices only. Chip behaviour — no hit for wildcard, full squad+bank
+revert for free hit, no transfer effect for bench boost/triple captain — is not
+implemented.
+
+The ledger schema was fixed with chips in mind so this doesn't require a
+breaking migration: `Ledger.version`, `Ledger.chips_played` (empty, unread by
+the current code), and object-shaped `Transaction` log entries. The first thing
+that will need `chips_played`: on a wildcard or free-hit gameweek, banked free
+transfers must be preserved rather than decremented by `_fold_event` — today
+every non-genesis event decrements free transfers by however many buys it
+contains, which is wrong for a chip-played gameweek once chips exist.
+
+**Unblocks:** the README Agent Plan's "Model wildcard and free-hit behaviour
+separately" requirement.
+
+---
+
+## FU-6 — `starters`/`captain`/`vice_captain` are per-gameweek, stored as global
+
+**Deferred from:** [transfers.md](transfers.md), Decision 1.
+
+The squad JSON's `starters`, `captain` and `vice_captain` fields are unchanged
+from before the transfer ledger existed — one value each, for the whole file.
+But a lineup is logically a per-gameweek choice: a manager sets a different
+starting XI and captain most weeks. The ledger (`Ledger.log`) is now
+gameweek-aware; these three fields are not, so a squad file can't currently
+record "who was captain in gameweek 4" once gameweek 5 has been played.
+
+**Not urgent** on its own — `domain/squad.SquadPlan` still works for
+single-snapshot validation. Revisit if/when the CLI needs to answer
+"what was my lineup in a past gameweek", or when the optimiser needs to assign
+a captain per simulated gameweek.
+
+---
+
+## FU-7 — `fpl plan simulate` CLI command
+
+**Deferred from:** [transfers.md](transfers.md), Module layout.
+
+`domain/transfers.py` has no CLI entry point. The README Agent Plan names
+`fpl plan simulate` and `fpl plan optimize` as target commands; only the
+domain logic for the former now exists. `cli.py` was deliberately left
+untouched by that task to keep it scoped to the domain layer.
+
+**Unblocks:** exercising transfer simulation from the command line at all,
+and gives `Ledger.legacy` (set when a squad file is upgraded from the bare
+`players: [int]` format) somewhere to surface its warning — currently nothing
+reads that flag.

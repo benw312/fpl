@@ -17,7 +17,14 @@ class ValidationResult:
         return not self.errors
 
 
-def validate_squad(player_ids: list[int], snapshot: BootstrapSnapshot) -> ValidationResult:
+def validate_squad_structure(player_ids: list[int], snapshot: BootstrapSnapshot) -> ValidationResult:
+    """Validate squad size, positions, club limits and selectability.
+
+    Deliberately excludes the budget check: that check only holds against
+    `now_cost` at genesis (see domain/transfers.py Decision 3) — post-genesis
+    the real budget constraint is the transfer ledger's bank, not a sum over
+    current prices.
+    """
     settings = snapshot.game_settings
     errors: list[str] = []
     warnings: list[str] = []
@@ -39,10 +46,6 @@ def validate_squad(player_ids: list[int], snapshot: BootstrapSnapshot) -> Valida
         if actual != position.squad_select:
             errors.append(f"{position.singular_name_short} requires {position.squad_select} players; found {actual}.")
 
-    total_cost = sum(player.now_cost for player in selected)
-    if total_cost > settings.squad_total_spend:
-        errors.append(f"Squad cost is £{total_cost / 10:.1f}m; budget is £{settings.squad_total_spend / 10:.1f}m.")
-
     clubs = _count_by_club(selected)
     for club_id, count in clubs.items():
         if count > settings.squad_team_limit:
@@ -57,6 +60,20 @@ def validate_squad(player_ids: list[int], snapshot: BootstrapSnapshot) -> Valida
             warnings.append(f"{player.display_name} is flagged as unavailable: {player.news or player.status}.")
 
     return ValidationResult(errors, warnings, snapshot.season, snapshot.fetched_at.isoformat())
+
+
+def validate_squad(player_ids: list[int], snapshot: BootstrapSnapshot) -> ValidationResult:
+    settings = snapshot.game_settings
+    result = validate_squad_structure(player_ids, snapshot)
+    errors = list(result.errors)
+
+    players_by_id = snapshot.players_by_id
+    selected = [players_by_id[player_id] for player_id in player_ids if player_id in players_by_id]
+    total_cost = sum(player.now_cost for player in selected)
+    if total_cost > settings.squad_total_spend:
+        errors.append(f"Squad cost is £{total_cost / 10:.1f}m; budget is £{settings.squad_total_spend / 10:.1f}m.")
+
+    return ValidationResult(errors, result.warnings, result.season, result.fetched_at)
 
 
 def _count_by_position(players: list[Player]) -> dict[int, int]:

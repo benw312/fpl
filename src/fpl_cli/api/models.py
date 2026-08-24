@@ -60,6 +60,8 @@ class Gameweek(BaseModel):
     deadline_time: datetime | None = None
     is_current: bool = False
     is_next: bool = False
+    is_previous: bool = False
+    finished: bool = False
 
 
 class GameSettings(BaseModel):
@@ -72,6 +74,8 @@ class GameSettings(BaseModel):
     ui_currency_multiplier: int = 10
     transfers_sell_on_fee: float = 0.5
     max_extra_free_transfers: int = 4
+    transfers_cap: int = 20
+    element_sell_at_purchase_price: bool = False
 
 
 class BootstrapSnapshot(BaseModel):
