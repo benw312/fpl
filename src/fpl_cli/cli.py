@@ -6,10 +6,11 @@ import typer
 from rich import print
 
 from fpl_cli.api.models import BootstrapSnapshot
-from fpl_cli.api.official import FplApiError, OfficialFplApi
+from fpl_cli.api.official import OfficialFplApi
 from fpl_cli.domain.squad import SquadPlan, validate_plan
 from fpl_cli.presentation import console, player_table
 from fpl_cli.storage.cache import SnapshotCache
+from fpl_cli.transport import FplError
 
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
 players_app = typer.Typer(help="Browse FPL players.")
@@ -24,7 +25,7 @@ def load_snapshot() -> BootstrapSnapshot:
     api = OfficialFplApi()
     try:
         return api.bootstrap_static()
-    except FplApiError:
+    except FplError:
         if cached is not None:
             print(f"[yellow]Using cached snapshot from {cached.fetched_at.isoformat()}.[/yellow]")
             return cached
@@ -40,7 +41,7 @@ def sync() -> None:
     try:
         snapshot = api.bootstrap_static()
         SnapshotCache().save(snapshot)
-    except FplApiError as exc:
+    except FplError as exc:
         raise typer.Exit(str(exc)) from exc
     finally:
         api.close()

@@ -20,16 +20,8 @@ class SnapshotCache:
             return None
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-            return BootstrapSnapshot(
-                **payload,
-                fetched_at=datetime.fromtimestamp(self.path.stat().st_mtime, UTC),
-                season=_season_from_payload(payload),
-                raw=payload,
+            return BootstrapSnapshot.from_payload(
+                payload, fetched_at=datetime.fromtimestamp(self.path.stat().st_mtime, UTC)
             )
         except (OSError, ValueError, TypeError):
             return None
-
-
-def _season_from_payload(payload: dict) -> str:
-    url = payload.get("game_config", {}).get("settings", {}).get("static_content_url", "")
-    return next((part for part in reversed(str(url).rstrip("/").split("/")) if "_" in part), "unknown")

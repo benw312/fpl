@@ -12,6 +12,8 @@ The first slice supports:
 
 The official endpoints are undocumented and may change. Cached snapshots are retained locally so the app can remain useful during temporary API failures. Prices are stored in FPL integer units, where `1000` means GBP 100.0m.
 
+Transient failures (timeouts, connection errors, 5xx responses) are retried automatically with exponential backoff. A 429 (rate limited) is deliberately **not** retried aggressively: the FPL API is unauthenticated and rate-limited by IP, so hammering a 429 risks turning a short-lived block into a longer one. A retry is attempted only when the server's `Retry-After` header is present and short (≤5s); otherwise the CLI falls back to the cached snapshot immediately.
+
 ## Setup
 
 ```bash
@@ -100,7 +102,7 @@ fpl plan simulate
 fpl plan optimize
 Add documentation covering:
 
-Setup and Windows usage
+Setup and Linux usage
 Official API dependency and lack of formal API guarantees
 Cache and stale-data behaviour
 Currency units
@@ -127,7 +129,7 @@ Test valid and invalid squads, budgets, positions, formations, club limits, capt
 Test transfer rollover, selling prices, transfer hits, deadlines, chips, and multi-week transitions.
 Mock API failures including timeouts, 403, 429, 5xx, malformed data, and stale-cache fallback.
 Use a tiny synthetic player dataset to verify known optimizer outcomes.
-Run Windows CLI smoke tests for syncing, filtering, squad creation, validation, simulation, and optimization.
+Run Linux CLI smoke tests for syncing, filtering, squad creation, validation, simulation, and optimization.
 Confirm every optimizer recommendation passes the same validator used for manual squad planning.
 Decisions
 

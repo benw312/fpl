@@ -1,47 +1,52 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
-import httpx
+from pydantic import ValidationError
 
 from fpl_cli.api.models import BootstrapSnapshot
+from fpl_cli.transport import (
+    AccessDenied,
+    FplError,
+    FplTransport,
+    MalformedResponse,
+    NotFound,
+    RateLimited,
+    RequestTimeout,
+    ServerError,
+    TransportError,
+)
 
-BASE_URL = "https://fantasy.premierleague.com/api"
+__all__ = [
+    "AccessDenied",
+    "FplApiError",
+    "FplError",
+    "MalformedResponse",
+    "NotFound",
+    "OfficialFplApi",
+    "RateLimited",
+    "RequestTimeout",
+    "ServerError",
+    "TransportError",
+]
 
 
-class FplApiError(RuntimeError):
-    pass
+class FplApiError(FplError):
+    """The payload did not match the expected FPL schema."""
 
 
 class OfficialFplApi:
-    def __init__(self, client: httpx.Client | None = None, base_url: str = BASE_URL) -> None:
-        self._client = client or httpx.Client(timeout=15, headers={"User-Agent": "fpl-cli/0.1"})
-        self._base_url = base_url.rstrip("/")
+    def __init__(self, transport: FplTransport | None = None) -> None:
+        self._transport = transport or FplTransport()
+        self._owns_transport = transport is None
 
     def close(self) -> None:
-        self._client.close()
+        if self._owns_transport:
+            self._transport.close()
 
     def bootstrap_static(self) -> BootstrapSnapshot:
+        payload = self._transport.get_json("/bootstrap-static/")
         try:
-            response = self._client.get(f"{self._base_url}/bootstrap-static/")
-            response.raise_for_status()
-            payload: dict[str, Any] = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise FplApiError(f"Could not fetch the FPL snapshot: {exc}") from exc
-
-        try:
-            return BootstrapSnapshot(
-                **payload,
-                fetched_at=datetime.now(UTC),
-                season=_season_from_payload(payload),
-                raw=payload,
-            )
-        except Exception as exc:
+            return BootstrapSnapshot.from_payload(payload, fetched_at=datetime.now(UTC))
+        except ValidationError as exc:
             raise FplApiError(f"FPL snapshot did not match the expected shape: {exc}") from exc
-
-
-def _season_from_payload(payload: dict[str, Any]) -> str:
-    static_content_url = payload.get("game_config", {}).get("settings", {}).get("static_content_url", "")
-    parts = str(static_content_url).rstrip("/").split("/")
-    return next((part for part in reversed(parts) if "_" in part), "unknown")

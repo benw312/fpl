@@ -97,3 +97,18 @@ class BootstrapSnapshot(BaseModel):
     @property
     def players_by_id(self) -> dict[int, Player]:
         return {player.id: player for player in self.elements}
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any], *, fetched_at: datetime) -> BootstrapSnapshot:
+        return cls(
+            **payload,
+            fetched_at=fetched_at,
+            season=_season_from_payload(payload),
+            raw=payload,
+        )
+
+
+def _season_from_payload(payload: dict[str, Any]) -> str:
+    static_content_url = payload.get("game_config", {}).get("settings", {}).get("static_content_url", "")
+    parts = str(static_content_url).rstrip("/").split("/")
+    return next((part for part in reversed(parts) if "_" in part), "unknown")
