@@ -6,10 +6,9 @@ import typer
 from rich import print
 
 from fpl_cli.api.models import BootstrapSnapshot
-from fpl_cli.api.official import OfficialFplApi
+from fpl_cli.api.snapshots import SnapshotService
 from fpl_cli.domain.squad import SquadPlan, validate_plan
 from fpl_cli.presentation import console, player_table
-from fpl_cli.storage.cache import SnapshotCache
 from fpl_cli.transport import FplError
 
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
@@ -20,31 +19,31 @@ app.add_typer(squad_app, name="squad")
 
 
 def load_snapshot() -> BootstrapSnapshot:
-    cache = SnapshotCache()
-    cached = cache.load()
-    api = OfficialFplApi()
+    service = SnapshotService()
     try:
-        return api.bootstrap_static()
-    except FplError:
-        if cached is not None:
-            print(f"[yellow]Using cached snapshot from {cached.fetched_at.isoformat()}.[/yellow]")
-            return cached
-        raise typer.Exit("No live snapshot or cached snapshot is available.")
+        result = service.load()
+    except FplError as exc:
+        raise typer.Exit("No live snapshot or cached snapshot is available.") from exc
     finally:
-        api.close()
+        service.close()
+    if result.stale:
+        print(
+            f"[yellow]Using cached snapshot from {result.snapshot.fetched_at.isoformat()} "
+            f"— live fetch failed: {result.reason}[/yellow]"
+        )
+    return result.snapshot
 
 
 @app.command()
 def sync() -> None:
     """Fetch and cache the current official FPL snapshot."""
-    api = OfficialFplApi()
+    service = SnapshotService()
     try:
-        snapshot = api.bootstrap_static()
-        SnapshotCache().save(snapshot)
+        snapshot = service.refresh()
     except FplError as exc:
         raise typer.Exit(str(exc)) from exc
     finally:
-        api.close()
+        service.close()
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
 
 

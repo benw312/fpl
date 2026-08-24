@@ -1,83 +1,79 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
-
 import pytest
 import typer
 
 from fpl_cli import cli
 from fpl_cli.api.models import BootstrapSnapshot
-from fpl_cli.storage.cache import SnapshotCache
-from fpl_cli.transport import MalformedResponse, RateLimited, RequestTimeout
+from fpl_cli.api.snapshots import SnapshotResult
+from fpl_cli.transport import RequestTimeout
 
 
-class FailingApi:
-    def __init__(self, error: Exception) -> None:
-        self._error = error
+class StubService:
+    def __init__(
+        self,
+        *,
+        load_result: SnapshotResult | None = None,
+        load_error: Exception | None = None,
+        refresh_result: BootstrapSnapshot | None = None,
+        refresh_error: Exception | None = None,
+    ) -> None:
+        self._load_result = load_result
+        self._load_error = load_error
+        self._refresh_result = refresh_result
+        self._refresh_error = refresh_error
+        self.closed = False
 
-    def bootstrap_static(self) -> BootstrapSnapshot:
-        raise self._error
+    def load(self) -> SnapshotResult:
+        if self._load_error is not None:
+            raise self._load_error
+        assert self._load_result is not None
+        return self._load_result
+
+    def refresh(self) -> BootstrapSnapshot:
+        if self._refresh_error is not None:
+            raise self._refresh_error
+        assert self._refresh_result is not None
+        return self._refresh_result
 
     def close(self) -> None:
-        pass
-
-
-def _install_failing_api(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
-    monkeypatch.setattr(cli, "OfficialFplApi", lambda: FailingApi(error))
-
-
-def _install_cache(monkeypatch: pytest.MonkeyPatch, cache: SnapshotCache) -> None:
-    monkeypatch.setattr(cli, "SnapshotCache", lambda: cache)
+        self.closed = True
 
 
 def _timeout_error() -> RequestTimeout:
     return RequestTimeout("timed out", url="https://fpl.test", status_code=None, attempts=3)
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        _timeout_error(),
-        RateLimited("rate limited", url="https://fpl.test", status_code=429, attempts=1, retry_after=None),
-        MalformedResponse("bad body", url="https://fpl.test", status_code=200, attempts=1),
-    ],
-    ids=["timeout", "rate_limited", "malformed"],
-)
-def test_falls_back_to_cache_on_any_fpl_error(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bootstrap_payload: dict[str, Any], error: Exception
+def test_load_snapshot_returns_stale_result_without_raising(
+    monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot
 ) -> None:
-    cache = SnapshotCache(path=tmp_path / "bootstrap-static.json")
-    cache.path.parent.mkdir(parents=True, exist_ok=True)
-    cache.path.write_text(json.dumps(bootstrap_payload), encoding="utf-8")
+    result = SnapshotResult(snapshot=bootstrap_snapshot, stale=True, reason="timed out")
+    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(load_result=result))
 
-    _install_failing_api(monkeypatch, error)
-    _install_cache(monkeypatch, cache)
+    snapshot = cli.load_snapshot()
 
-    result = cli.load_snapshot()
-
-    expected_mtime = cache.path.stat().st_mtime
-    assert result.fetched_at.timestamp() == pytest.approx(expected_mtime)
-    assert len(result.elements) == 15
+    assert snapshot is bootstrap_snapshot
 
 
-def test_raises_when_no_cache_present(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    cache = SnapshotCache(path=tmp_path / "bootstrap-static.json")
-    _install_failing_api(monkeypatch, _timeout_error())
-    _install_cache(monkeypatch, cache)
+def test_load_snapshot_raises_typer_exit_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(load_error=_timeout_error()))
 
     with pytest.raises(typer.Exit):
         cli.load_snapshot()
 
 
-def test_raises_when_cache_file_is_corrupt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    cache = SnapshotCache(path=tmp_path / "bootstrap-static.json")
-    cache.path.parent.mkdir(parents=True, exist_ok=True)
-    cache.path.write_text("not json", encoding="utf-8")
+def test_sync_reports_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(refresh_result=bootstrap_snapshot))
 
-    _install_failing_api(monkeypatch, _timeout_error())
-    _install_cache(monkeypatch, cache)
+    cli.sync()
+
+    assert "Synced 15 players" in capsys.readouterr().out
+
+
+def test_sync_raises_typer_exit_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(refresh_error=_timeout_error()))
 
     with pytest.raises(typer.Exit):
-        cli.load_snapshot()
+        cli.sync()
