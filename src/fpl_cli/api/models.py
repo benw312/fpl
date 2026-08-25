@@ -90,6 +90,39 @@ class Fixture(BaseModel):
     finished: bool = False
 
 
+class ExplainStat(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    identifier: str
+    points: int = 0
+    value: int = 0
+    points_modification: int = 0
+
+
+class ExplainEntry(BaseModel):
+    """One fixture's worth of scoring within a `LiveElement.explain` list —
+    a double gameweek yields two entries for the same player."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    fixture: int
+    stats: list[ExplainStat] = Field(default_factory=list)
+
+
+class LiveElement(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: int
+    stats: dict[str, Any] = Field(default_factory=dict)
+    explain: list[ExplainEntry] = Field(default_factory=list)
+
+
+class LiveEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    elements: list[LiveElement] = Field(default_factory=list)
+
+
 class Gameweek(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -100,6 +133,7 @@ class Gameweek(BaseModel):
     is_next: bool = False
     is_previous: bool = False
     finished: bool = False
+    data_checked: bool = False
 
 
 class GameSettings(BaseModel):

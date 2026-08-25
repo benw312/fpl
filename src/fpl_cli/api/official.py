@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
-from fpl_cli.api.models import BootstrapSnapshot, Fixture
+from fpl_cli.api.models import BootstrapSnapshot, Fixture, LiveEvent
 from fpl_cli.transport import (
     AccessDenied,
     FplError,
@@ -57,3 +57,10 @@ class OfficialFplApi:
             return [Fixture.model_validate(item) for item in payload]
         except ValidationError as exc:
             raise FplApiError(f"FPL fixtures did not match the expected shape: {exc}") from exc
+
+    def event_live(self, event: int) -> LiveEvent:
+        payload = self._transport.get_json(f"/event/{event}/live/")
+        try:
+            return LiveEvent.model_validate(payload)
+        except ValidationError as exc:
+            raise FplApiError(f"FPL live event data did not match the expected shape: {exc}") from exc

@@ -208,6 +208,51 @@ def fixtures_payload() -> list[dict[str, Any]]:
     ]
 
 
+@pytest.fixture
+def live_event_payload() -> dict[str, Any]:
+    """A minimal but valid synthetic event/{gw}/live/ payload, as raw JSON.
+
+    Element 2 has a double gameweek's worth of `explain` entries (two
+    fixtures), covering that shape.
+    """
+    return {
+        "elements": [
+            {
+                "id": 1,
+                "stats": {"minutes": 90, "goals_scored": 0, "total_points": 6, "played": True},
+                "explain": [
+                    {
+                        "fixture": 1,
+                        "stats": [
+                            {"identifier": "minutes", "points": 2, "value": 90, "points_modification": 0},
+                            {"identifier": "clean_sheets", "points": 4, "value": 1, "points_modification": 0},
+                        ],
+                    }
+                ],
+                "modified": False,
+            },
+            {
+                "id": 2,
+                "stats": {"minutes": 180, "goals_scored": 1, "total_points": 11, "played": True},
+                "explain": [
+                    {
+                        "fixture": 2,
+                        "stats": [{"identifier": "minutes", "points": 2, "value": 90, "points_modification": 0}],
+                    },
+                    {
+                        "fixture": 3,
+                        "stats": [
+                            {"identifier": "minutes", "points": 2, "value": 90, "points_modification": 0},
+                            {"identifier": "goals_scored", "points": 5, "value": 1, "points_modification": 0},
+                        ],
+                    },
+                ],
+                "modified": False,
+            },
+        ]
+    }
+
+
 class RecordingSleep:
     def __init__(self) -> None:
         self.delays: list[float] = []
