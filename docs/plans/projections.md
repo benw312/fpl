@@ -17,6 +17,14 @@ where that code lives, and whether the `fixtures` endpoint is required. It does
 **not** design the optimiser — no search strategy, no beam width, no captaincy,
 no chip logic.
 
+**Companion document:**
+[docs/research/projections-survey.md](../research/projections-survey.md) surveys
+public FPL projection methodologies and open-source implementations. This plan's
+findings about the API are first-hand, measured against a live snapshot; where
+the two documents touch the same question, the survey supplies the outside view
+and this plan records the decision. Decisions 1, 4 and 5 were each revised after
+reading it, and the revisions are marked in place.
+
 No code written yet.
 
 ---
@@ -71,10 +79,10 @@ So does Gabriel (80) and B.Fernandes (120). At this point in the season
 separating exactly those is what a squad optimiser spends its entire budget
 doing.
 
-[Unverified: whether `ep_next` decompresses once several gameweeks of data
-exist. I have one snapshot, taken at GW1. It is plausible that the ceiling of
-4.0 is a cold-start floor-and-cap rather than a permanent property, and this
-should be re-measured around GW6 — see the follow-ups.]
+This was originally flagged as possibly a GW1 cold-start artefact.
+[projections-survey.md](../research/projections-survey.md) records `ep_next`
+compression as documented, current API behaviour rather than a snapshot
+artefact, so the hedge is withdrawn: do not plan on it decompressing.
 
 ### Finding 3 — `ep_this` adds nothing
 
@@ -115,7 +123,7 @@ Two consequences, both load-bearing:
    all, and it is the only thing that makes a horizon longer than one gameweek
    possible.
 
-### Finding 6 — the attack/defence strength split is unusable right now
+### Finding 6 — the attack/defence strength split is unusable, and will stay that way
 
 All 20 teams report `strength_attack_home = strength_attack_away =
 strength_defence_home = strength_defence_away = 0`, with `strength = None` and
@@ -124,19 +132,31 @@ strength_defence_home = strength_defence_away = 0`, with `strength = None` and
 strength_overall_home` for every team.
 
 Any model that wants "this is a good defence but a weak attack" has no inputs.
-[Unverified whether these populate later in the season; in prior seasons these
-fields carried a ~1000–1400 scale, and `strength` carried the 1–5 band that
-`strength_overall_*` now appears to carry. The shape has changed — a live
-example of the `CLAUDE.md` warning that the API is undocumented and may change.]
+
+In prior seasons these fields carried a ~1000–1400 scale, and `strength` carried
+the 1–5 band that `strength_overall_*` now appears to carry. The shape changed
+with the 2025/26 season — a live example of the `CLAUDE.md` warning that the API
+is undocumented and may change.
+
+**This is settled, not pending.**
+[projections-survey.md](../research/projections-survey.md) is explicit: build no
+component that depends on the strength fields repopulating. The route to an
+attack/defence split is to fit team strength ourselves from results (a
+Dixon-Coles Poisson on the fixtures endpoint is the community standard), not to
+wait on the API. That is out of scope here — see the follow-ups.
 
 ### Finding 7 — the full scoring table is derivable
 
 `game_config.scoring` gives goals by position (GKP 10 / DEF 6 / MID 5 / FWD 4),
 assists 3, clean sheets 4/4/1/0, `defensive_contribution` 2/2/2/0, saves 1,
-`long_play` 2, `short_play` 1, cards and own goals. A bottom-up xG-to-points
-model can therefore derive every coefficient from the snapshot rather than
-hardcoding it, satisfying the `CLAUDE.md` rule. What it *cannot* derive is bonus
-points (`bonus: 1` is the per-bonus-point value, not a model of who earns them).
+`long_play` 2, `short_play` 1, cards and own goals. The component decomposition
+(Decision 1) can therefore price every term from the snapshot rather than
+hardcoding it, satisfying the `CLAUDE.md` rule.
+
+Two things it does **not** give: bonus points (`bonus: 1` is the per-bonus-point
+value, not a model of who earns them), and the defensive-contribution
+*thresholds* — the 2-point value is here, the 10 / 12 action counts that trigger
+it are not. See Decision 5.
 
 ### Signal against noise, measured locally
 
@@ -170,6 +190,16 @@ is one round.
 So the accuracy column below is reasoned bounds and failure modes, not measured
 error. The honest ranking is on *structural* grounds — what each option can and
 cannot represent — and that ranking is decisive on its own, as Decision 1 shows.
+
+For an external sense of the ceiling,
+[projections-survey.md](../research/projections-survey.md) reports published
+benchmarks: at a one-gameweek horizon, fixture adjustment plus minutes modelling
+buys roughly a 5–34% RMSE reduction over a naive baseline, depending on return
+category. Meaningful, but not transformative — most of the residual is
+irreducible football variance, which is the same story the local 6:1
+noise-to-signal measurement tells. Nothing in this module will make projections
+*good*; the aim is to make them better than a flat average and honest about
+their assumptions.
 
 ---
 
@@ -235,26 +265,37 @@ home/away term, and a fixture count per gameweek from the schedule.
   a big side collapsing) — with no in-season update, that error persists all
   year.
 
-### Option D — bottom-up xG to points
+### Option D — the component decomposition
 
-Convert `expected_goals_per_90`, `expected_assists_per_90` and
-`expected_goals_conceded_per_90` into a points expectation using the position
-coefficients in `game_config.scoring`, scaled by expected minutes and adjusted
-for fixture.
+Rather than projecting one aggregate number, project each scoring term
+separately and sum them:
 
-- **Build cost:** everything in Option C, plus a minutes model, plus a
-  clean-sheet probability model from `expected_goals_conceded`, plus a bonus
-  model that has no data source at all. Realistically needs
-  `element-summary/{id}` history for the minutes model — 610 requests. A week
-  or more, and genuinely open-ended.
-- **Assumes:** underlying rates are more predictive than realised points (true,
-  and the main reason to want this); and that per-90 rates from a small sample
-  are stable (currently false — 148 of 610 players have a non-zero
-  `expected_goals`, all from one match).
-- **How wrong:** in principle the most accurate option by mid-season; right now
-  it would be fitting noise. Bonus points are a material fraction of a good
-  player's score and this model has nothing to say about them.
-- **Breaks when:** built too early. It needs a sample it does not have.
+```
+xp = xp_appearance + xp_attack + xp_clean_sheet + xp_conceded
+   + xp_saves + xp_defcon + xp_bonus + xp_cards
+```
+
+Appearance from an expected-minutes model; attack from
+`expected_goals_per_90` / `expected_assists_per_90` scaled by minutes and
+fixture, priced with the position coefficients in `game_config.scoring`; clean
+sheet from a per-fixture probability; defensive contribution from a threshold
+model (Decision 5); bonus from a heuristic on xGI and defensive actions.
+
+- **Build cost:** the largest of the four — a term per scoring category, each
+  independently testable. Its *inputs*, however, are the same bootstrap fields
+  Options B and C already use. It does **not** require `element-summary`; that
+  endpoint only becomes necessary for a per-match minutes model, which is a
+  later refinement of one term rather than a precondition for the structure.
+- **Assumes:** underlying rates are more predictive than realised points (true
+  in the literature, and the main reason to want this); and that per-90 rates
+  from a small sample are usable (currently weak — 148 of 610 players have a
+  non-zero `expected_goals`, all from one match).
+- **How wrong:** at GW1, roughly as wrong as Option C, and possibly worse on
+  attacking returns, because it is fitting per-90 rates on one match instead of
+  leaning on realised points. Bonus is a material fraction of a good player's
+  score and no option here models it well.
+- **Breaks when:** its coefficients are trusted early. The structure is sound
+  from day one; the numbers inside it are not.
 
 ### Summary
 
@@ -263,13 +304,19 @@ for fixture.
 | A `ep_next` | bootstrap only | ~20 lines | **no** | implicitly | poorly (Finding 2) |
 | B rate × minutes | bootstrap only | ~100 lines | yes | no | yes, on thin data |
 | C fixture-adjusted | + `fixtures` | ~200 lines | yes | coarsely | yes, on thin data |
-| D bottom-up xG | + `element-summary` | ~500 lines+ | yes | yes | **no** |
+| D decomposition | + `fixtures` | ~400 lines | yes | yes, per term | yes, on thin data |
 
 ---
 
-## Decision 1 — build Option C, shipping Option B's model as the baseline inside it
+## Decision 1 — ship the full component decomposition (Option D) at v1
 
-**Recommended.** The deciding argument is structural, not accuracy.
+**Decided.** An earlier draft of this plan recommended Option C and deferred the
+decomposition on the grounds that its inputs are one match deep. That reasoning
+was about *accuracy*, and it was answering the wrong question.
+[projections-survey.md](../research/projections-survey.md) makes the case for
+building the decomposition immediately, and it is accepted here.
+
+Two arguments survive from the earlier draft and still hold:
 
 The optimiser scores a squad over gameweeks *t* … *t+H* for a configurable *H*.
 `ep_next` exists only for *t+1*. Option A therefore cannot serve the module it
@@ -279,32 +326,56 @@ model by the shape of the problem, before accuracy enters the argument.
 Anything that covers a horizon must know which fixtures fall in which gameweek,
 which means the fixtures endpoint (Decision 3). And once the schedule is loaded,
 the difficulty weighting is nearly free — Finding 5 shows the numbers are
-already in the cached bootstrap. **The marginal cost of C over B is small, and
-it is paid almost entirely in the fixtures plumbing that B needs anyway** the
-moment it has to handle a blank or double gameweek.
+already in the cached bootstrap.
 
-Option D is the right long-term answer and the wrong thing to build now: its
-inputs are one match deep.
+### Why the decomposition, given that it is not more accurate at v1
 
-Concretely, ship three models behind one interface:
+**The value of the decomposition is interface stability, not v1 accuracy.**
 
-- `NaiveProjection` — Option B. The baseline, and the thing C is diffed against.
-- `FixtureAdjustedProjection` — Option C. The default.
-- `OfficialEpProjection` — Option A, single-gameweek only. Cheap, and worth
-  having as an external cross-check: if the optimiser's model disagrees wildly
-  with FPL's own for *t+1*, that is a bug signal. It also gives Finding 2
-  somewhere to be re-measured from as the season progresses.
+At GW1 the decomposition is roughly as accurate as Option C and may be worse on
+attacking returns, since it fits per-90 rates on one match instead of leaning on
+realised points. That is not the argument for it. The argument is that every
+subsequent improvement — a fitted team-strength model replacing the fixture
+bands, a per-match minutes model replacing the status heuristic, a real bonus
+model replacing the placeholder — is a change to **one term** rather than a
+change to the model's output contract. The optimiser, its tests, and the
+`Projection` object are untouched by any of them.
 
-The cost of the third is ~20 lines and it buys a sanity check against the one
-model in the system that is not ours.
+Building Option C first and decomposing later inverts that: it buys marginally
+better GW1 numbers, then pays for them with a reshaped interface at exactly the
+point when the optimiser has been written against the old one. The interface is
+the expensive thing to change; the coefficients are cheap. Get the shape right
+while nothing depends on it.
 
-**Open for Ben:** Option C's band coefficients (how much a difficulty-2 fixture
-is worth against a difficulty-5) are not derivable and must be asserted. I would
-start with a linear multiplier in the range 1.15 down to 0.85 across bands 2–5,
-flagged in code as `[assumption: not derivable from the API]`, and made a
-constructor argument so it is tunable without touching the model. Flagging
-rather than deciding: this is the one number in the design with no evidential
-basis whatsoever.
+The corollary is that **v1's numbers must not be trusted just because the
+structure is principled.** The decomposition makes the model easy to improve, it
+does not make it good. Verification treats it as unproven — see the benchmark
+below.
+
+### What ships
+
+Behind one interface (Decision 2):
+
+- `ComponentProjection` — Option D. The default. Every term implemented, with
+  the weak ones explicitly labelled in `Projection.assumptions`.
+- `NaiveProjection` — Option B, flat `points_per_game` × minutes × fixture
+  count. Not a stepping stone: it is the **control**. The literature's standard
+  baseline is a "last 5 games mean", and a component model that cannot beat a
+  flat average is a component model with a bug. This must be kept and must stay
+  runnable.
+- `OfficialEpProjection` — Option A, single-gameweek only. ~20 lines, and it
+  buys a sanity check against the one model in the system that is not ours: if
+  our *t+1* disagrees wildly with FPL's, that is a bug signal.
+
+**Fixture bands stay a labelled heuristic.** The survey searched for a published
+empirical band-to-points mapping and found none — sites quoting per-band point
+figures are unsourced. So the multiplier (1.15 / 1.05 / 1.00 / 0.90 / 0.85
+across bands 2–5, with a home/away split) is asserted, not derived. It stays a
+constructor argument, tagged in code as
+`[assumption: heuristic, no published empirical basis]`, alongside
+`points_per_extra_transfer` in `domain/transfers.py` as a value the API does not
+give us. Deriving it empirically from a historical archive is possible and is
+filed as a follow-up, not done here.
 
 ---
 
@@ -334,7 +405,10 @@ Not inside the optimiser. Four reasons:
    `squad.py`, `transfers.py`. A projection module fits the existing shape;
    burying it in `optimizer.py` would be the odd one out.
 
-Sketch, deliberately minimal:
+Sketch. The component fields are the point of Decision 1 — the simpler models
+(`NaiveProjection`, `OfficialEpProjection`) emit the same object with their
+unmodelled terms at `0.0` and a note in `assumptions`, so the optimiser never
+branches on which model it was handed:
 
 ```python
 # domain/projections.py
@@ -343,8 +417,19 @@ Sketch, deliberately minimal:
 class Projection:
     player: int
     event: int
-    points: float
+    points: float          # the sum of the components below
+    # components, so a projection can be explained and each term improved alone
+    appearance: float
+    attack: float
+    clean_sheet: float
+    conceded: float
+    saves: float
+    defcon: float          # Decision 5
+    bonus: float
+    cards: float
+    expected_minutes: float
     fixtures: int          # 0 for a blank, 2+ for a double
+    model: str             # which model produced this, for cross-checks
     assumptions: list[str] # surfaced to the user, not swallowed
 
 class ProjectionModel(Protocol):
@@ -399,12 +484,13 @@ the projection must derive its fixture count by counting, never by assuming 1.
 IP-rate-limited, unauthenticated API — the README already explains why hammering
 that endpoint is a bad trade. Its per-player `fixtures` array duplicates the
 global endpoint. Its `history` array (per-gameweek minutes, points, xG) is the
-one thing it uniquely offers, and that is Option D's input. Defer it with
-Option D.
+one thing it uniquely offers, and that feeds a per-match minutes model — a later
+refinement of the `appearance` term, not a precondition for shipping the
+decomposition. Deferred as a follow-up.
 
 ---
 
-## Decision 4 — expected minutes is the largest error term, and the snapshot barely supports it
+## Decision 4 — expected minutes is the largest error term, and a categorical model is enough
 
 Every option above multiplies a rate by expected minutes, so the minutes term
 dominates the error: a 6-point-per-game player who is benched scores 1, and no
@@ -423,27 +509,103 @@ So for 458 players the only availability signal is `status = a`, which does not
 distinguish a nailed-on starter from a fourth-choice full-back. This is the gap
 the README's deferred external lineup APIs would have filled.
 
-**Proposal:** a single explicit multiplier, derived where possible and asserted
-where not —
+**Decided:** an explicit availability multiplier, derived where possible and
+asserted where not, following the community convention recorded in
+[projections-survey.md](../research/projections-survey.md) —
 
 ```
 chance_of_playing_next_round is not None  ->  chance / 100
+status == 'd'  (doubtful, no percentage)  ->  0.75   # heuristic
 status == 'a'                             ->  1.0
-otherwise                                 ->  0.0
+otherwise  (i, s, u)                      ->  0.0
 ```
 
-— combined with a *separate*, clearly-labelled rotation factor from
-`starts_per_90` once enough gameweeks exist to make it meaningful. Until then
-the rotation factor is 1.0 and the model says so in `Projection.assumptions`.
-Flagging this loudly rather than hiding it is the point: the number this model
-is least able to justify is the one that moves its output most.
+The `0.75` for doubtful-without-a-percentage replaces an earlier draft that sent
+that case to `0.0`, which was badly wrong in a way the current snapshot hides:
+**all 24 `d` players currently carry a non-null
+`chance_of_playing_next_round`**, so the branch has zero instances today and a
+test built only on this snapshot would never reach it. The API does emit `d`
+with a null chance at other times, so the rule is a defensive default and needs
+a synthetic test rather than a snapshot-derived one.
+
+Note what this does *not* fix: all 458 null-chance players are `status = a` and
+still map to `1.0`. The nailed-starter-versus-fourth-choice problem is untouched
+by this rule.
+
+Two things temper the earlier draft's alarm about that:
+
+- The survey cites OpenFPL — which "dispenses with proprietary 'expected
+  minutes' projections, using instead the categorical availability tags provided
+  by the FPL API" — as rivalling the leading commercial model. A simple
+  categorical minutes model is evidently adequate, so the 458 nulls are less
+  damaging than assumed.
+- Where the commercial benchmark does beat it is precisely on zeros and blanks,
+  from proprietary start/rest information the official API does not carry. That
+  gap is real and unclosable from official data, which is what the README's
+  deferred lineup APIs would have addressed.
+
+A *separate*, clearly-labelled rotation factor from `starts_per_90` follows once
+enough gameweeks exist to make it meaningful. Until then it is `1.0` and the
+model says so in `Projection.assumptions`. Flagging this loudly rather than
+hiding it is the point: the number this model is least able to justify is the
+one that moves its output most — and per the survey, if v1 fails to beat the
+`NaiveProjection` control, expected minutes is the first place to look, not the
+fixture model.
+
+---
+
+## Decision 5 — defensive contribution is its own term, with a threshold model
+
+**Decided.** `defensive_contribution` scores 2 points (`game_config.scoring`:
+DEF 2 / MID 2 / FWD 2 / GKP 0), and it is **not** a quantity that can be
+projected by multiplying an average by a fixture multiplier. It is a threshold:
+
+- a **defender** scores +2 for ≥10 CBIT (clearances, blocks, interceptions,
+  tackles) in a match;
+- a **midfielder or forward** scores +2 for ≥12 CBIRT (the same, plus ball
+  recoveries);
+- capped at +2 per match regardless of volume; goalkeepers ineligible.
+
+[The thresholds 10 and 12 are **not** in `bootstrap-static` — `game_config.scoring`
+carries the 2-point value but no threshold. They come from the published rules
+via [projections-survey.md](../research/projections-survey.md) and must be
+flagged in code the same way `points_per_extra_transfer` is in
+`domain/transfers.py`. Re-verify against the API before hardcoding, in case a
+threshold field appears.]
+
+Why this cannot be folded into a fixture-multiplied total: the payoff is a
+capped step function, so the expectation is `P(volume >= threshold) × 2`, and
+that probability does not scale linearly with anything. Doubling a player's
+expected defensive actions does not double the term — past the threshold it adds
+nothing at all, and a hard fixture that *raises* a defender's clearance volume
+moves this term the opposite way from every other term in the model. Applying
+the fixture multiplier to an aggregate that silently contains this bonus gets
+the sign wrong for exactly the players it matters most to.
+
+**Model:** estimate per-match defensive-action volume from
+`defensive_contribution_per_90` × (expected minutes / 90), then map to a
+probability of clearing the position threshold. 267 of 610 players already carry
+a non-zero `defensive_contribution_per_90`, so the input exists from GW1 — on a
+one-match sample, like everything else here.
+
+[The distributional assumption — how volume varies match to match around its
+mean — is a modelling choice with no support in the snapshot. Start with the
+simplest defensible form, keep it in one function, and label it. This is a term
+where the community has published no usable constants either.]
+
+**Consequences elsewhere:** the fixture multiplier applies to `attack`,
+`clean_sheet` and `conceded`, and **not** to `defcon`. That asymmetry is the
+main reason `Projection` carries components rather than a single number
+(Decision 2) — it cannot be expressed at all in a design that multiplies one
+aggregate.
 
 ---
 
 ## Scope boundary
 
 **In:** how a projected-points number is produced; where the module sits; the
-fixtures endpoint decision; the minutes-multiplier shape.
+fixtures endpoint decision; the minutes-multiplier shape; the defensive
+contribution term.
 
 **Out:** the optimiser itself — search strategy, horizon defaults, pruning,
 captaincy multipliers, chip interaction, and how transfer hits net off against
@@ -464,12 +626,33 @@ Domain layer only, matching how `domain/transfers.py` was scoped.
 - A double gameweek yields `fixtures = 2` and roughly double the single-fixture
   projection.
 - Every `status` value maps to the documented multiplier, including the
-  `chance_of_playing_next_round` override for `d` players.
+  `chance_of_playing_next_round` override, and **including `status = 'd'` with a
+  null chance → 0.75**. That branch has no instances in the current snapshot
+  (Decision 4), so it needs a synthetic fixture; a test built from live data
+  would pass while never executing it.
+- `Projection.points` equals the sum of its component fields, for every model.
+  This is the invariant that lets the optimiser read one number while each term
+  is improved independently.
+- The fixture multiplier is applied to `attack`, `clean_sheet` and `conceded`
+  and **not** to `defcon` (Decision 5) — asserted directly, since getting this
+  wrong is silent and only mis-ranks defensive midfielders.
+- `defcon` is zero for goalkeepers at every difficulty, and responds to the
+  position threshold boundary (a DEF at 9 versus 10 expected actions).
+- `NaiveProjection` and `OfficialEpProjection` emit the same `Projection` shape
+  with unmodelled components at `0.0` and a populated `assumptions` list.
 - `OfficialEpProjection` refuses any event other than the next one, rather than
   returning a wrong number for *t+2*.
 - The fixtures cache falls back when the live fetch fails, matching
   `tests/test_stale_cache.py`'s existing contract for the bootstrap snapshot.
 - Difficulty bands are read from `teams[]`, so a stale snapshot still projects.
+
+**The benchmark, not a unit test:** `ComponentProjection` must beat
+`NaiveProjection` on realised points once a few gameweeks exist — RMSE per
+player-gameweek and Spearman rank correlation, per the survey's account of
+standard practice. Until that has been run, v1 is unproven regardless of how
+principled its structure is (Decision 1). If it fails, the survey's guidance is
+to fix expected minutes before adding model complexity. This needs accrued
+results, so it cannot run at GW1 and is not a merge gate for the module.
 
 ---
 
@@ -477,29 +660,50 @@ Domain layer only, matching how `domain/transfers.py` was scoped.
 
 - **Fixtures endpoint, model and cache** — the plumbing from Decision 3, if it
   is split out of the projections branch rather than built with it.
-- **Minutes model from `element-summary` history** — Option D's prerequisite,
-  and the fix for Decision 4's 458 unknown players.
-- **Re-measure `ep_next` compression around GW6** — Finding 2's ceiling of 4.0
-  may be a cold-start artefact. If it decompresses, `OfficialEpProjection` gets
-  materially more useful and Decision 1 is worth revisiting for the *t+1* term.
-- **Re-check `strength_attack_*` mid-season** — Finding 6. All zero at GW1. If
-  they populate, an attack/defence split becomes possible and fixes Option C's
-  worst structural flaw.
+- **Fitted team-strength model to replace the fixture bands** — a Dixon-Coles
+  Poisson on accrued results from the fixtures endpoint, per
+  [projections-survey.md](../research/projections-survey.md). This is the
+  intended replacement for Finding 6's missing attack/defence split, and the
+  single largest improvement available. Needs ~4–6 gameweeks of results before
+  it is stable, with the bands kept as the cold-start fallback. Because it
+  replaces one term, it lands without touching the interface — which is the
+  Decision 1 bet being cashed in.
+- **Derive the fixture-band multipliers empirically** — from a historical
+  archive, replacing the labelled heuristic in Decision 1. No published mapping
+  exists to copy.
+- **Minutes model from `element-summary` history** — refines Decision 4's
+  `appearance` term. Note this is no longer a prerequisite for anything, only an
+  improvement to one component.
+- **Re-verify the defensive-contribution thresholds** — Decision 5's 10 / 12 are
+  from published rules, not the API. Check whether a threshold field appears in
+  `game_config`.
 - **Bonus points have no model and no data source** — noted in Finding 7,
-  affects every option, no fix identified.
+  affects every option. The survey notes BPS was reworked for 2026/27, so any
+  approximation borrowed from older sources is stale.
 
 ---
 
 ## Assumptions
 
-- `[Not derivable]` The difficulty-band coefficients in Option C. Asserted, made
-  a constructor argument, flagged in code.
-- `[Not derivable]` The rotation factor for players with a null
+- `[Not derivable]` The fixture-band coefficients. Asserted as a heuristic with
+  no published empirical basis, made a constructor argument, flagged in code.
+- `[Not derivable]` `0.75` for a doubtful player with no stated chance
+  (Decision 4). Community convention, not an API value.
+- `[Not derivable]` The rotation factor for `status = 'a'` players with a null
   `chance_of_playing_next_round`. Held at 1.0 and declared in
   `Projection.assumptions`.
-- `[Unverified]` That `ep_next`'s compression is a GW1 artefact.
-- `[Unverified]` That `strength_attack_*` / `strength_defence_*` populate later
-  in the season. They were meaningful in prior seasons on a different scale;
-  the field shape has changed.
-- `[Unmeasured]` Every accuracy claim in "The options". One snapshot at GW1, no
-  historical per-gameweek points, no backtest possible from local data.
+- `[Not in the API]` The defensive-contribution thresholds of 10 CBIT (DEF) and
+  12 CBIRT (MID/FWD), and the match-to-match distribution of defensive-action
+  volume used to turn them into a probability (Decision 5).
+- `[No data source]` Bonus points. Affects every option.
+- `[Unmeasured]` Every accuracy claim in "The options", and the claim that the
+  component model beats the naive control. One snapshot at GW1, no historical
+  per-gameweek points, no backtest possible from local data — hence the
+  benchmark under Verification rather than a number here.
+
+Two hedges from the first draft of this plan are **withdrawn**, on the strength
+of [projections-survey.md](../research/projections-survey.md): that `ep_next`'s
+compression might be a GW1 artefact (Finding 2), and that the
+`strength_attack_*` / `strength_defence_*` fields might repopulate later in the
+season (Finding 6). Both are current API behaviour and should be designed
+around, not waited out.
