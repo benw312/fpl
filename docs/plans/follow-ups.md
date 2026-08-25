@@ -231,3 +231,179 @@ this formula precisely and doesn't gate the substitute term, so this may be
 intentional (or an oversight in the plan itself); needs a decision, not a
 silent patch. Candidate fix: multiply the substitute term by `availability`
 too, i.e. `p1 = p_start + (1 - p_start) * p_sub_appearance * availability`.
+
+---
+
+## FU-12 — `rich.print` and `console.print` are mixed arbitrarily
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8 (CLI audit).
+
+`cli.py:9` does `from rich import print`, shadowing the builtin, *and* `cli.py:31-39`
+imports `console` from `presentation`. Both are used, seemingly at random, within
+the same function. `fpl squad create` uses `console.print` for its own messages
+(`cli.py:121, 124, 132, 135, 144, 149`) but bare `print` for validation errors and
+warnings (`cli.py:140, 142`). `fpl plan simulate` uses `console.print` for tables
+(`cli.py:197, 205`) but bare `print` for the legacy warning, the per-gameweek
+diagnostics and the two summary lines (`cli.py:180, 200, 202, 206, 207`).
+`builder.py` uses `console` exclusively.
+
+Two output channels means width detection, output capture and `NO_COLOR`/
+`--no-color` handling differ between lines of the same command's output.
+
+**Fix:** drop the `from rich import print` import; route everything through the
+`presentation.console` singleton.
+
+**Unblocks:** any future `--json` or `--quiet` flag (FU-13), which needs a single
+place to suppress or redirect output.
+
+---
+
+## FU-13 — No machine-readable output on any command
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+
+Every command prints a Rich table or styled text and nothing else. There is no
+`--json` anywhere, so no command's output can be consumed by a script or diffed
+programmatically.
+
+This matters most for the optimiser: [optimizer-ux.md](optimizer-ux.md) §1 makes
+`fpl plan optimise --output` → `fpl plan simulate` the mechanism that satisfies
+CLAUDE.md's *"Every optimiser recommendation must pass the same validator used
+for manual squad planning"*. Asserting that the two agree is currently a
+by-eye comparison of two Rich tables.
+
+**Needs FU-12 first** — a single output channel, before there is anything to
+switch.
+
+---
+
+## FU-14 — `fpl players show` and `fpl squad import` / `export` are unimplemented
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+
+The README Agent Plan names nine commands. Six exist (`sync`, `players list`,
+`squad create`, `squad validate`, `plan simulate`, `plan evaluate`). Missing:
+`fpl players show`, `fpl squad show`, `fpl squad import`/`export`, and
+`fpl plan optimize`.
+
+`fpl squad show` and `fpl players show` are **not** filed here — both are
+load-bearing for the optimiser workflow and are specified in
+[optimizer-ux.md](optimizer-ux.md) §8.1 and §8.2. `fpl plan optimise` is the
+subject of that document. This entry covers only `squad import`/`export`, which
+nothing currently needs: `squad create --output` writes JSON and
+`squad validate` reads it, so import/export would today be a rename of files
+that are already plain JSON on disk. Revisit if a non-JSON interchange format
+or a named-squad store ever appears.
+
+---
+
+## FU-15 — The README "Commands" section is stale
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+
+`README.md:25-33` lists three commands (`sync`, `players list`,
+`squad validate`), omitting `squad create`, `plan simulate` and `plan evaluate`.
+Worse, `README.md:33` describes a squad plan as *"a JSON object containing a
+`players` array of player IDs"* — the **legacy** format. `fpl squad create` now
+writes a transfer ledger (`version`/`genesis_event`/`log`), and the legacy shape
+survives only as `Ledger.from_file`'s fallback, which sets `legacy=True` and
+produces optimistic selling prices.
+
+A user following the README today builds the one squad format the app warns
+about.
+
+**Also stale:** `README.md:5-12` ("The first slice supports…") predates the
+squad builder, transfer simulation and projections.
+
+---
+
+## FU-16 — FU-3 is still live, at eight call sites
+
+**Re-affirmed from:** [optimizer-ux.md](optimizer-ux.md), §8. Original: FU-3.
+
+FU-3 recorded three `typer.Exit(str)` call sites. There are now eight:
+`cli.py:56, 76, 159, 178, 188, 195, 231, 238`. `typer.Exit.__init__` is
+`(self, code: int = 0)`, so every one of these discards its intended exit code
+and reaches the user only via `sys.exit(str)` semantics — print to stderr,
+exit 1.
+
+Filed separately from FU-3 rather than editing it, because the count growing
+from three to eight while the entry sat open is itself the finding: the idiom is
+being copied. `plan-simulate.md:176-177` copied it knowingly.
+
+**Fix (unchanged from FU-3):** print to stderr explicitly, then
+`raise typer.Exit(1)`.
+
+---
+
+## FU-17 — `players list --club` fails silently on an unknown club
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+
+`cli.py:104`:
+
+```python
+players = [player for player in players if player.team == club_id] if club_id else []
+```
+
+An unrecognised `--club` yields `club_id is None` and therefore an empty result
+with no message — indistinguishable from a club that genuinely has no matching
+players. Two lines above, `--position` raises
+`typer.BadParameter("Use GKP, DEF, MID, or FWD.")` for the same class of error
+(`cli.py:99-100`).
+
+**Fix:** raise `typer.BadParameter` naming the unknown club, matching
+`--position`. Club names come from the snapshot, so the valid set is known at
+the point of failure.
+
+---
+
+## FU-18 — `presentation.py` is a flat module; the Agent Plan specifies a package
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+
+The README Agent Plan's file list names `src/fpl_cli/presentation/` — a package.
+The repo has `src/fpl_cli/presentation.py`, a flat module, now at 185 lines with
+seven renderers. `CLAUDE.md` documents the flat module deliberately
+(*"`presentation.py` (flat module)"*), so the two are in direct conflict.
+
+[optimizer-ux.md](optimizer-ux.md) adds at least four more renderers (a
+projection table, a paths table, a "why" table, a provenance panel). Decide
+before that lands, rather than drifting: either split into a package and update
+`CLAUDE.md`'s Structure section, or amend the README's file list. Either is
+fine; the conflict is not.
+
+---
+
+## FU-19 — `CLAUDE.md`'s "not yet written" line is stale
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+
+`CLAUDE.md` states *"Not yet written: domain/optimizer.py, interactive squad
+builder."* The interactive squad builder exists as `src/fpl_cli/builder.py`
+(238 lines) and ships as `fpl squad create`.
+
+Minor, but `CLAUDE.md` is loaded into context every session and instructs agents
+that the repo is the source of truth — a stale line there is worse than a stale
+line in the README.
+
+---
+
+## FU-20 — `_build_schedule` is private, and it is the only blanks/doubles logic
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.7.
+
+`projections.py:216-233` maps `event -> team -> list[_FixtureLeg]`, skipping
+fixtures with `event is None`. It is the **only** machinery in the repo that
+knows about blank and double gameweeks, and it is private to `projections.py`.
+
+[optimizer-ux.md](optimizer-ux.md) §5 annotates a projection of `0.0` with
+"GW8: Bournemouth blank (0 fixtures)", which requires the fixture count for a
+team in a gameweek. `Projection.fixtures` carries that number per player, so the
+optimiser can get it indirectly — but any command that wants to *show the
+schedule* (a fixture-difficulty view, `players show`, a blanks/doubles warning
+in `plan optimise`'s header) needs the mapping itself.
+
+**Fix:** promote to `build_schedule` with a public `FixtureLeg`, or expose a
+narrower `fixture_count(team, event)` helper. Prefer the narrower one until a
+second caller genuinely needs the legs.
