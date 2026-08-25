@@ -232,6 +232,16 @@ intentional (or an oversight in the plan itself); needs a decision, not a
 silent patch. Candidate fix: multiply the substitute term by `availability`
 too, i.e. `p1 = p_start + (1 - p_start) * p_sub_appearance * availability`.
 
+**Escalated to a blocker (2026-08-25, [optimizer-ux.md](optimizer-ux.md) §8).**
+This was filed as a scoring inaccuracy affecting players already held. It is
+worse than that: the optimiser ranks *every* player as a transfer target by
+`xp_total`, so an unavailable cheap player scores positively and is affordable
+in states where fit alternatives are not. Nothing else in the objective knows he
+is out — `can_transact` gates transacting, not projecting. The search can
+therefore recommend **buying** a visibly injured player, inverting the README
+Agent Plan's "Penalize unavailable or risky players". The decision this entry
+asks for must be made before `fpl plan optimise` ships.
+
 ---
 
 ## FU-12 — `rich.print` and `console.print` are mixed arbitrarily
