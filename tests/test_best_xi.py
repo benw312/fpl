@@ -4,7 +4,7 @@ import pytest
 
 from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.domain.projections import Projection
-from fpl_cli.domain.squad import best_xi
+from fpl_cli.domain.squad import BestXI, best_xi, objective_points
 
 # `bootstrap_snapshot`'s 15 players: GKP 1-2, DEF 3-7, MID 8-12, FWD 13-15.
 # Position limits: GKP min/max 1/1, DEF 3/5, MID 2/5, FWD 1/3. squad_squadplay=11.
@@ -67,3 +67,27 @@ def test_best_xi_raises_when_a_position_cannot_meet_its_minimum(bootstrap_snapsh
 
     with pytest.raises(ValueError, match="DEF"):
         best_xi(player_ids, projections, bootstrap_snapshot)
+
+
+def test_objective_points_sums_starters_and_doubles_the_captain() -> None:
+    projections = {1: _projection(1, 5.0), 2: _projection(2, 3.0), 3: _projection(3, 2.0)}
+    xi = BestXI(starters=[1, 2, 3], captain=1)
+
+    # Bench (id 4, not a starter) contributes nothing; the captain's xP (5.0)
+    # is counted once in the starters' sum and once more for the armband.
+    assert objective_points(xi, projections) == pytest.approx(5.0 + 3.0 + 2.0 + 5.0)
+
+
+def test_objective_points_matches_best_xis_own_selection(bootstrap_snapshot: BootstrapSnapshot) -> None:
+    xp = {
+        1: 10.0, 2: 1.0,  # GKP
+        3: 8.0, 4: 7.0, 5: 6.0, 6: 0.1, 7: 0.1,  # DEF
+        8: 9.0, 9: 8.0, 10: 7.0, 11: 6.0, 12: 5.0,  # MID
+        13: 12.0, 14: 11.0, 15: 0.1,  # FWD
+    }
+    projections = {player_id: _projection(player_id, value) for player_id, value in xp.items()}
+    xi = best_xi(list(range(1, 16)), projections, bootstrap_snapshot)
+
+    # Starters [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14] sum to 89.0 (see the
+    # selection test above); captain 13's 12.0 xP is counted a second time.
+    assert objective_points(xi, projections) == pytest.approx(89.0 + 12.0)

@@ -155,6 +155,14 @@ def best_xi(
     return BestXI(starters=list(best_starters), captain=captain)
 
 
+def objective_points(xi: BestXI, projections: Mapping[int, Projection]) -> float:
+    """`Σ xP(starting XI) + xP(captain)` (optimizer-ux.md §3) — the points a
+    gameweek is actually worth: bench players contribute nothing, and the
+    captain's xP is counted twice (once as a starter, once for the armband).
+    """
+    return sum(projections[player_id].xp_total for player_id in xi.starters) + projections[xi.captain].xp_total
+
+
 @dataclass(frozen=True)
 class Slot:
     """One numbered position in the squad builder's 15-slot grid."""

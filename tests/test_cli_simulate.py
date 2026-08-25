@@ -7,17 +7,27 @@ import pytest
 import typer
 
 from fpl_cli import cli
-from fpl_cli.api.models import BootstrapSnapshot, Player
-from fpl_cli.api.snapshots import SnapshotResult
+from fpl_cli.api.models import BootstrapSnapshot, Fixture, Player
+from fpl_cli.api.snapshots import FixturesResult, SnapshotResult
+from fpl_cli.domain.projections import ComponentProjection
+from fpl_cli.domain.squad import best_xi, objective_points
+from fpl_cli.domain.strength import BandedTeamRates
 
 
 class StubService:
-    def __init__(self, snapshot: BootstrapSnapshot) -> None:
+    def __init__(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture] | None = None) -> None:
         self._snapshot = snapshot
+        self._fixtures = fixtures or []
         self.closed = False
 
     def load(self) -> SnapshotResult:
         return SnapshotResult(snapshot=self._snapshot, stale=False)
+
+    def load_fixtures(self) -> FixturesResult:
+        # No fixtures by default: every player projects 0 xP that gameweek.
+        # Most of these tests assert on hits/bank/legacy warnings, not on
+        # the Points column, so an empty schedule is fine for them.
+        return FixturesResult(fixtures=self._fixtures, fetched_at=datetime.now(UTC), stale=False)
 
     def close(self) -> None:
         self.closed = True
@@ -135,3 +145,43 @@ def test_simulate_plan_exits_on_malformed_squad_file(
 
     with pytest.raises(typer.Exit):
         cli.simulate_plan(squad_path, transfers_path)
+
+
+def test_simulate_plan_prints_the_optimiser_objective(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    bootstrap_snapshot: BootstrapSnapshot,
+) -> None:
+    """The Points column must be the same number the optimiser will produce:
+    best_xi's XI selection, run through objective_points' captain-doubling
+    sum — not some other aggregate computed independently in the CLI.
+    """
+    _future_deadline(bootstrap_snapshot, 2, datetime(2099, 1, 1, tzinfo=UTC))
+    # Covers all 5 synthetic clubs (`_bootstrap_snapshot` assigns team =
+    # player_id % 5 + 1), so every squad player has a fixture leg that
+    # gameweek and xp_appearance is non-zero even with every player's
+    # attacking rates at their Player default of 0.0.
+    fixtures = [
+        Fixture(id=1, event=2, team_h=1, team_a=2),
+        Fixture(id=2, event=2, team_h=3, team_a=4),
+        Fixture(id=3, event=2, team_h=5, team_a=1),
+    ]
+    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(bootstrap_snapshot, fixtures))
+
+    squad_path = tmp_path / "squad.json"
+    _write_squad_ledger(squad_path, list(range(1, 16)))
+    transfers_path = tmp_path / "transfers.json"
+    transfers_path.write_text('[{"event": 2, "transfers": []}]', encoding="utf-8")
+
+    cli.simulate_plan(squad_path, transfers_path)
+    out = capsys.readouterr().out
+
+    model = ComponentProjection(bootstrap_snapshot, fixtures, BandedTeamRates(bootstrap_snapshot))
+    player_ids = list(range(1, 16))
+    projections = {player_id: model.project([player_id], [2])[(player_id, 2)] for player_id in player_ids}
+    xi = best_xi(player_ids, projections, bootstrap_snapshot)
+    expected_points = objective_points(xi, projections)
+
+    assert expected_points > 0.0
+    assert f"{expected_points:.1f}" in out

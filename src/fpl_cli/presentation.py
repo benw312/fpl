@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
@@ -35,9 +37,14 @@ def player_table(players: list[Player], snapshot: BootstrapSnapshot) -> Table:
     return table
 
 
-def simulation_table(transfers_by_event: dict[int, list[Transfer]], results: list[TransferResult]) -> Table:
+def simulation_table(
+    transfers_by_event: dict[int, list[Transfer]],
+    results: list[TransferResult],
+    points_by_event: Mapping[int, float],
+) -> Table:
     table = Table(title="Transfer simulation")
     table.add_column("Event", justify="right")
+    table.add_column("Points", justify="right")
     table.add_column("Transfers", justify="right")
     table.add_column("Hit", justify="right")
     table.add_column("Bank", justify="right")
@@ -45,7 +52,8 @@ def simulation_table(transfers_by_event: dict[int, list[Transfer]], results: lis
     table.add_column("Valid")
     for event, result in zip(sorted(transfers_by_event), results):
         table.add_row(
-            str(event), str(result.transfers_made), str(result.hit_points),
+            str(event), f"{points_by_event[event]:.1f}",
+            str(result.transfers_made), str(result.hit_points),
             f"£{result.state.bank / 10:.1f}m", str(result.free_transfers_remaining),
             "[green]✓[/green]" if result.validation.valid else "[red]✗[/red]",
         )

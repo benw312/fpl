@@ -31,6 +31,22 @@ def _synthetic_gameweeks() -> list[Gameweek]:
     ]
 
 
+# Real FPL scoring shape, needed by ComponentProjection (snapshot.raw["game_config"]["scoring"]).
+_SCORING: dict[str, Any] = {
+    "short_play": 1,
+    "long_play": 2,
+    "goals_scored": {"GKP": 10, "DEF": 6, "MID": 5, "FWD": 4},
+    "assists": 3,
+    "clean_sheets": {"GKP": 4, "DEF": 4, "MID": 1, "FWD": 0},
+    "goals_conceded": {"GKP": -1, "DEF": -1, "MID": 0, "FWD": 0},
+    "saves": 1,
+    "defensive_contribution": {"GKP": 0, "DEF": 2, "MID": 2, "FWD": 2},
+    "bonus": 1,
+    "yellow_cards": -1,
+    "red_cards": -3,
+}
+
+
 def _bootstrap_snapshot() -> BootstrapSnapshot:
     players = []
     for player_id in range(1, 16):
@@ -47,6 +63,7 @@ def _bootstrap_snapshot() -> BootstrapSnapshot:
         ],
         elements=players,
         game_settings=GameSettings(),
+        raw={"game_config": {"scoring": _SCORING}},
         fetched_at=datetime.now(UTC),
         season="test",
     )

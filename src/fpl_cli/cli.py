@@ -25,7 +25,7 @@ from fpl_cli.domain.projections import (
     ProjectionModel,
 )
 from fpl_cli.domain.rules import validate_squad as validate_squad_players
-from fpl_cli.domain.squad import to_ledger_payload, validate_squad_file
+from fpl_cli.domain.squad import best_xi, objective_points, to_ledger_payload, validate_squad_file
 from fpl_cli.domain.strength import BandedTeamRates
 from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
 from fpl_cli.presentation import (
@@ -167,6 +167,14 @@ def validate_squad(path: Path) -> None:
         raise typer.Exit(1)
 
 
+def _project_single_event(model: ProjectionModel, player_ids: list[int], event: int) -> dict[int, Projection]:
+    return {
+        player_id: projection
+        for (player_id, projected_event), projection in model.project(player_ids, [event]).items()
+        if projected_event == event
+    }
+
+
 @plan_app.command("simulate")
 def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
     """Simulate transfers from a squad ledger against a transfers plan file."""
@@ -194,7 +202,32 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
     except ValueError as exc:
         raise typer.Exit(f"Invalid transfers plan: {exc}") from exc
 
-    console.print(simulation_table(transfers_by_event, results))
+    service = SnapshotService()
+    try:
+        fixtures_result = service.load_fixtures()
+    except FplError as exc:
+        raise typer.Exit(f"Could not load fixtures: {exc}") from exc
+    finally:
+        service.close()
+    model = ComponentProjection(
+        snapshot,
+        fixtures_result.fixtures,
+        BandedTeamRates(snapshot),
+        fixtures_stale=fixtures_result.stale,
+        fixtures_fetched_at=fixtures_result.fetched_at,
+    )
+
+    # Same best_xi + captain-doubling objective the optimiser will use
+    # (optimizer-ux.md §3), so this round-trip verifies the number a
+    # recommendation was made on, not just its legality.
+    points_by_event: dict[int, float] = {}
+    for event, result in zip(sorted(transfers_by_event), results):
+        player_ids = result.state.player_ids
+        projections = _project_single_event(model, player_ids, event)
+        xi = best_xi(player_ids, projections, snapshot)
+        points_by_event[event] = objective_points(xi, projections)
+
+    console.print(simulation_table(transfers_by_event, results, points_by_event))
     for event, result in zip(sorted(transfers_by_event), results):
         for error in result.validation.errors:
             print(f"[red]✗ GW{event}: {error}[/red]")
@@ -208,14 +241,6 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
 
     if any(not result.validation.valid for result in results):
         raise typer.Exit(1)
-
-
-def _project_single_event(model: ProjectionModel, player_ids: list[int], event: int) -> dict[int, Projection]:
-    return {
-        player_id: projection
-        for (player_id, projected_event), projection in model.project(player_ids, [event]).items()
-        if projected_event == event
-    }
 
 
 @plan_app.command("evaluate")
