@@ -472,3 +472,26 @@ doing both at once would confuse a fix with an enhancement.
 horizon starts at the current event rather than the next one.
 `fpl plan optimise` plans from the next open deadline
 ([optimizer-ux.md](optimizer-ux.md) §2), so it is unaffected as designed.
+
+---
+
+## FU-22 — `best_xi` has no vice-captain rule
+
+**Deferred from:** `task/best-xi`.
+
+`best_xi` (`domain/squad.py`) returns a `BestXI(starters, captain)` — no
+vice-captain. `validate_plan` (`domain/squad.py:55-60`) requires one: it must
+be one of the starters and must differ from the captain.
+
+**Not needed yet** — nothing currently calls `best_xi` to produce a plan file.
+It becomes load-bearing once `fpl plan optimise --output` (or whatever writes
+a `SquadPlan`/ledger from optimiser output) exists: that round-trip needs a
+complete, `validate_plan`-passing file, so the write path can't omit
+`vice_captain`.
+
+**Candidate fix:** second-highest-`xp_total` starter, by the same
+`(-xp_total, player_id)` ordering `best_xi` already uses to pick the captain —
+i.e. the next entry after `captain` in that ordering, restricted to starters.
+
+**Unblocks:** the `optimise --output` → `simulate` round-trip
+([optimizer-ux.md](optimizer-ux.md)).
