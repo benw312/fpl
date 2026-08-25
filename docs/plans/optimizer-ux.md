@@ -176,8 +176,6 @@ State at GW5: bank £1.4m · 1 free transfer
 
 ! UNVALIDATED — component/1.0 has never been scored against realised points.
   Run `fpl plan evaluate --event 4` before trusting the magnitudes below.
-! HIT COST ASSUMED — 4 points per extra transfer is not in bootstrap-static.
-  Every net figure below depends on it. See §7.
 
 RECOMMENDED — GW5: Semenyo → Saka (−4)
   break-even +4.0 · gross +17.0 · net +13.0 over GW5–GW9
@@ -218,16 +216,12 @@ it is worth anything), gross, and net. "−4" on its own tells the user nothing
 about whether to take it; the break-even framing is what makes it a decision
 rather than a deterrent.
 
-**The hit cost is banner-level, not footnote-level.** The 4-point deduction is
-**[assumed]**: it appears in neither `game_settings` nor `game_config.scoring`
-(`transfers.py:22-23`), so unlike squad size, budget or club limits it is *not*
-derived from the snapshot — it is the one number in the output that the API
-never confirms. Every `Net` figure, every break-even and the `RECOMMENDED` /
-`MARGINAL` verdict itself are computed from it. A reader who does not know that
-cannot calibrate anything else on screen, which is why it sits in the header
-beside the validation banner rather than seventh in a list in §7. If FPL ever
-changes the deduction, this output goes wrong silently and nothing in the app
-would notice.
+The 4-point deduction itself is **confirmed correct for 2026/27**. It is a
+hardcoded constant whose *value* is not in doubt, so it belongs in §7's
+assumptions block rather than the header: what §7 records about it is a
+maintenance risk across seasons, not a live uncertainty in this run. The header
+stays reserved for what is genuinely unresolved — at present, only the model's
+validation status.
 
 **`RECOMMENDED` is a reserved verb.** Below a decision margin the headline reads
 `MARGINAL`, and the text says plainly that the models cannot separate the
@@ -407,15 +401,18 @@ the honest signals.
 Rendered every run, aggregated from `Projection.assumptions` (already populated
 — `projections.py:295-298`) plus the assumptions the optimiser owns:
 
-- Hit cost of **4 points per extra transfer is [assumed]** — absent from
-  `bootstrap-static`, in neither `game_settings` nor `game_config.scoring`
-  (`transfers.py:22-23`). Every net figure in the output depends on it, which is
-  why it is *also* a header banner (§4) rather than only a line here. It is
-  repeated in both places deliberately: the header is what a user reads, this
-  block is what a user checks.
+- Hit cost of **4 points per extra transfer: value confirmed for 2026/27, but
+  hardcoded** (`transfers.py:22-23`). It appears in neither `game_settings` nor
+  `game_config.scoring`, so unlike squad size, budget and club limits it cannot
+  be re-derived from the snapshot. What is unverifiable is not the number but
+  its durability: if FPL changes the deduction in a future season, every `Net`
+  figure and break-even in this output goes wrong silently, and nothing in the
+  app would notice. Flagged as a seasonal check, not a live uncertainty.
 - **1 free transfer per gameweek is [inferred]** from the field name
-  `max_extra_free_transfers` — the base is never stated by the API
-  (`transfers.py:24-26`).
+  `max_extra_free_transfers` ("extra" relative to an unstated base) — the base
+  itself is never stated by the API (`transfers.py:24-26`). Weaker than the hit
+  cost: that value is confirmed and merely undiscoverable, this one was reasoned
+  from a field name. Same seasonal-check exposure.
 - **Chips are not modelled (FU-5).** If a wildcard, free hit, bench boost or
   triple captain is intended anywhere in the horizon, this plan is wrong for that
   gameweek — and `_fold_event` would additionally decrement free transfers that

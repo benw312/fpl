@@ -14,6 +14,21 @@ The official endpoints are undocumented and may change. Cached snapshots are ret
 
 Transient failures (timeouts, connection errors, 5xx responses) are retried automatically with exponential backoff. A 429 (rate limited) is deliberately **not** retried aggressively: the FPL API is unauthenticated and rate-limited by IP, so hammering a 429 risks turning a short-lived block into a longer one. A retry is attempted only when the server's `Retry-After` header is present and short (≤5s); otherwise the CLI falls back to the cached snapshot immediately.
 
+### Rules that are hardcoded, and need checking each season
+
+Squad size, position quotas, budget, club limits and deadlines are all derived from `bootstrap-static` at runtime, so a mid-season rule change is picked up by `fpl sync`. **Two transfer rules are not, because the API never publishes them:**
+
+| Constant | Value | Status | Source |
+|---|---|---|---|
+| Points deducted per extra transfer | `4` | Confirmed correct for 2026/27 | `domain/transfers.py` — `points_per_extra_transfer` |
+| Free transfers accrued per gameweek | `1` | Inferred, never stated by the API | `domain/transfers.py` — `free_transfers_per_event` |
+
+Neither appears in `game_settings` or `game_config.scoring`. The hit cost is a known-correct value that simply cannot be re-derived; the free-transfer base was reasoned from the field name `max_extra_free_transfers` ("extra" relative to an unstated base), so it is the weaker of the two.
+
+Both are load-bearing for `fpl plan simulate` — and will be for `fpl plan optimise` — since every points-hit calculation and every net-gain figure depends on them. If FPL changes either rule between seasons, the output goes wrong **silently**: nothing in the app can detect the drift, because there is no API field to compare against.
+
+**Check both at the start of each season** against the official rules page, and update `domain/transfers.py` if they have moved.
+
 ## Setup
 
 ```bash
