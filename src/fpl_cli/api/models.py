@@ -25,6 +25,23 @@ class Player(BaseModel):
     removed: bool = False
     chance_of_playing_next_round: int | None = None
 
+    # Projection inputs (docs/plans/projections-v1.md). Previously dropped
+    # silently by extra="ignore" above.
+    expected_goals_per_90: float = 0.0
+    expected_assists_per_90: float = 0.0
+    expected_goals_conceded_per_90: float = 0.0
+    saves_per_90: float = 0.0
+    starts: int = 0
+    starts_per_90: float = 0.0
+    minutes: int = 0
+    bonus: int = 0
+    defensive_contribution_per_90: float = 0.0
+    yellow_cards: int = 0
+    red_cards: int = 0
+    # Numeric-as-string in the API, matching the existing `form` field.
+    points_per_game: str = "0.0"
+    ep_next: str | None = None
+
     @property
     def display_name(self) -> str:
         return self.web_name or f"{self.first_name} {self.second_name}".strip()
@@ -40,6 +57,14 @@ class Club(BaseModel):
     id: int
     name: str
     short_name: str = ""
+    # Despite the field names, `strength_overall_home` is the difficulty
+    # rating an OPPONENT faces when playing at home against this club, and
+    # `strength_overall_away` the rating faced playing away — confirmed
+    # empirically against team_h_difficulty/team_a_difficulty in the live
+    # fixtures payload (docs/plans/projections-v1.md Finding 5), 0 mismatches
+    # across 380 fixtures. Scale is 1 (easy) to 5 (hard).
+    strength_overall_home: int = 3
+    strength_overall_away: int = 3
 
 
 class Position(BaseModel):
