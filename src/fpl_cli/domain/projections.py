@@ -94,8 +94,11 @@ def _minutes_probabilities(
     p60_given_start = min(1.0, e_mins_start / 60.0)
 
     p60 = p_start * p60_given_start
-    p1 = p_start + (1 - p_start) * config.p_sub_appearance
-    xmins = p_start * e_mins_start + (1 - p_start) * config.p_sub_appearance * config.mins_per_sub
+    # The substitute term is gated by `availability` too (FU-11): otherwise an
+    # unavailable player (availability = 0, so p_start = 0) still projects a
+    # flat DEFAULT_P_SUB_APPEARANCE chance of coming off the bench.
+    p1 = p_start + (1 - p_start) * config.p_sub_appearance * availability
+    xmins = p_start * e_mins_start + (1 - p_start) * config.p_sub_appearance * config.mins_per_sub * availability
     return _MinutesProbabilities(p_start=p_start, p60=p60, p1=p1, xmins=xmins)
 
 

@@ -433,3 +433,62 @@ def test_start_rate_converges_toward_realised_behaviour_as_appearances_grow() ->
     late = _minutes_probabilities(_player(1, position=3, starts=6, minutes=540), "MID", appearances=6, config=config)
 
     assert late.p_start > early.p_start
+
+
+# --- FU-11: substitute term gated by availability -----------------------------
+
+
+def test_unavailable_player_projects_approximately_zero() -> None:
+    """Pre-fix, p1/xmins's substitute term was unconditional, so an injured
+    player (p_start = 0) still projected a flat 0.35 sub-appearance chance.
+    Gating that term by availability should drive p1, xmins, and therefore
+    the whole projection to zero.
+    """
+    config = MinutesModelConfig()
+    player = _player(1, position=3, status="i", starts=0, minutes=0)
+
+    probs = _minutes_probabilities(player, "MID", appearances=10, config=config)
+
+    assert probs.p1 == pytest.approx(0.0)
+    assert probs.xmins == pytest.approx(0.0)
+
+
+def test_status_i_player_projects_zero_end_to_end() -> None:
+    player = _player(1, status="i", xg90=0.5, xa90=0.2, dc90=10.0, bonus=10, yellow=1)
+    snapshot = _snapshot([player])
+    fixtures = [_fixture(1, event=2, team_h=1, team_a=2)]
+    model = ComponentProjection(snapshot, fixtures, BandedTeamRates(snapshot))
+
+    projection = model.project([1], [2])[(1, 2)]
+
+    assert projection.xp_total == pytest.approx(0.0)
+    assert projection.xmins == pytest.approx(0.0)
+
+
+def test_late_season_fringe_player_stays_separated_from_ruled_out() -> None:
+    """The FU-11 diagnosis: the defect wasn't a missing signal, it was
+    convergence — with the substitute term ungated, a fit-but-fringe player's
+    p1/xmins decayed toward the same flat 0.35-sub-appearance value an
+    injured player was pinned at, as `appearances` grew and shrunk_start_rate
+    collapsed toward zero for both. Gating the substitute term by
+    availability keeps a fit fringe player's xmins meaningfully above zero
+    late-season, while a ruled-out player's stays exactly zero regardless of
+    `appearances` — restoring the discrimination an optimiser needs between
+    "fringe squad player" and "ruled out injured".
+    """
+    config = MinutesModelConfig()
+    late_season_appearances = 37
+
+    fringe_fit = _player(1, position=3, status="a", starts=0, minutes=0)
+    ruled_out = _player(2, position=3, status="i", starts=0, minutes=0)
+
+    fringe = _minutes_probabilities(fringe_fit, "MID", appearances=late_season_appearances, config=config)
+    injured = _minutes_probabilities(ruled_out, "MID", appearances=late_season_appearances, config=config)
+
+    assert injured.p1 == pytest.approx(0.0)
+    assert injured.xmins == pytest.approx(0.0)
+    # Both players' p_start has decayed close to zero by this point — the
+    # discrimination now has to come from the gated substitute term alone.
+    assert fringe.p_start < 0.1
+    assert fringe.p1 - injured.p1 > 0.3
+    assert fringe.xmins - injured.xmins > 8.0
