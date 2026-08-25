@@ -170,21 +170,41 @@ time rather than bolting a global XI onto a gameweek-aware ledger.
 
 ---
 
-## FU-10 — `fpl squad validate` cannot read the file `fpl squad create` writes
+## FU-10 — `fpl squad validate` silently misparses the ledger file `fpl squad create` writes
 
 **Deferred from:** [squad-builder.md](squad-builder.md), Output.
+**Sharpened from user testing (2026-08-25):** this is not a load failure —
+it's a silent misreport.
 
 `fpl squad create` emits a transfer ledger (`version`/`genesis_event`/`log`),
 which is what `domain/transfers.py` consumes and what keeps `Ledger.legacy`
 false. But `fpl squad validate` goes through `SquadPlan.from_file`
-(`domain/squad.py:19-26`), which expects `players`/`starters`/`captain` and
-finds none of them — so validating a freshly created squad fails on a file the
-tool itself just wrote.
+(`domain/squad.py:20-27`), which reads `payload.get("players", [])` — a
+ledger has no `players` key, so this returns `[]` with **no error at all**.
+`validate_plan` then reports "The squad must contain exactly 15 players;
+found 0 players" as if the user had built an empty squad, when the file on
+disk is a fully valid, non-empty 15-player ledger. Confirmed directly:
 
-**Fix:** have `squad validate` detect the two shapes (`"log" in payload`) and,
-for a ledger, run `replay(ledger, snapshot)` then
-`validate_squad(state.player_ids, snapshot)` — skipping the starters/captain
-checks, which a ledger legitimately has no data for.
+```python
+>>> SquadPlan.from_file(Path("ledger.json"))
+SquadPlan(players=[], starters=[], captain=None, vice_captain=None)
+```
 
-**Not fixed in the builder branch:** it changes an existing command's input
-handling, which is a separate concern from adding a new one.
+Any other unrecognised JSON shape hits the same silent path — `.get(...,
+[])` never raises, so a typo'd key or a completely unrelated JSON file also
+reports "found 0 players" instead of "this file isn't a squad plan or
+ledger."
+
+**Fix — three shapes, not two:**
+1. `"log" in payload` → a ledger. Run `replay(ledger, snapshot)` then
+   `validate_squad(state.player_ids, snapshot)`, skipping the
+   starters/captain checks a ledger has no data for.
+2. `"players" in payload` → the existing `SquadPlan` shape, unchanged.
+3. Neither key present → raise clearly (e.g. `ValueError`, caught by
+   `cli.py`'s existing `except (OSError, ValueError, TypeError) as exc:
+   raise typer.Exit(f"Could not read squad plan: {exc}")` at
+   `cli.py:131-132` — no new error handling needed there, just something to
+   raise). Do not fall through to an empty squad.
+
+**Not fixed here:** changes an existing command's input handling, a separate
+concern from the squad-builder branch that surfaced it.
