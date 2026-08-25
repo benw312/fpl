@@ -18,11 +18,17 @@ class TransferRules:
     transfers_cap: int
     sell_at_purchase_price: bool
     squad_total_spend: int
-    # [assumption: absent from bootstrap-static — not in game_settings or
-    # game_config.scoring. See docs/plans/transfers.md.]
+    # Value confirmed correct for 2026/27. What is in question is not the
+    # number but its discoverability: it appears in neither game_settings nor
+    # game_config.scoring, so unlike squad size, budget and club limits it
+    # cannot be re-derived from the snapshot. A future-season change would go
+    # undetected — there is no API field to compare against. Re-check each
+    # season; see README "Rules that are hardcoded" and docs/plans/transfers.md.
     points_per_extra_transfer: int = 4
     # [inference: implied by the field name max_extra_free_transfers ("extra"
     # relative to an unstated base) — the base itself is never stated.]
+    # Weaker than points_per_extra_transfer above, which is a confirmed value
+    # that merely cannot be re-derived. Same re-check-each-season exposure.
     free_transfers_per_event: int = 1
 
     @property

@@ -233,14 +233,44 @@ silent patch. Candidate fix: multiply the substitute term by `availability`
 too, i.e. `p1 = p_start + (1 - p_start) * p_sub_appearance * availability`.
 
 **Escalated to a blocker (2026-08-25, [optimizer-ux.md](optimizer-ux.md) §8).**
-This was filed as a scoring inaccuracy affecting players already held. It is
-worse than that: the optimiser ranks *every* player as a transfer target by
-`xp_total`, so an unavailable cheap player scores positively and is affordable
-in states where fit alternatives are not. Nothing else in the objective knows he
-is out — `can_transact` gates transacting, not projecting. The search can
-therefore recommend **buying** a visibly injured player, inverting the README
-Agent Plan's "Penalize unavailable or risky players". The decision this entry
-asks for must be made before `fpl plan optimise` ships.
+Must be decided before `fpl plan optimise` ships.
+
+**Diagnosis, traced against the live snapshot.** The availability signal is
+neither missing nor overridden. `_availability` (`projections.py:59-66`) maps
+`status ∈ {i, s, u}` to `0.0` correctly — all 97 such players in the current
+snapshot return exactly `0.0` — and that reaches `p1` through `p_start`, which
+correctly becomes `0.0`. The defect is that `p1`'s *second* term is
+unconditional, so when `p_start = 0` it becomes the whole value. There is no
+floor or clamp construct overriding anything. **The fix is therefore not
+removing a floor, and not wiring up an unconnected signal: it is extending an
+already-correct signal into the second term.**
+
+`xmins` (`projections.py:98`) has the same structure and the same defect. The
+candidate fix must be applied to **both** lines, not just `p1` as the snippet
+above shows:
+
+```python
+p1    = p_start + (1 - p_start) * p_sub_appearance * availability
+xmins = p_start * e_mins_start + (1 - p_start) * p_sub_appearance * mins_per_sub * availability
+```
+
+`p60` is unaffected — `p_start * p60_given_start` is correctly `0.0`.
+
+**Corrected severity.** An earlier draft of optimizer-ux.md claimed injured
+cheap players could outscore fit ones at the same price. Measured, that is false
+at present: over 5 gameweeks the best unavailable player projects 1.75 xP while
+the worst fit player at £4.0m projects 5.91, and the injured player outscores
+0 of 56 fit players at that price. At `appearances = 1` the shrinkage collapses
+to the position prior, which gives fit players a `p_start` an injured player
+cannot approach.
+
+The real defect is **convergence, not inversion**. For a player with
+`starts = 0`, `p_start` decays as `appearances` grows, so a fit-but-fringe
+player falls toward the same unconditional 0.35 an injured player is pinned at —
+`xmins` gap 35.4 at GW1, 12.6 by GW10, 4.2 by GW38. The model progressively
+loses the ability to distinguish "fringe squad player" from "ruled out injured",
+which is exactly the discrimination an optimiser needs when picking a cheap
+enabler. Least visible in pre-season, most damaging late.
 
 ---
 
@@ -417,3 +447,28 @@ in `plan optimise`'s header) needs the mapping itself.
 **Fix:** promote to `build_schedule` with a public `FixtureLeg`, or expose a
 narrower `fixture_count(team, event)` helper. Prefer the narrower one until a
 second caller genuinely needs the legs.
+
+---
+
+## FU-21 — `chance_of_playing_this_round` is never parsed
+
+**Deferred from:** [optimizer-ux.md](optimizer-ux.md) §8, while diagnosing FU-11.
+
+`api/models.py` parses `status`, `news` and `chance_of_playing_next_round`
+(`models.py:21, 22, 26`) but not `chance_of_playing_this_round`, which the API
+also publishes. `_availability` (`projections.py:59-66`) therefore has one
+numeric availability signal where the API offers two.
+
+The two differ in a way that matters mid-gameweek: `..._this_round` reflects the
+gameweek in progress, `..._next_round` the one after. A player injured during a
+gameweek has these disagree, and the model currently cannot see it.
+
+**Not urgent, and not part of FU-11.** FU-11 is a formula defect — the
+availability signal that *is* parsed reaches `p_start` correctly and is simply
+absent from `p1`'s second term. Adding a second signal fixes nothing there, and
+doing both at once would confuse a fix with an enhancement.
+
+**Relevant when:** projections are computed for an in-progress gameweek, or the
+horizon starts at the current event rather than the next one.
+`fpl plan optimise` plans from the next open deadline
+([optimizer-ux.md](optimizer-ux.md) §2), so it is unaffected as designed.

@@ -513,35 +513,79 @@ caveats to be printed; they are defects that make the output wrong.
 
 #### Why FU-11 is a blocker and not an assumption
 
-`_minutes_probabilities` implements `p1 = p_start + (1 - p_start) *
-p_sub_appearance`. `_availability` correctly drives `p_start` to 0 for a player
-with `status` in `{i, s, u}`, but `p_sub_appearance` is a flat 0.35 applied
-regardless of availability. A long-term injury therefore keeps a 0.35
-appearance probability and a non-zero `xmins`, and every downstream component
-is gated through those.
+**The precise mechanism.** The availability signal is not missing and is not
+being overridden. `_availability` (`projections.py:59-66`) maps
+`status ∈ {i, s, u}` to `0.0` correctly — verified against the live snapshot,
+where all 97 such players return exactly `0.0`. That value *does* reach `p1`,
+but only through the first of its two terms:
 
-The consequence is worse than holding a player too long. The optimiser searches
-over *every* player as a transfer target, and it ranks them by `xp_total`. A
-£4.5m defender who is out for the season still projects a small positive score
-— and being cheap, he is affordable in states where better players are not. The
-search has no other signal that would reject him: `can_transact` gates
-transacting, not projecting, and nothing else in the objective knows he is
-unavailable. Under budget pressure a bench slot filled by an injured cheap
-player can therefore score *higher* than the same slot filled by a fit one of
-the same price, because the injury costs him nothing the model can see.
+```python
+p1 = p_start + (1 - p_start) * config.p_sub_appearance      # projections.py:97
+```
 
-That is the exact inversion of the README Agent Plan's *"Penalize unavailable or
-risky players"*, and it fails in the most visible place: a recommendation to
-**buy** a player the user can see is injured on the official site. A user shown
-that once will not trust the tool again, and no amount of assumption-block text
-recovers it — the caveat arrives after the recommendation has already destroyed
-its own credibility.
+`availability` is wired into `p_start`, which correctly becomes `0.0`. The
+second term is an unconditional constant. So when `p_start = 0` the substitute
+term stops being a small correction and becomes the *entire* value: `p1 = 0.35`.
+
+There is no floor construct here — no `max()`, no clamp, nothing overriding the
+availability mapping. The 0.35 is the residual of a formula whose second term
+was never conditioned on availability. **The fix is therefore neither removing a
+floor nor connecting an unconnected signal: it is extending a correctly computed
+signal into the second term**, which is what FU-11's candidate fix does.
+
+`xmins` (`projections.py:98`) has the identical structure and the identical
+defect, so the fix must touch both lines — FU-11's text notes the `xmins`
+inflation but its candidate-fix snippet shows only `p1`. `p60` is unaffected:
+`p_start * p60_given_start` is correctly `0.0`.
+
+Measured on the current snapshot, every unavailable player gets `p1 = 0.350` and
+`xmins = 7.00` per fixture, against a correct value of zero.
+
+**The consequence, stated accurately.** An earlier draft of this section claimed
+injured cheap players could outscore fit ones at the same price. Measured, that
+is **false at this point in the season**: over a 5-gameweek horizon the best
+unavailable player projects 1.75 xP, while the *worst* fit player at £4.0m
+projects 5.91 and at £4.5m projects 4.95. The injured player outscores 0 of 56
+and 0 of 113 fit players at those prices. At `appearances = 1` the shrinkage
+collapses to the position prior, which hands every fit player a large `p_start`
+that an injured player cannot approach.
+
+The real defect is **convergence, not inversion** — and it worsens as the season
+runs. For a player with `starts = 0`, `p_start` decays toward zero as
+`appearances` grows, so a fit-but-fringe player falls toward the same
+unconditional 0.35 the injured player is already pinned at:
+
+| `appearances` | fit `xmins` | injured `xmins` | gap |
+|---:|---:|---:|---:|
+| 1 | 42.36 | 7.00 | 35.36 |
+| 5 | 26.64 | 7.00 | 19.64 |
+| 10 | 19.63 | 7.00 | 12.63 |
+| 20 | 14.37 | 7.00 | 7.37 |
+| 38 | 11.21 | 7.00 | 4.21 |
+
+By late season the model has largely lost the ability to distinguish *"fringe
+squad player"* from *"ruled out with a long-term injury"*. That is still a
+blocker, and still contradicts the README Agent Plan's *"Penalize unavailable or
+risky players"* — but the failure mode is the optimiser being unable to tell the
+two apart when choosing a cheap enabler, not a headline recommendation to buy an
+obviously injured star. It also means the defect is least visible now, in
+pre-season testing, and most damaging later — the worst possible profile for
+something one might otherwise defer.
 
 FU-11's own entry says this needs a decision rather than a silent patch, because
 the projections-v1 plan specifies the ungated formula precisely and may have
-intended it. That decision now has a forcing function. The candidate fix is
-recorded there: gate the substitute term on availability too,
-`p1 = p_start + (1 - p_start) * p_sub_appearance * availability`.
+intended it. That decision now has a forcing function. The candidate fix, applied
+to **both** affected lines:
+
+```python
+p1    = p_start + (1 - p_start) * p_sub_appearance * availability
+xmins = p_start * e_mins_start + (1 - p_start) * p_sub_appearance * mins_per_sub * availability
+```
+
+Note this also sharpens the fringe/injured distinction that the table above
+shows collapsing, since a fit player keeps `availability = 1.0` while an injured
+one goes to `0.0` — the two stop converging entirely rather than merely
+converging more slowly.
 
 ---
 
