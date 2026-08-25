@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
-from fpl_cli.api.models import BootstrapSnapshot
+from fpl_cli.api.models import BootstrapSnapshot, Fixture
 from fpl_cli.transport import (
     AccessDenied,
     FplError,
@@ -50,3 +50,10 @@ class OfficialFplApi:
             return BootstrapSnapshot.from_payload(payload, fetched_at=datetime.now(UTC))
         except ValidationError as exc:
             raise FplApiError(f"FPL snapshot did not match the expected shape: {exc}") from exc
+
+    def fixtures(self) -> list[Fixture]:
+        payload = self._transport.get_json("/fixtures/")
+        try:
+            return [Fixture.model_validate(item) for item in payload]
+        except ValidationError as exc:
+            raise FplApiError(f"FPL fixtures did not match the expected shape: {exc}") from exc

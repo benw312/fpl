@@ -178,6 +178,36 @@ def bootstrap_payload() -> dict[str, Any]:
     }
 
 
+@pytest.fixture
+def fixtures_payload() -> list[dict[str, Any]]:
+    """A minimal but valid synthetic fixtures payload, as raw JSON.
+
+    Fixture 2 is unscheduled (event=None), covering the postponement case.
+    """
+    return [
+        {
+            "id": 1,
+            "event": 1,
+            "team_h": 1,
+            "team_a": 2,
+            "team_h_score": 2,
+            "team_a_score": 1,
+            "kickoff_time": "2025-08-15T19:00:00Z",
+            "finished": True,
+        },
+        {
+            "id": 2,
+            "event": None,
+            "team_h": 3,
+            "team_a": 4,
+            "team_h_score": None,
+            "team_a_score": None,
+            "kickoff_time": None,
+            "finished": False,
+        },
+    ]
+
+
 class RecordingSleep:
     def __init__(self) -> None:
         self.delays: list[float] = []

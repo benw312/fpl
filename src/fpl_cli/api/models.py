@@ -52,6 +52,19 @@ class Position(BaseModel):
     squad_max_play: int
 
 
+class Fixture(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: int
+    event: int | None = None
+    team_h: int
+    team_a: int
+    team_h_score: int | None = None
+    team_a_score: int | None = None
+    kickoff_time: datetime | None = None
+    finished: bool = False
+
+
 class Gameweek(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

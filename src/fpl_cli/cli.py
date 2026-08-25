@@ -43,15 +43,17 @@ def load_snapshot() -> BootstrapSnapshot:
 
 @app.command()
 def sync() -> None:
-    """Fetch and cache the current official FPL snapshot."""
+    """Fetch and cache the current official FPL snapshot and fixtures list."""
     service = SnapshotService()
     try:
         snapshot = service.refresh()
+        fixtures = service.refresh_fixtures()
     except FplError as exc:
         raise typer.Exit(str(exc)) from exc
     finally:
         service.close()
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
+    console.print(f"[green]Synced {len(fixtures)} fixtures.[/green]")
 
 
 @players_app.command("list")

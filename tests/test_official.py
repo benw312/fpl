@@ -59,3 +59,30 @@ def test_transport_errors_propagate_unwrapped() -> None:
 
     with pytest.raises(RateLimited):
         api.bootstrap_static()
+
+
+def test_fixtures_builds_list(fixtures_payload: list[dict[str, Any]]) -> None:
+    api = OfficialFplApi(transport=StubTransport(payload=fixtures_payload))
+
+    fixtures = api.fixtures()
+
+    assert len(fixtures) == 2
+    assert fixtures[0].event == 1
+    assert fixtures[1].event is None
+
+
+def test_fixtures_schema_mismatch_raises_fpl_api_error() -> None:
+    api = OfficialFplApi(transport=StubTransport(payload=[{"id": "not-an-int"}]))
+
+    with pytest.raises(FplApiError) as excinfo:
+        api.fixtures()
+
+    assert not isinstance(excinfo.value, RateLimited)
+
+
+def test_fixtures_transport_errors_propagate_unwrapped() -> None:
+    error = RateLimited("rate limited", url="https://fpl.test", status_code=429, attempts=1, retry_after=None)
+    api = OfficialFplApi(transport=StubTransport(error=error))
+
+    with pytest.raises(RateLimited):
+        api.fixtures()
