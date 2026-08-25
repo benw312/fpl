@@ -36,6 +36,22 @@ def validate_plan(plan: SquadPlan, snapshot: BootstrapSnapshot) -> ValidationRes
         errors.append(f"The starting XI must contain exactly {snapshot.game_settings.squad_squadplay} players.")
     if not set(plan.starters).issubset(set(plan.players)):
         errors.append("Every starter must be in the squad.")
+
+    players_by_id = snapshot.players_by_id
+    starter_counts: dict[int, int] = {}
+    for player_id in plan.starters:
+        player = players_by_id.get(player_id)
+        if player is None:
+            continue
+        starter_counts[player.element_type] = starter_counts.get(player.element_type, 0) + 1
+    for position in snapshot.element_types:
+        count = starter_counts.get(position.id, 0)
+        if count < position.squad_min_play or count > position.squad_max_play:
+            errors.append(
+                f"The starting XI must include between {position.squad_min_play} and "
+                f"{position.squad_max_play} {position.singular_name_short} players; found {count}."
+            )
+
     if plan.captain is None or plan.captain not in plan.starters:
         errors.append("The captain must be one of the starters.")
     if plan.vice_captain is None or plan.vice_captain not in plan.starters:
