@@ -535,9 +535,14 @@ only the winner's tuple is ever used. The prefix sums it already computes are
 enough to rank formations; the tuple is needed once, at the end.
 
 Measured: `best_xi` + `objective_points` costs **136 µs**; the same computation
-returning only the value costs **17.7 µs — 7.7×**. This is the largest single
-speedup available anywhere in the optimiser design, and it is a refactor of
-existing code rather than new work.
+returning only the value costs **15.6 µs — 8.7×**. It is a refactor of existing
+code rather than new work.
+
+It is no longer the largest speedup in the optimiser design — **FU-26**, which
+vectorises this function's hot half, is — but it is the one FU-26 depends on:
+splitting value from witness is what creates a `xi_value` seam to vectorise, and
+the property test below is what keeps the vectorised kernel tied to the rule
+`validate_plan` uses. Land this first.
 
 **Fix:** split value from witness, both in `domain/squad.py` so that manual
 planning and the optimiser keep selecting an XI through one rule (CLAUDE.md):
@@ -548,11 +553,15 @@ planning and the optimiser keep selecting an XI through one rule (CLAUDE.md):
   captain and (FU-22) vice-captain.
 
 Both must share one formation enumeration, so the fast path cannot drift from
-the XI `validate_plan` checks. Guard with a property test asserting
+the XI `validate_plan` checks. Extract it as
+`legal_formations(snapshot) -> list[tuple[int, ...]]`, computed once — the set is
+a snapshot-level constant (8 combinations on the live snapshot) and two call
+sites iterating the same `product(...)` would be two things to keep in step.
+Guard with a property test asserting
 `xi_value(...) == objective_points(best_xi(...), ...)` on random squads.
 
 **Prerequisite for:** [optimizer-search.md](optimizer-search.md) §7's cost
-budget. Its own branch, before `domain/optimizer.py`.
+budget, and for **FU-26**. Its own branch, before `domain/optimizer.py`.
 
 ---
 
@@ -581,3 +590,68 @@ budget) and needs an argument that the second pass does not oscillate.
 gameweek's move from the recommendation text regardless, and the output already
 reports whether the recommendation changes at `ft_value ∈ {0, 2 × default}` —
 so a wrong constant degrades visibly rather than silently.
+
+---
+
+## FU-26 — Vectorise `xi_value` and score a node's children as one batch
+
+**Deferred from:** [optimizer-search.md](optimizer-search.md) §2, §6.2, §7.
+
+**This is a prerequisite of the optimiser's cost budget, not an optimisation of
+it.** [optimizer-search.md](optimizer-search.md) §5.3 fixes the enumeration cap at
+**k ≤ 2 at every beam level**, not just the root, because
+`hold · hold · (A→B, C→D)` — bank a free transfer, then spend two — is standard
+FPL play and a search that cannot represent it has a blind spot nothing in its
+output would reveal. That decision multiplies the branching factor per node by
+~290 (559 → 162,792 children) and puts the run at ~10⁸ scored candidates. Pure
+Python cannot pay for it.
+
+Measured on the live snapshot, per scored child:
+
+| | Cost | vs FU-24 |
+|---|---:|---:|
+| FU-24's `xi_value`, called per child | 15.6 µs | — |
+| node-amortised incremental, pure Python | 4.44 µs | 3.5× |
+| **vectorised with numpy** | **357 ns** | **44×** |
+
+Per node-event, over the root's full 162,793-child k ≤ 2 expansion: **722 ms pure
+Python, 58 ms vectorised — 12.4×**, both timed in one process on one machine. End
+to end at horizon 5, `--beam 4`: **≈ 8 minutes against 39 s**.
+
+**The mechanism.** Per `(node, event)`, sort each position's xP descending and
+build prefix sums `B_p[k]`. For a child inserting incoming values into a position
+after removing the outgoing, the new prefix sums follow from *the best k either
+contains the new player or it does not*:
+
+```
+one incoming x:    S'[k] = max( B[k],  x + B[k-1] )
+two incoming x,y:  S'[k] = max( B[k],  max(x,y) + B[k-1],  (x+y) + B[k-2] )
+```
+
+The child's value is `max over the 8 legal formations f of Σ_p S'_p[f_p]`, plus a
+captain term of `max(others_max, incoming…)`. Every term broadcasts over the
+candidate axis, so all ~140 candidates for one slot are scored by ~5 array
+operations and a k = 2 out-pair becomes an `[m_a, 1] + [1, m_b]` outer sum
+evaluated 8 times. Feasibility — joint budget, club limit, already-held,
+same-position de-duplication — is a boolean mask over the same grid.
+
+**Two constraints on the implementation, both load-bearing:**
+
+- **The cached structure is valid only for the `(node, event)` pair it was built
+  for.** The xP ranking within a position changes every gameweek. Build it inside
+  the per-event expansion and never let it outlive one. This is the most dangerous
+  bug available in this design.
+- **Never materialise a level's children.** Reduce each out-combination's grid to
+  its top-`w` immediately and release it. Accumulating them first is what
+  exhausted a 12 GB machine during the measurement of
+  [optimizer-search.md](optimizer-search.md) §7 — 32.6 M child tuples ≈ 13 GB at
+  horizon 5, `--beam 4`. Both designs produce identical output and identical
+  asymptotic runtime, so only a memory test distinguishes them; §8 specifies one.
+
+**Adds numpy as a straight runtime dependency** — no optional extra, no
+pure-Python fallback. A second implementation of the hot kernel would be a second
+place for the objective to drift.
+
+**Prerequisite:** FU-24, which creates the `xi_value` seam this vectorises and
+whose property test keeps it honest. Its own branch, after FU-24 and before
+`domain/optimizer.py`.
