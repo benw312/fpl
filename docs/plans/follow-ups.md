@@ -208,3 +208,26 @@ ledger."
 
 **Not fixed here:** changes an existing command's input handling, a separate
 concern from the squad-builder branch that surfaced it.
+
+---
+
+## FU-11 — `p1`'s substitute term isn't gated by availability
+
+**Deferred from:** [projections-v1.md](projections-v1.md) Decision 4, step 3
+(`task/projections-v1`).
+
+`domain/projections.py::_minutes_probabilities` implements the plan's formula
+literally: `p1 = p_start + (1 - p_start) * p_sub_appearance`. For a player
+with `status` in `{i, s, u}` (unavailable), `_availability` correctly drives
+`p_start` to 0 — but `p_sub_appearance` (default 0.35) is a flat constant
+applied regardless of availability, so `p1` still comes out to `0.35` rather
+than `0.0`. This also inflates `xmins` by `(1 - p_start) * p_sub_appearance *
+mins_per_sub` for a long-term injury.
+
+`xp_appearance` and `xp_attack` etc. are gated through `xmins`/`p1`/`p60`, so
+a genuinely unavailable player gets a small non-zero score instead of the
+expected exact zero. Not fixed here — the plan's Decision 4 text specifies
+this formula precisely and doesn't gate the substitute term, so this may be
+intentional (or an oversight in the plan itself); needs a decision, not a
+silent patch. Candidate fix: multiply the substitute term by `availability`
+too, i.e. `p1 = p_start + (1 - p_start) * p_sub_appearance * availability`.
