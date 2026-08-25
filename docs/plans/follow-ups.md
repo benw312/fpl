@@ -495,3 +495,89 @@ i.e. the next entry after `captain` in that ordering, restricted to starters.
 
 **Unblocks:** the `optimise --output` → `simulate` round-trip
 ([optimizer-ux.md](optimizer-ux.md)).
+
+---
+
+## FU-23 — `BootstrapSnapshot`'s lookup properties rebuild their dicts on every access
+
+**Deferred from:** [optimizer-search.md](optimizer-search.md) §2.
+
+`players_by_id`, `clubs` and `positions` (`api/models.py:165-175`) are plain
+`@property` methods that build a fresh dict on every call — 612 entries for
+`players_by_id`, measured at **63 µs per access**. `apply_transfers` reaches
+`players_by_id` twice per call (`transfers.py:242`, and again inside
+`validate_squad_structure`), so a large fraction of its cost is rebuilding a
+dict that never changes for the lifetime of a snapshot.
+
+Measured: `apply_transfers` for a single transfer drops from **197 µs to 69 µs
+(2.9×)** with `players_by_id` memoised. Every existing command benefits;
+`fpl plan optimise` depends on it, since the search validates every node it
+retains.
+
+**Fix:** memoise. `BootstrapSnapshot` is a Pydantic model, so
+`functools.cached_property` needs `model_config` to permit it — the simpler
+route is to build the three mappings once in `from_payload` and store them as
+private attributes. Either is fine; the property names must not change.
+
+**Prerequisite for:** [optimizer-search.md](optimizer-search.md) §7's cost
+budget. Separate concern from the optimiser — its own branch, before
+`domain/optimizer.py`.
+
+---
+
+## FU-24 — `best_xi` materialises a sorted tuple per candidate formation
+
+**Deferred from:** [optimizer-search.md](optimizer-search.md) §2, §6.2.
+
+`best_xi` (`domain/squad.py:140-149`) builds a fully sorted 11-element starters
+tuple inside the formation loop, once for each of the 8 legal formations, when
+only the winner's tuple is ever used. The prefix sums it already computes are
+enough to rank formations; the tuple is needed once, at the end.
+
+Measured: `best_xi` + `objective_points` costs **136 µs**; the same computation
+returning only the value costs **17.7 µs — 7.7×**. This is the largest single
+speedup available anywhere in the optimiser design, and it is a refactor of
+existing code rather than new work.
+
+**Fix:** split value from witness, both in `domain/squad.py` so that manual
+planning and the optimiser keep selecting an XI through one rule (CLAUDE.md):
+
+- `xi_value(player_ids, projections, snapshot) -> float` — the hot path.
+  Formation ranking from prefix sums plus the captain term; no tuples.
+- `best_xi(...) -> BestXI` — unchanged signature, materialises starters,
+  captain and (FU-22) vice-captain.
+
+Both must share one formation enumeration, so the fast path cannot drift from
+the XI `validate_plan` checks. Guard with a property test asserting
+`xi_value(...) == objective_points(best_xi(...), ...)` on random squads.
+
+**Prerequisite for:** [optimizer-search.md](optimizer-search.md) §7's cost
+budget. Its own branch, before `domain/optimizer.py`.
+
+---
+
+## FU-25 — Two-pass self-consistent estimate of `ft_value`
+
+**Deferred from:** [optimizer-search.md](optimizer-search.md) §6.1.
+
+The terminal value of a free transfer banked at the horizon edge is
+`ft_value` points, shipped as a constant defaulting to 1.5. That number is
+**unsourced in this repo**: `docs/research/projections-survey.md` records
+sertalpbilal's `decay_base = 0.84` but not an `ft_value`, so unlike the decay
+factor it has no provenance here at all.
+
+A run-time estimator taken from the *current* squad was measured and rejected:
+the best free single transfer from `squad.json` gains **9.96 points** at the
+root event, because the estimate tracks squad quality rather than the marginal
+worth of a transfer. Using it would make the search hoard transfers.
+
+**Candidate fix:** estimate it self-consistently instead. Search with
+`ft_value = 0`; take the winning path's squad at the horizon edge; compute the
+best free single-transfer gain at event H *from that squad*; re-run with it.
+Costs 2× the runtime (≈24 s at [optimizer-search.md](optimizer-search.md) §7's
+budget) and needs an argument that the second pass does not oscillate.
+
+**Not urgent.** The `‡` marker (optimizer-ux.md §5.3) excludes the final
+gameweek's move from the recommendation text regardless, and the output already
+reports whether the recommendation changes at `ft_value ∈ {0, 2 × default}` —
+so a wrong constant degrades visibly rather than silently.
