@@ -11,7 +11,7 @@ from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.api.snapshots import SnapshotService
 from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
 from fpl_cli.domain.rules import validate_squad as validate_squad_players
-from fpl_cli.domain.squad import SquadPlan, to_ledger_payload, validate_plan
+from fpl_cli.domain.squad import to_ledger_payload, validate_squad_file
 from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
 from fpl_cli.presentation import console, player_table, simulation_table, squad_state_table
 from fpl_cli.transport import FplError
@@ -124,13 +124,12 @@ def create_squad(
 
 @squad_app.command("validate")
 def validate_squad(path: Path) -> None:
-    """Validate a JSON squad plan against the current FPL rules."""
+    """Validate a JSON squad plan or transfer ledger against the current FPL rules."""
     snapshot = load_snapshot()
     try:
-        plan = SquadPlan.from_file(path)
-    except (OSError, ValueError, TypeError) as exc:
+        result = validate_squad_file(path, snapshot)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
         raise typer.Exit(f"Could not read squad plan: {exc}") from exc
-    result = validate_plan(plan, snapshot)
     for error in result.errors:
         print(f"[red]✗ {error}[/red]")
     for warning in result.warnings:

@@ -7,7 +7,7 @@ import json
 
 from fpl_cli.api.models import BootstrapSnapshot, Player
 from fpl_cli.domain.rules import ValidationResult, validate_squad
-from fpl_cli.domain.transfers import current_event_id
+from fpl_cli.domain.transfers import Ledger, current_event_id, replay
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,25 @@ def validate_plan(plan: SquadPlan, snapshot: BootstrapSnapshot) -> ValidationRes
         errors.append("Captain and vice-captain must be different players.")
 
     return ValidationResult(errors, result.warnings, result.season, result.fetched_at)
+
+
+def validate_squad_file(path: Path, snapshot: BootstrapSnapshot) -> ValidationResult:
+    """Validate a squad file, accepting either a `SquadPlan` or a transfer ledger.
+
+    A ledger (`"log" in payload`) is replayed to its final state and
+    validated on structure and budget, skipping the starters/captain/
+    vice-captain checks a ledger has no data for. A `SquadPlan`
+    (`"players" in payload`) validates as before. Anything else raises
+    `ValueError` rather than silently validating an empty squad.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if "log" in payload:
+        ledger = Ledger.from_file(path, snapshot)
+        state = replay(ledger, snapshot)
+        return validate_squad(state.player_ids, snapshot)
+    if "players" in payload:
+        return validate_plan(SquadPlan.from_file(path), snapshot)
+    raise ValueError(f"{path} is not a recognised squad plan or ledger (missing 'players' or 'log').")
 
 
 @dataclass(frozen=True)
