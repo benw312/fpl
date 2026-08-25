@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 import typer
@@ -7,7 +9,9 @@ from rich import print
 
 from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.api.snapshots import SnapshotService
-from fpl_cli.domain.squad import SquadPlan, validate_plan
+from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
+from fpl_cli.domain.rules import validate_squad as validate_squad_players
+from fpl_cli.domain.squad import SquadPlan, to_ledger_payload, validate_plan
 from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
 from fpl_cli.presentation import console, player_table, simulation_table, squad_state_table
 from fpl_cli.transport import FplError
@@ -78,6 +82,44 @@ def list_players(
         players = [player for player in players if player.can_select and not player.removed and player.status == "a"]
     players = sorted(players, key=lambda player: (-player.total_points, player.display_name))[:limit]
     console.print(player_table(players, snapshot))
+
+
+@squad_app.command("create")
+def create_squad(
+    output: Path = typer.Option(Path("squad.json"), "--output", help="Where to write the squad ledger."),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing output file."),
+) -> None:
+    """Interactively build a 15-player squad and write it as a transfer ledger."""
+    if not sys.stdin.isatty():
+        console.print("[red]fpl squad create requires an interactive terminal.[/red]")
+        raise typer.Exit(1)
+    if output.exists() and not force:
+        console.print(f"[red]{output} already exists. Use --force to overwrite.[/red]")
+        raise typer.Exit(1)
+
+    snapshot = load_snapshot()
+    builder = SquadBuilder(snapshot)
+    try:
+        slots = builder.run()
+    except TerminalTooSmall as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except BuilderCancelled:
+        console.print("[yellow]Cancelled; nothing written.[/yellow]")
+        raise typer.Exit(1) from None
+
+    result = validate_squad_players(slots.player_ids, snapshot)
+    for error in result.errors:
+        print(f"[red]✗ {error}[/red]")
+    for warning in result.warnings:
+        print(f"[yellow]! {warning}[/yellow]")
+    if not result.valid:
+        console.print("[red]Squad failed validation; not written.[/red]")
+        raise typer.Exit(1)
+
+    payload = to_ledger_payload(slots, snapshot)
+    output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    console.print(f"[green]Wrote {output} ({len(payload['log'])} players).[/green]")
 
 
 @squad_app.command("validate")

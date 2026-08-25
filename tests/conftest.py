@@ -57,6 +57,101 @@ def bootstrap_snapshot() -> BootstrapSnapshot:
     return _bootstrap_snapshot()
 
 
+def _builder_players() -> list[Player]:
+    """~45 players across 8 clubs, varied prices and points.
+
+    Unlike `_bootstrap_snapshot`'s 15 players (one per required slot, all
+    priced identically, exactly `squad_team_limit` per club), this gives the
+    squad builder's filtering logic something real to filter: several
+    candidates per slot, a club with more defenders than the team limit
+    allows, price spread wide enough to exercise the budget reserve, and one
+    unselectable and one removed player.
+    """
+    players: list[Player] = []
+    next_id = 1
+
+    def add(
+        *,
+        position: int,
+        team: int,
+        price: int,
+        points: int,
+        can_select: bool = True,
+        removed: bool = False,
+        status: str = "a",
+    ) -> int:
+        nonlocal next_id
+        player_id = next_id
+        next_id += 1
+        players.append(
+            Player(
+                id=player_id,
+                web_name=f"P{player_id}",
+                team=team,
+                element_type=position,
+                now_cost=price,
+                total_points=points,
+                can_select=can_select,
+                removed=removed,
+                status=status,
+            )
+        )
+        return player_id
+
+    for team, price, points in [(1, 45, 120), (2, 50, 100), (3, 40, 60), (4, 55, 140)]:
+        add(position=1, team=team, price=price, points=points)  # GKP
+
+    # DEF: club 1 has 4 — one more than squad_team_limit (3) — the rest spread thin.
+    for team, price, points in [
+        (1, 45, 90), (1, 50, 80), (1, 60, 70), (1, 70, 130),
+        (2, 40, 40), (2, 55, 95), (3, 45, 60), (3, 65, 110),
+        (4, 50, 55), (4, 75, 150), (5, 42, 45), (5, 58, 85),
+        (8, 48, 65), (8, 66, 100),
+    ]:
+        add(position=2, team=team, price=price, points=points)
+
+    for team, price, points in [
+        (1, 60, 100), (2, 145, 260), (2, 95, 200), (3, 55, 70),
+        (3, 80, 150), (4, 100, 190), (4, 65, 85), (5, 120, 210),
+        (5, 45, 40), (6, 90, 160), (6, 70, 95), (7, 110, 180),
+        (7, 50, 60), (8, 130, 230),
+    ]:
+        add(position=3, team=team, price=price, points=points)  # MID
+    add(position=3, team=6, price=75, points=100, can_select=False)
+    add(position=3, team=7, price=48, points=30, removed=True)
+
+    for team, price, points in [
+        (1, 150, 250), (2, 55, 60), (2, 90, 170), (3, 65, 100),
+        (4, 130, 220), (5, 45, 50), (6, 105, 190), (7, 75, 130),
+        (8, 60, 90), (1, 40, 45),
+    ]:
+        add(position=4, team=team, price=price, points=points)  # FWD
+
+    return players
+
+
+def _builder_snapshot() -> BootstrapSnapshot:
+    return BootstrapSnapshot(
+        events=_synthetic_gameweeks(),
+        teams=[Club(id=index, name=f"Club {index}", short_name=f"C{index}") for index in range(1, 9)],
+        element_types=[
+            Position(id=1, singular_name_short="GKP", squad_select=2, squad_min_play=1, squad_max_play=1),
+            Position(id=2, singular_name_short="DEF", squad_select=5, squad_min_play=3, squad_max_play=5),
+            Position(id=3, singular_name_short="MID", squad_select=5, squad_min_play=2, squad_max_play=5),
+            Position(id=4, singular_name_short="FWD", squad_select=3, squad_min_play=1, squad_max_play=3),
+        ],
+        elements=_builder_players(),
+        game_settings=GameSettings(),
+        fetched_at=datetime.now(UTC),
+        season="test",
+    )
+
+
+@pytest.fixture
+def builder_snapshot() -> BootstrapSnapshot:
+    return _builder_snapshot()
+
+
 @pytest.fixture
 def bootstrap_payload() -> dict[str, Any]:
     """A minimal but valid synthetic bootstrap-static payload, as raw JSON."""

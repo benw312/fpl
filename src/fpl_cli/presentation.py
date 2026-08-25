@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from rich.console import Console
+from rich.console import Console, Group
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from fpl_cli.api.models import BootstrapSnapshot, Player
+from fpl_cli.domain.squad import SquadSlots
 from fpl_cli.domain.transfers import SquadState, Transfer, TransferResult
 
 console = Console()
@@ -72,3 +75,55 @@ def squad_state_table(state: SquadState, snapshot: BootstrapSnapshot) -> Table:
             f"£{player.price_millions:.1f}m" if player else "?",
         )
     return table
+
+
+def squad_grid(slots: SquadSlots, snapshot: BootstrapSnapshot) -> Group:
+    """A pitch-style grid of the 15 numbered position slots, filled or empty."""
+    players_by_id = snapshot.players_by_id
+    clubs = snapshot.clubs
+    settings = snapshot.game_settings
+
+    picked = slots.picked_ids
+    spent = sum(players_by_id[player_id].now_cost for player_id in picked if player_id in players_by_id)
+    remaining = settings.squad_total_spend - spent
+
+    club_counts: dict[int, int] = {}
+    for player_id in picked:
+        player = players_by_id.get(player_id)
+        if player is not None:
+            club_counts[player.team] = club_counts.get(player.team, 0) + 1
+    club_line = "   ".join(
+        f"{(clubs[club_id].short_name or clubs[club_id].name)} {count}"
+        for club_id, count in sorted(club_counts.items())
+    ) or "No players picked yet"
+
+    header = Panel(
+        club_line,
+        title=(
+            f"Squad {len(picked)}/{len(slots.slots)} \u00b7 "
+            f"\u00a3{spent / 10:.1f}m spent \u00b7 \u00a3{remaining / 10:.1f}m left"
+        ),
+        title_align="left",
+        expand=False,
+    )
+
+    grouped: dict[int, list] = {}
+    for slot in slots.slots:
+        grouped.setdefault(slot.position_id, []).append(slot)
+
+    rows: list[Text] = []
+    for position in snapshot.element_types:
+        cells = []
+        for slot in grouped.get(position.id, []):
+            if slot.player_id is None:
+                cells.append(f"{slot.index:>2} [ {'-' * 10} ]")
+                continue
+            player = players_by_id.get(slot.player_id)
+            club = clubs.get(player.team) if player else None
+            name = player.display_name if player else str(slot.player_id)
+            club_short = club.short_name if club else "?"
+            price = f"\u00a3{player.price_millions:.1f}m" if player else "?"
+            cells.append(f"{slot.index:>2} [ {name:<10} {club_short:<3} {price:>6} ]")
+        rows.append(Text(f"{position.singular_name_short:>4}  " + "  ".join(cells)))
+
+    return Group(header, Text(""), *rows)

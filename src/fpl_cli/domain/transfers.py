@@ -81,7 +81,7 @@ class Ledger:
         # a genesis buy log at current now_cost — selling prices computed from
         # this are optimistic, since the real purchase price is unknown.
         players_by_id = snapshot.players_by_id
-        genesis_event = _current_event_id(snapshot)
+        genesis_event = current_event_id(snapshot)
         legacy_log = [
             Transaction(event=genesis_event, type="buy", player=player_id, price=players_by_id[player_id].now_cost)
             for player_id in (int(player_id) for player_id in payload.get("players", []))
@@ -107,7 +107,7 @@ def parse_transfers_plan(path: Path) -> dict[int, list[Transfer]]:
     return transfers_by_event
 
 
-def _current_event_id(snapshot: BootstrapSnapshot) -> int:
+def current_event_id(snapshot: BootstrapSnapshot) -> int:
     for event in snapshot.events:
         if event.is_current:
             return event.id
