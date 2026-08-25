@@ -130,3 +130,61 @@ untouched by that task to keep it scoped to the domain layer.
 and gives `Ledger.legacy` (set when a squad file is upgraded from the bare
 `players: [int]` format) somewhere to surface its warning — currently nothing
 reads that flag.
+
+---
+
+## FU-8 — Formation validity is never checked
+
+**Deferred from:** [squad-builder.md](squad-builder.md), Decision 3.
+
+`Position.squad_min_play` and `squad_max_play` (`api/models.py:51-52`) are
+parsed from the snapshot and read by **nothing**. `validate_plan`
+(`domain/squad.py:33-40`) checks only that `starters` numbers
+`squad_squadplay` and is a subset of `players` — so a starting XI of 1 GK and
+10 forwards validates clean today.
+
+**Fix:** count starters by `element_type` and check each against its position's
+`squad_min_play`/`squad_max_play`, in `validate_plan` alongside the existing
+starter checks. Rules come from the snapshot, so nothing is hardcoded.
+
+**Blocks:** any XI/bench UI. `fpl squad create` deliberately renders a flat
+15-slot positional grid rather than a pitch-with-bench precisely because
+placing a player in the XI is a formation decision that no validator currently
+backs — see FU-9.
+
+---
+
+## FU-9 — Starting XI, captain and vice-captain selection
+
+**Deferred from:** [squad-builder.md](squad-builder.md), Decision 3.
+
+`fpl squad create` picks a 15-player squad and nothing else. Choosing the XI,
+captain and vice-captain is a separate interaction, and the ledger format it
+writes (`log` of buy transactions) has no field to record any of them.
+
+Needs FU-8 first (an XI can't be offered before an illegal formation can be
+rejected) and overlaps FU-6, which already notes that `starters`/`captain`/
+`vice_captain` are logically per-gameweek but stored as one global value each.
+Doing this properly probably means resolving FU-6's schema question at the same
+time rather than bolting a global XI onto a gameweek-aware ledger.
+
+---
+
+## FU-10 — `fpl squad validate` cannot read the file `fpl squad create` writes
+
+**Deferred from:** [squad-builder.md](squad-builder.md), Output.
+
+`fpl squad create` emits a transfer ledger (`version`/`genesis_event`/`log`),
+which is what `domain/transfers.py` consumes and what keeps `Ledger.legacy`
+false. But `fpl squad validate` goes through `SquadPlan.from_file`
+(`domain/squad.py:19-26`), which expects `players`/`starters`/`captain` and
+finds none of them — so validating a freshly created squad fails on a file the
+tool itself just wrote.
+
+**Fix:** have `squad validate` detect the two shapes (`"log" in payload`) and,
+for a ledger, run `replay(ledger, snapshot)` then
+`validate_squad(state.player_ids, snapshot)` — skipping the starters/captain
+checks, which a ledger legitimately has no data for.
+
+**Not fixed in the builder branch:** it changes an existing command's input
+handling, which is a separate concern from adding a new one.
