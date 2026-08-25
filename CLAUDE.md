@@ -10,12 +10,16 @@ SQLite + raw JSON snapshots (cache) · pytest (mocked API)
 ## Platform
 Developed and run on Linux.
 
-## Current state
-Implemented: api/official.py, api/models.py, domain/rules.py,
-domain/squad.py, storage/cache.py, cli.py, presentation.py, tests/test_rules.py
+## Structure
+`api/` — official.py, models.py, snapshots.py, transport.py
+`domain/` — rules.py, squad.py, transfers.py
+`storage/` — cache.py · `cli.py` · `presentation.py` (flat module)
 
-Not yet written: transport.py, domain/transfers.py, domain/optimizer.py
-Note: plan specifies a `presentation/` package; currently a flat module.
+Not yet written: domain/optimizer.py, interactive squad builder.
+See `docs/plans/` for written plans and `docs/plans/follow-ups.md` for
+filed follow-ups. The repo is the source of truth — check before assuming
+a module is missing.
+
 
 ## Rules
 - Derive FPL rules from the live API snapshot. Never hardcode squad limits,

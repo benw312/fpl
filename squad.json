@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "genesis_event": 1,
+  "log": [
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 198,
+      "price": 50
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 109,
+      "price": 45
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 4,
+      "price": 80
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 423,
+      "price": 45
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 8,
+      "price": 55
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 277,
+      "price": 40
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 388,
+      "price": 60
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 154,
+      "price": 95
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 565,
+      "price": 55
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 557,
+      "price": 65
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 542,
+      "price": 60
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 427,
+      "price": 80
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 411,
+      "price": 155
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 491,
+      "price": 60
+    },
+    {
+      "event": 1,
+      "type": "buy",
+      "player": 316,
+      "price": 55
+    }
+  ],
+  "chips_played": []
+}
