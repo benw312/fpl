@@ -15,6 +15,7 @@ from fpl_cli.domain.transfers import (
     Transfer,
     TransferRules,
     apply_transfers,
+    parse_transfers_plan,
     replay,
     selling_price,
     simulate,
@@ -490,3 +491,41 @@ def test_simulate_chains_state_across_gameweeks(bootstrap_snapshot: BootstrapSna
     assert 101 in results[0].state.holdings
     assert 102 in results[1].state.holdings
     assert 101 in results[1].state.holdings
+
+
+# --- parse_transfers_plan() -------------------------------------------------
+
+
+def test_parse_transfers_plan_loads_events_and_transfers(tmp_path: Path) -> None:
+    path = tmp_path / "transfers.json"
+    path.write_text(
+        '[{"event": 4, "transfers": [{"out": 351, "in": 233}]}, '
+        '{"event": 5, "transfers": [{"out": 100, "in": 200}, {"out": 101, "in": 201}]}]',
+        encoding="utf-8",
+    )
+
+    plan = parse_transfers_plan(path)
+
+    assert plan == {
+        4: [Transfer(out_id=351, in_id=233)],
+        5: [Transfer(out_id=100, in_id=200), Transfer(out_id=101, in_id=201)],
+    }
+
+
+def test_parse_transfers_plan_rejects_duplicate_event(tmp_path: Path) -> None:
+    path = tmp_path / "transfers.json"
+    path.write_text(
+        '[{"event": 4, "transfers": [{"out": 1, "in": 2}]}, '
+        '{"event": 4, "transfers": [{"out": 3, "in": 4}]}]',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="more than once"):
+        parse_transfers_plan(path)
+
+
+def test_parse_transfers_plan_empty_list(tmp_path: Path) -> None:
+    path = tmp_path / "transfers.json"
+    path.write_text("[]", encoding="utf-8")
+
+    assert parse_transfers_plan(path) == {}

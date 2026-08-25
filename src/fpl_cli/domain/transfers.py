@@ -90,6 +90,23 @@ class Ledger:
         return cls(version=1, genesis_event=genesis_event, log=legacy_log, chips_played=[], legacy=True)
 
 
+def parse_transfers_plan(path: Path) -> dict[int, list[Transfer]]:
+    """Load a transfers-plan file: one entry per gameweek, transfers proposed for it.
+
+    Schema: `[{"event": 4, "transfers": [{"out": 351, "in": 233}]}, ...]`.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    transfers_by_event: dict[int, list[Transfer]] = {}
+    for entry in payload:
+        event = int(entry["event"])
+        if event in transfers_by_event:
+            raise ValueError(f"Gameweek {event} appears more than once in the transfers plan.")
+        transfers_by_event[event] = [
+            Transfer(out_id=int(transfer["out"]), in_id=int(transfer["in"])) for transfer in entry["transfers"]
+        ]
+    return transfers_by_event
+
+
 def _current_event_id(snapshot: BootstrapSnapshot) -> int:
     for event in snapshot.events:
         if event.is_current:

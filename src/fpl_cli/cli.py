@@ -8,14 +8,17 @@ from rich import print
 from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.api.snapshots import SnapshotService
 from fpl_cli.domain.squad import SquadPlan, validate_plan
-from fpl_cli.presentation import console, player_table
+from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
+from fpl_cli.presentation import console, player_table, simulation_table, squad_state_table
 from fpl_cli.transport import FplError
 
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
 players_app = typer.Typer(help="Browse FPL players.")
 squad_app = typer.Typer(help="Create and validate local squad plans.")
+plan_app = typer.Typer(help="Simulate and optimise transfer plans.")
 app.add_typer(players_app, name="players")
 app.add_typer(squad_app, name="squad")
+app.add_typer(plan_app, name="plan")
 
 
 def load_snapshot() -> BootstrapSnapshot:
@@ -93,6 +96,49 @@ def validate_squad(path: Path) -> None:
     if result.valid:
         print(f"[green]Valid squad for {result.season}.[/green]")
     else:
+        raise typer.Exit(1)
+
+
+@plan_app.command("simulate")
+def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
+    """Simulate transfers from a squad ledger against a transfers plan file."""
+    snapshot = load_snapshot()
+
+    try:
+        ledger = Ledger.from_file(squad_path, snapshot)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise typer.Exit(f"Could not read squad ledger: {exc}") from exc
+    if ledger.legacy:
+        print(
+            "[yellow]Legacy squad file: selling prices are estimated from current "
+            "prices, not real purchase history.[/yellow]"
+        )
+
+    try:
+        transfers_by_event = parse_transfers_plan(transfers_path)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise typer.Exit(f"Could not read transfers plan: {exc}") from exc
+
+    rules = TransferRules.from_snapshot(snapshot)
+    state = replay(ledger, snapshot)
+    try:
+        results = simulate(state, transfers_by_event, snapshot, rules)
+    except ValueError as exc:
+        raise typer.Exit(f"Invalid transfers plan: {exc}") from exc
+
+    console.print(simulation_table(transfers_by_event, results))
+    for event, result in zip(sorted(transfers_by_event), results):
+        for error in result.validation.errors:
+            print(f"[red]✗ GW{event}: {error}[/red]")
+        for warning in result.validation.warnings:
+            print(f"[yellow]! GW{event}: {warning}[/yellow]")
+
+    final_state = results[-1].state if results else state
+    console.print(squad_state_table(final_state, snapshot))
+    print(f"Bank: £{final_state.bank / 10:.1f}m  |  Free transfers: {final_state.free_transfers}")
+    print(f"Total hit points: {sum(result.hit_points for result in results)}")
+
+    if any(not result.validation.valid for result in results):
         raise typer.Exit(1)
 
 
