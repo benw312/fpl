@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from fpl_cli.transport import FplError
 
 _DEFAULT_FIXTURES_PATH = Path.home() / ".fpl-cli" / "fixtures.json"
 _DEFAULT_EVENT_LIVE_DIR = Path.home() / ".fpl-cli" / "events"
+DEFAULT_ARCHIVE_DIR = Path.home() / ".fpl-cli" / "archive"
 
 
 @dataclass(frozen=True)
@@ -61,12 +63,14 @@ class SnapshotService:
         cache: SnapshotCache | None = None,
         fixtures_cache: JsonDocumentCache | None = None,
         event_live_cache_dir: Path | None = None,
+        archive_dir: Path | None = None,
     ) -> None:
         self._api = api or OfficialFplApi()
         self._owns_api = api is None
         self._cache = cache or SnapshotCache()
         self._fixtures_cache = fixtures_cache or JsonDocumentCache(_DEFAULT_FIXTURES_PATH)
         self._event_live_cache_dir = event_live_cache_dir or _DEFAULT_EVENT_LIVE_DIR
+        self._archive_dir = archive_dir or DEFAULT_ARCHIVE_DIR
 
     def close(self) -> None:
         if self._owns_api:
@@ -140,3 +144,17 @@ class SnapshotService:
         if finalised:
             cache.save_raw(live.model_dump(mode="json"))
         return LiveEventResult(live=live, event=event, stale=False)
+
+    def archive(self, snapshot: BootstrapSnapshot) -> Path:
+        """Write a dated, leak-free-evaluation snapshot (Decision 6).
+
+        `fpl plan evaluate` needs player stats as they stood *before* a
+        gameweek's deadline — today's snapshot already contains the result
+        being scored. One file per calendar day (UTC): idempotent within a
+        day by construction, since a second call the same day overwrites the
+        same path rather than accumulating.
+        """
+        self._archive_dir.mkdir(parents=True, exist_ok=True)
+        path = self._archive_dir / f"bootstrap-{datetime.now(UTC).date().isoformat()}.json"
+        path.write_text(json.dumps(snapshot.raw, ensure_ascii=False), encoding="utf-8")
+        return path

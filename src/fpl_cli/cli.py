@@ -2,18 +2,41 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
 from rich import print
 
 from fpl_cli.api.models import BootstrapSnapshot
-from fpl_cli.api.snapshots import SnapshotService
+from fpl_cli.api.snapshots import DEFAULT_ARCHIVE_DIR, SnapshotService
 from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
+from fpl_cli.domain.evaluation import (
+    actuals_from_live_event,
+    evaluate_model,
+    flat_points_per_game_projections,
+    select_archived_snapshot,
+)
+from fpl_cli.domain.projections import (
+    ComponentProjection,
+    NaiveProjection,
+    OfficialEpProjection,
+    Projection,
+    ProjectionModel,
+)
 from fpl_cli.domain.rules import validate_squad as validate_squad_players
 from fpl_cli.domain.squad import to_ledger_payload, validate_squad_file
+from fpl_cli.domain.strength import BandedTeamRates
 from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
-from fpl_cli.presentation import console, player_table, simulation_table, squad_state_table
+from fpl_cli.presentation import (
+    console,
+    evaluation_category_table,
+    evaluation_component_table,
+    evaluation_table,
+    player_table,
+    simulation_table,
+    squad_state_table,
+)
 from fpl_cli.transport import FplError
 
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
@@ -48,12 +71,14 @@ def sync() -> None:
     try:
         snapshot = service.refresh()
         fixtures = service.refresh_fixtures()
+        archive_path = service.archive(snapshot)
     except FplError as exc:
         raise typer.Exit(str(exc)) from exc
     finally:
         service.close()
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
     console.print(f"[green]Synced {len(fixtures)} fixtures.[/green]")
+    console.print(f"[green]Archived to {archive_path}.[/green]")
 
 
 @players_app.command("list")
@@ -183,6 +208,93 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
 
     if any(not result.validation.valid for result in results):
         raise typer.Exit(1)
+
+
+def _project_single_event(model: ProjectionModel, player_ids: list[int], event: int) -> dict[int, Projection]:
+    return {
+        player_id: projection
+        for (player_id, projected_event), projection in model.project(player_ids, [event]).items()
+        if projected_event == event
+    }
+
+
+@plan_app.command("evaluate")
+def evaluate_plan(
+    event: int = typer.Option(..., "--event", help="Gameweek to evaluate against actual results."),
+) -> None:
+    """Score ComponentProjection, NaiveProjection, OfficialEpProjection and the
+    flat points_per_game baseline against a finished gameweek's actual points.
+    """
+    current_snapshot = load_snapshot()
+    gameweek = next((gw for gw in current_snapshot.events if gw.id == event), None)
+    if gameweek is None:
+        raise typer.Exit(f"No gameweek {event} in the current snapshot.")
+
+    service = SnapshotService()
+    try:
+        fixtures_result = service.load_fixtures()
+        live_result = service.load_event_live(event, current_snapshot)
+    except FplError as exc:
+        raise typer.Exit(str(exc)) from exc
+    finally:
+        service.close()
+
+    archive_path = (
+        select_archived_snapshot(DEFAULT_ARCHIVE_DIR, gameweek.deadline_time)
+        if gameweek.deadline_time is not None
+        else None
+    )
+    if archive_path is not None:
+        payload = json.loads(archive_path.read_text(encoding="utf-8"))
+        projection_snapshot = BootstrapSnapshot.from_payload(
+            payload, fetched_at=datetime.fromtimestamp(archive_path.stat().st_mtime, UTC)
+        )
+    else:
+        projection_snapshot = current_snapshot
+        print(
+            f"[yellow]No archived snapshot predates GW{event}'s deadline — using the current "
+            "snapshot. This result is optimistic, not a backtest.[/yellow]"
+        )
+
+    fixtures = fixtures_result.fixtures
+    actuals = actuals_from_live_event(live_result.live)
+    player_ids = [player.id for player in projection_snapshot.elements]
+
+    evaluations = [
+        evaluate_model(
+            flat_points_per_game_projections(projection_snapshot, event), actuals, model_name="baseline/flat-ppg"
+        )
+    ]
+
+    naive_model = NaiveProjection(projection_snapshot, fixtures)
+    evaluations.append(
+        evaluate_model(_project_single_event(naive_model, player_ids, event), actuals, model_name=naive_model.name)
+    )
+
+    component_model = ComponentProjection(
+        projection_snapshot,
+        fixtures,
+        BandedTeamRates(projection_snapshot),
+        fixtures_stale=fixtures_result.stale,
+        fixtures_fetched_at=fixtures_result.fetched_at,
+    )
+    evaluations.append(
+        evaluate_model(
+            _project_single_event(component_model, player_ids, event), actuals, model_name=component_model.name
+        )
+    )
+
+    try:
+        ep_model = OfficialEpProjection(projection_snapshot, fixtures)
+        evaluations.append(
+            evaluate_model(_project_single_event(ep_model, player_ids, event), actuals, model_name=ep_model.name)
+        )
+    except ValueError as exc:
+        print(f"[yellow]OfficialEpProjection: not evaluable for GW{event} ({exc})[/yellow]")
+
+    console.print(evaluation_table(evaluations))
+    console.print(evaluation_category_table(evaluations))
+    console.print(evaluation_component_table(evaluations))
 
 
 if __name__ == "__main__":

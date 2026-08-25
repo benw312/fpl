@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import typer
 
@@ -19,6 +21,7 @@ class StubService:
         refresh_error: Exception | None = None,
         refresh_fixtures_result: list[Fixture] | None = None,
         refresh_fixtures_error: Exception | None = None,
+        archive_error: Exception | None = None,
     ) -> None:
         self._load_result = load_result
         self._load_error = load_error
@@ -26,6 +29,7 @@ class StubService:
         self._refresh_error = refresh_error
         self._refresh_fixtures_result = refresh_fixtures_result if refresh_fixtures_result is not None else []
         self._refresh_fixtures_error = refresh_fixtures_error
+        self._archive_error = archive_error
         self.closed = False
 
     def load(self) -> SnapshotResult:
@@ -44,6 +48,11 @@ class StubService:
         if self._refresh_fixtures_error is not None:
             raise self._refresh_fixtures_error
         return self._refresh_fixtures_result
+
+    def archive(self, snapshot: BootstrapSnapshot) -> Path:
+        if self._archive_error is not None:
+            raise self._archive_error
+        return Path("/tmp/archive/bootstrap-2026-01-01.json")
 
     def close(self) -> None:
         self.closed = True
@@ -86,6 +95,7 @@ def test_sync_reports_success(
     out = capsys.readouterr().out
     assert "Synced 15 players" in out
     assert "Synced 2 fixtures" in out
+    assert "Archived to" in out
 
 
 def test_sync_raises_typer_exit_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,6 +112,19 @@ def test_sync_raises_typer_exit_on_fixtures_error(
         cli,
         "SnapshotService",
         lambda: StubService(refresh_result=bootstrap_snapshot, refresh_fixtures_error=_timeout_error()),
+    )
+
+    with pytest.raises(typer.Exit):
+        cli.sync()
+
+
+def test_sync_raises_typer_exit_on_archive_error(
+    monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "SnapshotService",
+        lambda: StubService(refresh_result=bootstrap_snapshot, archive_error=_timeout_error()),
     )
 
     with pytest.raises(typer.Exit):

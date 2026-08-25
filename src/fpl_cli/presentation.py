@@ -6,6 +6,7 @@ from rich.table import Table
 from rich.text import Text
 
 from fpl_cli.api.models import BootstrapSnapshot, Player
+from fpl_cli.domain.evaluation import CATEGORIES, COMPONENTS, ModelEvaluation
 from fpl_cli.domain.squad import SquadSlots
 from fpl_cli.domain.transfers import SquadState, Transfer, TransferResult
 
@@ -73,6 +74,61 @@ def squad_state_table(state: SquadState, snapshot: BootstrapSnapshot) -> Table:
             position.singular_name_short if position else "?",
             f"£{holding.purchase_price / 10:.1f}m",
             f"£{player.price_millions:.1f}m" if player else "?",
+        )
+    return table
+
+
+def evaluation_table(evaluations: list[ModelEvaluation]) -> Table:
+    table = Table(title="Projection evaluation")
+    table.add_column("Model")
+    table.add_column("N", justify="right")
+    table.add_column("Played", justify="right")
+    table.add_column("RMSE (all)", justify="right")
+    table.add_column("MAE (all)", justify="right")
+    table.add_column("RMSE (played)", justify="right")
+    table.add_column("MAE (played)", justify="right")
+    table.add_column("Spearman", justify="right")
+    for evaluation in evaluations:
+        table.add_row(
+            evaluation.model_name,
+            str(evaluation.n_players),
+            str(evaluation.n_played),
+            f"{evaluation.rmse_all:.3f}",
+            f"{evaluation.mae_all:.3f}",
+            f"{evaluation.rmse_played:.3f}",
+            f"{evaluation.mae_played:.3f}",
+            f"{evaluation.spearman_all:.3f}",
+        )
+    return table
+
+
+def evaluation_category_table(evaluations: list[ModelEvaluation]) -> Table:
+    """Rows = the OpenFPL return categories, columns = one per model."""
+    table = Table(title="Error by return category (predicted − actual, signed mean, n)")
+    table.add_column("Category")
+    for evaluation in evaluations:
+        table.add_column(evaluation.model_name, justify="right")
+    for category in CATEGORIES:
+        table.add_row(
+            category,
+            *(
+                f"{evaluation.categories[category].mean_error:+.2f} (n={evaluation.categories[category].count})"
+                for evaluation in evaluations
+            ),
+        )
+    return table
+
+
+def evaluation_component_table(evaluations: list[ModelEvaluation]) -> Table:
+    """Rows = the eight components, columns = one per model. Played players only."""
+    table = Table(title="Error by component (predicted − actual, signed mean, played only)")
+    table.add_column("Component")
+    for evaluation in evaluations:
+        table.add_column(evaluation.model_name, justify="right")
+    for component in COMPONENTS:
+        table.add_row(
+            component.removeprefix("xp_"),
+            *(f"{evaluation.component_errors[component]:+.3f}" for evaluation in evaluations),
         )
     return table
 
