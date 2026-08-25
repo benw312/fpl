@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from itertools import product
 from pathlib import Path
 from typing import Any
 import json
 
 from fpl_cli.api.models import BootstrapSnapshot, Player
+from fpl_cli.domain.projections import Projection
 from fpl_cli.domain.rules import ValidationResult, validate_squad
 from fpl_cli.domain.transfers import Ledger, current_event_id, replay
 
@@ -79,6 +82,77 @@ def validate_squad_file(path: Path, snapshot: BootstrapSnapshot) -> ValidationRe
     if "players" in payload:
         return validate_plan(SquadPlan.from_file(path), snapshot)
     raise ValueError(f"{path} is not a recognised squad plan or ledger (missing 'players' or 'log').")
+
+
+@dataclass(frozen=True)
+class BestXI:
+    starters: list[int]
+    captain: int
+
+
+def best_xi(
+    player_ids: Sequence[int], projections: Mapping[int, Projection], snapshot: BootstrapSnapshot
+) -> BestXI:
+    """The highest-xP legal starting XI from `player_ids`, and its captain.
+
+    "Legal" means each position's starter count falls within that position's
+    `squad_min_play`/`squad_max_play` (`api/models.Position`) — the same
+    constraint `validate_plan` checks, so manual planning and the optimiser
+    select and validate an XI through one rule (CLAUDE.md).
+
+    Ties on `xp_total` are broken by player ID ascending — both for which
+    player fills the last slot in a position and, if several formations tie
+    on total xP, for which formation wins — so the result is stable across
+    runs.
+    """
+    players_by_id = snapshot.players_by_id
+
+    def xp(player_id: int) -> float:
+        return projections[player_id].xp_total
+
+    by_position: dict[int, list[int]] = {}
+    for player_id in player_ids:
+        by_position.setdefault(players_by_id[player_id].element_type, []).append(player_id)
+
+    ranked: dict[int, list[int]] = {}
+    feasible: dict[int, range] = {}
+    prefix_xp: dict[int, list[float]] = {}
+    for position in snapshot.element_types:
+        candidates = sorted(by_position.get(position.id, []), key=lambda player_id: (-xp(player_id), player_id))
+        ranked[position.id] = candidates
+        min_k, max_k = position.squad_min_play, min(position.squad_max_play, len(candidates))
+        if min_k > max_k:
+            raise ValueError(
+                f"Cannot field a legal formation: {position.singular_name_short} needs at least "
+                f"{min_k} starters but only {len(candidates)} are available."
+            )
+        feasible[position.id] = range(min_k, max_k + 1)
+        sums = [0.0]
+        for player_id in candidates:
+            sums.append(sums[-1] + xp(player_id))
+        prefix_xp[position.id] = sums
+
+    position_ids = [position.id for position in snapshot.element_types]
+    target = snapshot.game_settings.squad_squadplay
+
+    best_value: float | None = None
+    best_starters: tuple[int, ...] | None = None
+    for combo in product(*(feasible[position_id] for position_id in position_ids)):
+        if sum(combo) != target:
+            continue
+        value = sum(prefix_xp[position_id][k] for position_id, k in zip(position_ids, combo))
+        starters = tuple(
+            sorted(player_id for position_id, k in zip(position_ids, combo) for player_id in ranked[position_id][:k])
+        )
+        if best_value is None or value > best_value or (value == best_value and starters < best_starters):
+            best_value = value
+            best_starters = starters
+
+    if best_starters is None:
+        raise ValueError(f"No legal formation of exactly {target} starters is possible from this squad.")
+
+    captain = min(best_starters, key=lambda player_id: (-xp(player_id), player_id))
+    return BestXI(starters=list(best_starters), captain=captain)
 
 
 @dataclass(frozen=True)
