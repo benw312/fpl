@@ -1004,3 +1004,60 @@ makes that standard piece of FPL play plannable, not a nice-to-have.
 considered and declined — it would advertise a capability in `--help` that doesn't
 exist, and stub flags tend to outlive the reason they were added.
 
+---
+
+## FU-30 — `plan simulate` hardcodes `ComponentProjection`, so the `optimise --output` round-trip only verifies points under `--model component`
+
+**Deferred from:** `task/optimise-cli`, while verifying the `optimise --output` →
+`simulate` round-trip live.
+
+`simulate_plan` (`cli.py:244`) builds `model = ComponentProjection(...)` unconditionally
+— there is no way to tell it which model to project with. `fpl plan optimise` (this
+branch) takes `--model component | naive | official-ep`. Run it with anything but the
+default and pipe `--output` into `plan simulate`: the transfers apply and the squad
+structure round-trips (legality is checked inside `apply_transfers`, which doesn't
+touch projections at all), but the printed Points column is `ComponentProjection`'s
+number for a plan that was scored and ranked under a different model. Confirmed live:
+a `--model naive` plan showing 44.0 projected GW points reads back through `simulate`
+as 0.0, because every synthetic player in that check had zero component inputs.
+
+**This silently breaks the guarantee `optimizer-ux.md` §1 and CLAUDE.md state.** §1:
+*"The two commands must print identical per-gameweek numbers for the same path; if
+they diverge, one of them is wrong, and the divergence is the test."* That test is
+only meaningful if both sides used the same model — under any other `--model`, a
+divergence means nothing (of course they differ, they scored different things), so
+the check silently stops testing what it claims to. §8.5 named this as the mechanism
+that satisfies CLAUDE.md's *"Every optimiser recommendation must pass the same
+validator used for manual squad planning"* — that guarantee is aspirational for any
+`optimise` run that isn't `--model component` (the default, so easy to miss).
+
+**Fix: give `plan simulate` a `--model` flag, default `component`.** Not: record the
+producing model in the transfers-plan file. Reasons, in order of weight:
+
+1. **The plan file schema is a bare list**, precisely (`optimizer-ux.md` §8.6:
+   `[{"event": 4, "transfers": [...]}, ...]`), already documented, already the
+   round-trip contract `parse_transfers_plan`/`write_transfers_plan` and their tests
+   assert against. Adding a "which model" field means wrapping the list in an object —
+   a breaking schema change to a format that's meant to be hand-authored too, for a
+   field a hand-written plan has no honest value to put there.
+2. **A model tag on the file goes stale.** Nothing re-checks it if the file is hand-
+   edited after generation, or if the same plan is re-scored to compare models — which
+   is a real, useful thing to do with `simulate` (see next point) and is exactly what a
+   baked-in tag would prevent.
+3. **`--model` matches `optimise`'s own surface** and lets `simulate` do something a
+   file-embedded tag can't: show one plan's points under a *different* model than
+   produced it, on request. That's a legitimate diagnostic (comparing a plan's real
+   payoff across models is what `--robustness` already reasons about internally, §6).
+4. Independence of the round-trip check doesn't depend on which option is chosen —
+   `simulate` recomputes `best_xi`/`objective_points` from scratch either way; the
+   check verifies that code path against the search's own, not that the model choice
+   was rediscovered.
+
+**Not fixed here.** `optimise --output` already round-trips correctly for the default
+model, which is what today's tests (`tests/test_transfers.py`,
+`tests/test_cli_optimise.py`) cover; a separate branch for `plan simulate` is one
+concern, this one was CLI wiring for `optimise`.
+
+**Unblocks:** the `optimise --output` → `simulate` round-trip actually testing what
+`optimizer-ux.md` §1 and CLAUDE.md claim it tests, for any `--model` choice.
+
