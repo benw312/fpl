@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 import json
 
+import numpy as np
+
 from fpl_cli.api.models import BootstrapSnapshot, Player
 from fpl_cli.domain.projections import Projection
 from fpl_cli.domain.rules import ValidationResult, validate_squad
@@ -120,7 +122,7 @@ def legal_formations(snapshot: BootstrapSnapshot) -> tuple[tuple[int, ...], ...]
 
     Squad-specific feasibility is deliberately *not* applied here: whether a
     given squad can field a formation depends on who is in it. That check
-    belongs with the squad, in `_xi_structure`.
+    belongs with the squad, in `xi_structure`.
 
     Returns a tuple, not the `list` optimizer-search.md §6.2 named: the value
     is cached and shared between callers, so it must not be mutable.
@@ -133,7 +135,7 @@ def legal_formations(snapshot: BootstrapSnapshot) -> tuple[tuple[int, ...], ...]
 
 
 @dataclass(frozen=True)
-class _XiStructure:
+class XiStructure:
     """What both `xi_value` and `best_xi` need, built once per squad.
 
     `prefix_xp[i][k]` is the total xP of the best `k` players in position
@@ -141,10 +143,10 @@ class _XiStructure:
     and no sorted tuple has to exist to score it — which is the whole of
     FU-24.
 
-    This is also the seam FU-26 vectorises: its numpy kernel builds these
-    prefix sums once per `(node, event)` and derives each child's from the
-    parent's rather than re-sorting. Private until that lands — promoting a
-    name later is cheaper than un-promoting one.
+    This is the seam FU-26 vectorises: `NodeScorer` builds its numpy arrays
+    from one of these per `(node, event)` and derives every child's prefix
+    sums from the parent's rather than re-sorting, so the ranking that the
+    batch kernel scores against is the ranking `best_xi` would have used.
     """
 
     position_ids: tuple[int, ...]
@@ -156,9 +158,9 @@ class _XiStructure:
     invariant_captain_xp: float | None
 
 
-def _xi_structure(
+def xi_structure(
     player_ids: Sequence[int], projections: Mapping[int, Projection], snapshot: BootstrapSnapshot
-) -> _XiStructure:
+) -> XiStructure:
     """Rank each position by xP, build its prefix sums, and keep the
     formations this particular squad can actually field."""
     players_by_id = snapshot.players_by_id
@@ -203,7 +205,7 @@ def _xi_structure(
     # scoring loop comparing the same sums the pre-FU-24 code compared.
     invariant_captain_xp = max(top_xp) if every_position_starts and top_xp else None
 
-    return _XiStructure(
+    return XiStructure(
         position_ids=tuple(position_ids),
         ranked=tuple(ranked),
         prefix_xp=tuple(prefix_xp),
@@ -214,7 +216,7 @@ def _xi_structure(
     )
 
 
-def _best_formations(structure: _XiStructure) -> tuple[float, list[tuple[int, ...]]]:
+def _best_formations(structure: XiStructure) -> tuple[float, list[tuple[int, ...]]]:
     """The best objective value, and every formation achieving it.
 
     The objective is optimizer-ux.md §3's `Σ xP(XI) + xP(captain)`, so the
@@ -270,7 +272,7 @@ def xi_value(
     Raises the same `ValueError`s as `best_xi` for a squad that cannot field
     a legal XI.
     """
-    value, _ = _best_formations(_xi_structure(player_ids, projections, snapshot))
+    value, _ = _best_formations(xi_structure(player_ids, projections, snapshot))
     return value
 
 
@@ -293,7 +295,7 @@ def best_xi(
     without building any of the tuples below. Only formations that tie for
     the win are materialised here, so the common case builds exactly one.
     """
-    structure = _xi_structure(player_ids, projections, snapshot)
+    structure = xi_structure(player_ids, projections, snapshot)
     _, winners = _best_formations(structure)
 
     best_starters = min(
@@ -452,3 +454,224 @@ def to_ledger_payload(slots: SquadSlots, snapshot: BootstrapSnapshot) -> dict[st
         ],
         "chips_played": [],
     }
+
+
+class NodeScorer:
+    """Scores every child of one `(node, event)` as batched array operations.
+
+    **FU-26.** `xi_value` costs ~44 µs per child because it re-sorts and
+    re-sums the whole squad for each one. Almost none of that work differs
+    between siblings: a transfer perturbs one or two positions and leaves the
+    rest identical. This class does the shared work once per node and scores a
+    whole candidate grid with a handful of numpy operations.
+
+    **The identity it rests on** (optimizer-search.md §6.2): for a position
+    whose prefix sums after the outgoing player is removed are `B`, inserting
+    incoming values gives new prefix sums by *the best k either contains a new
+    player or it does not* —
+
+        one incoming x:    S'[k] = max( B[k],  x + B[k-1] )
+        two incoming x,y:  S'[k] = max( B[k],  max(x,y) + B[k-1],  x+y + B[k-2] )
+
+    Every term broadcasts over the candidate axes, so all candidates for a
+    slot are scored at once and a two-slot move becomes an outer sum.
+
+    **This object is valid only for the `(node, event)` pair it was built
+    for.** A position's xP ranking changes every gameweek, so reusing one
+    across events silently scores against the wrong ranking — §6.2 calls this
+    the most dangerous bug available in the design. Build it inside the
+    per-event expansion and let it die there; `event` is recorded and
+    `assert_event` is provided so a caller can be checked rather than trusted.
+
+    **Not a fallback for `xi_value`, and `xi_value` is not a fallback for it.**
+    The pure-Python path is the reference implementation this is tested
+    against (`tests/test_node_scorer.py`); both are expressions of the one
+    objective `validate_plan` checks, which is what §8's property test ties
+    together.
+    """
+
+    __slots__ = (
+        "_captain_base",
+        "_extended",
+        "_formations",
+        "_position_index",
+        "_rank_of",
+        "_structure",
+        "_tops",
+        "_values",
+        "event",
+    )
+
+    def __init__(
+        self,
+        player_ids: Sequence[int],
+        projections: Mapping[int, Projection],
+        snapshot: BootstrapSnapshot,
+        *,
+        event: int | None = None,
+    ) -> None:
+        structure = xi_structure(player_ids, projections, snapshot)
+        if structure.invariant_captain_xp is None:
+            raise ValueError(
+                "NodeScorer requires every position to have squad_min_play >= 1, so that each "
+                "position's top scorer always starts and the captain is formation-invariant. "
+                "Use xi_value for a snapshot where that does not hold."
+            )
+
+        self._structure = structure
+        self.event = event
+        self._formations = np.asarray(structure.formations, dtype=np.intp)
+        self._position_index = {
+            position_id: index for index, position_id in enumerate(structure.position_ids)
+        }
+        self._rank_of = {
+            player_id: (index, rank)
+            for index, ranked in enumerate(structure.ranked)
+            for rank, player_id in enumerate(ranked)
+        }
+        # Per position, xP sorted descending — the same order `best_xi` ranks in.
+        self._values = [
+            np.fromiter(
+                (projections[player_id].xp_total for player_id in ranked),
+                dtype=np.float64,
+                count=len(ranked),
+            )
+            for ranked in structure.ranked
+        ]
+        self._extended = [self._extend(values, index) for index, values in enumerate(self._values)]
+        self._tops = np.array(
+            [values[0] if values.size else -np.inf for values in self._values], dtype=np.float64
+        )
+
+    # -- internals ---------------------------------------------------------
+
+    def _max_starters(self, position_index: int) -> int:
+        return int(self._formations[:, position_index].max())
+
+    def _extend(self, values, position_index: int):
+        """Prefix sums padded with `-inf` at both ends.
+
+        `E[k + 2] = B[k]`, so `E[k+2]`, `E[k+1]` and `E[k]` are `B[k]`,
+        `B[k-1]` and `B[k-2]` with no bounds test — negative k reads a
+        left pad, and a formation asking for more starters than the position
+        holds reads a right pad. Both are `-inf`, so such a formation loses
+        the `max` rather than needing a branch.
+        """
+        span = self._max_starters(position_index)
+        extended = np.full(span + 3, -np.inf, dtype=np.float64)
+        usable = min(span, values.size)
+        extended[2 : 3 + usable] = np.concatenate(([0.0], np.cumsum(values[:usable])))
+        return extended
+
+    def _after_removal(self, position_index: int, ranks: Sequence[int]):
+        values = np.delete(self._values[position_index], ranks)
+        return values, self._extend(values, position_index)
+
+    def assert_event(self, event: int) -> None:
+        """Raise if this scorer was built for a different gameweek."""
+        if self.event is not None and event != self.event:
+            raise ValueError(
+                f"NodeScorer was built for gameweek {self.event} but is being used for {event}. "
+                "A position's xP ranking changes every gameweek; rebuild it per event."
+            )
+
+    # -- the batch ---------------------------------------------------------
+
+    def value(self) -> float:
+        """The node's own XI value, with nothing transferred."""
+        return _best_formations(self._structure)[0]
+
+    def score_children(self, out_ids: Sequence[int], in_xp: Sequence[object]):
+        """XI values for every combination of incoming candidates.
+
+        `out_ids[i]` leaves the squad and is replaced by one of the candidates
+        whose xP is `in_xp[i]`, a 1-D array. FPL fixes each position's squad
+        count, so a replacement is always the same position as the player it
+        replaces, and slot `i` occupies axis `i` of the result — shape
+        `(len(in_xp[0]), len(in_xp[1]), ...)`.
+
+        An infeasible combination scores `-inf` rather than raising, so
+        callers mask instead of branching. Feasibility that is not about the
+        XI — budget, club limit, already held — is the caller's to mask.
+        """
+        if len(out_ids) != len(in_xp):
+            raise ValueError(f"{len(out_ids)} outgoing players but {len(in_xp)} candidate arrays.")
+        if not out_ids:
+            raise ValueError("score_children needs at least one outgoing player.")
+
+        arrays = [np.asarray(values, dtype=np.float64) for values in in_xp]
+        if any(values.ndim != 1 for values in arrays):
+            raise ValueError("Each candidate array must be 1-D.")
+        shape = tuple(values.size for values in arrays)
+        axes = len(arrays)
+
+        slots_by_position: dict[int, list[int]] = {}
+        for slot, player_id in enumerate(out_ids):
+            try:
+                position_index, _ = self._rank_of[player_id]
+            except KeyError:
+                raise ValueError(f"Player {player_id} is not in this node's squad.") from None
+            slots_by_position.setdefault(position_index, []).append(slot)
+
+        def broadcast(values, slot: int):
+            return values.reshape(tuple(values.size if a == slot else 1 for a in range(axes)))
+
+        formation_count = self._formations.shape[0]
+        lead = (formation_count,) + (1,) * axes
+
+        # Positions no transfer touches contribute the same per-formation
+        # total to every child, so they are summed into one `(F,)` vector
+        # *before* any candidate axis exists. Folding them in afterwards costs
+        # a full-grid add each: 743 ns/child against 699 on the measured root
+        # expansion.
+        fixed = np.zeros(formation_count, dtype=np.float64)
+        fixed_captain = -np.inf
+        terms = []
+        captain = None
+
+        for position_index in range(len(self._values)):
+            counts = self._formations[:, position_index]
+            slots = slots_by_position.get(position_index)
+
+            if slots is None:
+                fixed = fixed + self._extended[position_index][counts + 2]
+                fixed_captain = max(fixed_captain, float(self._tops[position_index]))
+                continue
+
+            ranks = [self._rank_of[out_ids[slot]][1] for slot in slots]
+            values, extended = self._after_removal(position_index, ranks)
+            base = extended[counts + 2].reshape(lead)
+            prev = extended[counts + 1].reshape(lead)
+            best_remaining = values[0] if values.size else -np.inf
+
+            if len(slots) == 1:
+                incoming = broadcast(arrays[slots[0]], slots[0])
+                terms.append(np.maximum(base, prev + incoming))
+                position_top = np.maximum(best_remaining, incoming)
+            elif len(slots) == 2:
+                prev2 = extended[counts].reshape(lead)
+                first = broadcast(arrays[slots[0]], slots[0])
+                second = broadcast(arrays[slots[1]], slots[1])
+                higher = np.maximum(first, second)
+                terms.append(
+                    np.maximum(np.maximum(base, prev + higher), prev2 + (first + second))
+                )
+                position_top = np.maximum(best_remaining, higher)
+            else:
+                raise ValueError(
+                    f"score_children handles at most 2 incoming players per position; "
+                    f"got {len(slots)} for position {self._structure.position_ids[position_index]}."
+                )
+            captain = position_top if captain is None else np.maximum(captain, position_top)
+
+        # Each term carries only its own candidate axes, so the full grid is
+        # materialised once, by the last addition, rather than once per
+        # position.
+        total = fixed.reshape(lead)
+        for term in terms:
+            total = total + term
+
+        # `-inf + finite` is `-inf`, so a child no formation can field stays
+        # `-inf` without a guard; the captain term cannot resurrect it.
+        best = total.max(axis=0)
+        return (best + np.maximum(captain, fixed_captain)).reshape(shape)

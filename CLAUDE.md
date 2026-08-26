@@ -4,7 +4,7 @@ Local, read-only Fantasy Premier League planning tool. Python CLI over the
 official (undocumented) FPL API. No credentials, no team submission.
 
 ## Stack
-Typer (CLI) · Rich (output) · HTTPX (API) · Pydantic (models)
+Typer (CLI) · Rich (output) · HTTPX (API) · Pydantic (models) · numpy (optimiser kernel)
 SQLite + raw JSON snapshots (cache) · pytest (mocked API)
 
 ## Platform
