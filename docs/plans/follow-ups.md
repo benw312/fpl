@@ -666,6 +666,34 @@ budget. Separate concern from the optimiser — its own branch, before
 
 ## FU-24 — `best_xi` materialises a sorted tuple per candidate formation
 
+**Status: closed** — `5afd728` *Split best_xi into xi_value and best_xi (FU-24)*
+(2026-08-26). Verified: `xi_value` and `best_xi` both enumerate through
+`legal_formations(snapshot)`, and `tests/test_xi_value.py` carries §8's property
+test. The witness tuple is now built only for formations tied for the win — one in
+the common case, against eight before — which preserves the documented tie-break
+without putting a tuple on the hot path.
+
+Two deviations from the entry, both deliberate. `legal_formations` returns a
+**tuple**, not the `list` §6.2 named: the value is cached and shared between
+callers, so it must not be mutable. And the per-squad feasibility guard moved into
+the shared structure builder rather than staying textually inside `best_xi`, so
+`xi_value` applies it too — a value half that silently scored an infeasible squad
+would be worse than one that raised. §6.2's point that the check belongs to the
+squad and not the formation set still holds; only its position in the file changed.
+
+**The measured speedup is 1.56×, not 8.7× — and this needs settling before FU-26.**
+On the synthetic fixture: 66.4 µs before, 42.6 µs for `xi_value`; `best_xi` itself
+66.4 → 52.7 µs. The entry's 136 µs → 15.6 µs was measured on the *live* snapshot and
+could not be reproduced here, since tests never touch the live API. The gap is not
+explained by FU-23 having already landed — dropping the `players_by_id` memo adds
+only ~4 µs at 15 players, against the 63 µs FU-23 measured at 612. So either the
+live-snapshot baseline carries a cost the synthetic fixture does not, or the original
+figure needs re-measuring. **[Unresolved: which. Re-measure against a live snapshot
+before [optimizer-search.md](optimizer-search.md) §7's cost budget is relied on —
+§7 derives its runtime from the 15.6 µs figure, and FU-26's 44× is quoted against
+it.]** The split is still worth having on its own terms: it is the seam FU-26
+vectorises, and §8's property test is what will keep that kernel honest.
+
 **Deferred from:** [optimizer-search.md](optimizer-search.md) §2, §6.2.
 
 `best_xi` (`domain/squad.py:140-149`) builds a fully sorted 11-element starters
@@ -791,6 +819,10 @@ same-position de-duplication — is a boolean mask over the same grid.
 pure-Python fallback. A second implementation of the hot kernel would be a second
 place for the objective to drift.
 
-**Prerequisite:** FU-24, which creates the `xi_value` seam this vectorises and
-whose property test keeps it honest. Its own branch, after FU-24 and before
-`domain/optimizer.py`.
+**Prerequisite:** ~~FU-24~~ — **closed `5afd728`**, so this is unblocked. The
+`xi_value` seam and §8's property test both exist; `domain/squad._XiStructure` holds
+the per-position prefix sums to vectorise, and is private pending this entry
+promoting it. Its own branch, before `domain/optimizer.py`. **Read FU-24's Status
+line first:** the per-child cost this entry's 44× is quoted against did not
+reproduce on the synthetic fixture, and wants re-measuring before §7's budget is
+relied on.
