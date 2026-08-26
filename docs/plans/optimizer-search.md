@@ -442,6 +442,67 @@ shortfall), **club limit** (naming the three players already held), **already he
 *paths*, which is a different object; §5.6 states exactly what that costs, and the
 output must not conflate the two.
 
+**Correction (2026-08-26, `tests/test_optimizer.py`'s dominance property test): the
+exactness claim above is false for a same-bucket k = 2 double-pick, and this is not
+a theoretical corner — `_mask_k2` generates exactly this shape.** The "interchangeable
+under every constraint" argument two paragraphs up only proves *1-for-1* substitution:
+if a squad wants one player from a bucket, its dominator is always at least as good.
+It says nothing about a squad that wants **two** players from the same bucket at
+once, which `_mask_k2`'s `i < j` dedup exists specifically to support (two in-slots
+of the same position, unrestricted on club, so both can land in the same club).
+
+Counterexample, found by the property test's random search and reproducible with
+seed `"fu-optimizer-dominance-is-exact"` (`tests/test_optimizer.py`, trial 0): one
+`(DEF, club)` bucket —
+
+| Player | Cost | Bucket status |
+|---|---:|---|
+| id6 | £4.5m | survivor |
+| id8 | £4.5m | **excluded** — dominated by id6 (same cost, id6 ≥ id8 in every event) |
+| id7 | £4.5m | survivor, incomparable with id8 |
+
+At a £9.0m budget for two DEF from this club, the true best pair is **id6 + id8**
+(£9.0m, 22.18 combined xP). Dominance strips id8 from the pool before the search ever
+sees it, so the best pair the search can actually construct is **id6 + id7** (£9.0m,
+17.38 combined xP) — a **4.8-point loss**, silent, and not attributed to any of §9's
+four named exclusion reasons.
+
+**Why id7 doesn't rescue it:** id8 was excluded *only* because id6 dominates it —
+that comparison says nothing about how id8 relates to any other survivor. id7 and id8
+are mutually non-dominated (id7 leads at one event, id8 at the other), so id7's
+presence in the pool is irrelevant to the value lost when id8 is removed.
+
+**The error is unbounded, not merely nonzero.** The lost value is `xP(id8) −
+xP(next-best survivor once id6 is taken)`, and dominance places no floor under the
+second term — it can be arbitrarily far below id8's value, since dominance never
+compared them. Nothing in §5.2's construction bounds this gap; it is exactly as large
+as the price/xP distribution within one club happens to make it.
+
+**Whether this needs a code change, and what kind, is open — recorded here rather
+than fixed in passing:**
+
+- **Option A — restrict `_mask_k2`** so both in-slots of a same-position pair can
+  never be drawn from the same club. Cheapest to implement, exact by construction
+  (same-bucket double-picks are removed rather than mis-pruned), but a real capability
+  loss: "stack two defenders from one club for a favourable run" is standard FPL play
+  (the wider all-different-club k = 2 case is unaffected), and this would silently
+  stop enumerating it rather than reporting the gap the way §5.3 requires for
+  `k_rules > k_enum`.
+- **Option B — widen the pool per bucket** from a single Pareto frontier to the top
+  `m` Pareto *layers*, where `m = min(squad_team_limit, position.squad_select)` is the
+  most a squad could ever simultaneously hold from one bucket. Restores exactness for
+  every k ≤ 2 pick shape at the cost of a larger (though still bounded — `m` is 2 or 3
+  on the live snapshot, not `k_enum`) candidate pool, and is more construction than a
+  one-line fix.
+- **Do nothing, but report it**, matching how `k_rules > k_enum` is handled in §5.3:
+  state in the output that same-club double-picks within one position are pruned
+  against a dominator that may itself be the other half of the pick, rather than
+  claiming an exactness the algorithm does not have.
+
+No option is implemented by this correction. `tests/test_optimizer.py`'s dominance
+test is scoped to k = 1 (where the exactness argument is airtight) and documents this
+gap in its own docstring rather than asserting a k = 2 property that does not hold.
+
 ### 5.3 — Move generation within a gameweek: two caps, not one
 
 An earlier draft of this document conflated the rules cap with what the search can

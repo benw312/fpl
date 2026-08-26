@@ -593,8 +593,13 @@ def _expand_node(
     candidates: list[Node] = []
 
     # k = 0: hold. `apply_transfers` folds idle-event accrual itself, so this
-    # is not a special case, and it is never top-k'd away.
-    hold_node = _materialize(node, event, [], snapshot, rules, projections_at_event, decay_factor, 0.0, now)
+    # is not a special case, and it is never top-k'd away. The delta is
+    # against `hold_objective_value` (the *original* root squad, §1), not
+    # zero — `node`'s squad already diverged from it at an earlier event for
+    # any path that has made a transfer, and holding it into this event still
+    # carries that squad's own value here.
+    hold_delta = scorer.value() - hold_objective_value
+    hold_node = _materialize(node, event, [], snapshot, rules, projections_at_event, decay_factor, hold_delta, now)
     if hold_node is not None:
         candidates.append(hold_node)
 

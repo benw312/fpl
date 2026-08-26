@@ -934,3 +934,42 @@ open only because that is a judgement call rather than a fact.
 The property test in `tests/test_xi_value.py` is what makes it safe to try: any
 divergence between a faster `xi_value` and `best_xi` fails there.
 
+---
+
+## FU-28 — Dominance pruning is not exact for a same-bucket k = 2 double-pick
+
+**Deferred from:** §8's dominance property test (`tests/test_optimizer.py`,
+2026-08-26, `task/optimizer`).
+
+optimizer-search.md §5.2 claims exact `(position, club)` dominance: a dominated
+player can always be swapped for its dominator at no cost in legality or value. The
+property test's random search found a counterexample — recorded in full, with the
+concrete numbers, in optimizer-search.md §5.2's "Correction" — where a bucket has
+`id6` dominating `id8` at equal cost, and the true best *same-club* two-defender pick
+at a given budget is `id6 + id8`. Since `id8` is stripped from the pool before the
+search runs, and `_mask_k2` allows both in-slots of a same-position k = 2 move to
+land in the same club, the search can only reach `id6` + the next survivor, a 4.8
+point loss on that seed with no floor under how much larger the gap could be on a
+different bucket.
+
+The argument in §5.2 ("interchangeable under every constraint") only proves 1-for-1
+substitution; it was never checked against a squad wanting two players from one
+bucket simultaneously, which is exactly the same-position, same-club shape
+`_mask_k2`'s `i < j` dedup was built to support.
+
+**Options, none implemented:**
+- Restrict `_mask_k2` so a same-position k = 2 pair can never share a club — cheap,
+  restores exactness, but silently drops a real move shape (stacking one club's
+  defence for a fixture swing) instead of reporting it per §5.3's own standard for
+  unenumerated shapes.
+- Widen the pool per bucket to the top `m` Pareto layers, `m = min(squad_team_limit,
+  position.squad_select)` — exact for every k ≤ 2 shape, bounded pool growth (`m` is
+  2–3 on the live snapshot), more construction than a one-line fix.
+- Leave the pruning as is, but name the gap in the output the way `k_rules >
+  k_enum` is named in §5.3, rather than continuing to claim an exactness the
+  algorithm does not have.
+
+**Unblocks:** nothing currently blocks on this — `tests/test_optimizer.py`'s
+dominance test is scoped to k = 1 (provably exact) and documents the k = 2 gap in its
+own docstring rather than asserting a property that doesn't hold.
+
