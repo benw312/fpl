@@ -3,9 +3,24 @@
 Work deliberately deferred out of other tasks. Each entry records what, why it was
 deferred, and what it unblocks.
 
+Closed entries stay in place — the numbering is referenced from commit messages and
+from the plans in this directory, so it must not shift. A closed entry carries a
+**Status: closed** line naming the commit that closed it and what was checked in the
+code, not just what the commit claimed. Its body is left as written, so where the
+fix diverged from the entry the Status line says how.
+
+**Last reconciled against `main`:** 2026-08-26 (`387ff0c`).
+
 ---
 
 ## FU-1 — Extract the stale-cache decision into a `SnapshotService`
+
+**Status: closed** — `7642b44` *Extract SnapshotService, fix cache write on successful
+fetch (FU-1, FU-2)* (2026-08-24). Verified: `api/snapshots.py` defines
+`SnapshotService` and a frozen `SnapshotResult(snapshot, stale, reason)`;
+`cli.load_snapshot` (`cli.py:50-63`) constructs the service, renders the staleness
+warning itself and returns `result.snapshot`. `sync` (`cli.py:67-81`) goes through the
+same service via `refresh()`, so the duplicated path under **Also fixes** is gone.
 
 **Deferred from:** [transport.md](transport.md), Step 3.
 
@@ -27,6 +42,13 @@ constructs its own API and cache.
 ---
 
 ## FU-2 — `load_snapshot` never writes the cache on a successful fetch
+
+**Status: closed** — `7642b44` *Extract SnapshotService, fix cache write on successful
+fetch (FU-1, FU-2)* (2026-08-24). Verified: `SnapshotService.load` calls
+`self._cache.save(snapshot)` on the success path before returning
+`SnapshotResult(stale=False)` (`api/snapshots.py`), so a bare `fpl players list`
+populates the cache. `refresh()` saves too. The same shape was applied to fixtures
+(`load_fixtures`/`refresh_fixtures`) when that endpoint landed.
 
 **Deferred from:** [transport.md](transport.md), Step 3.
 
@@ -50,16 +72,32 @@ committed as a known-failing test.
 ## FU-3 — `typer.Exit` is passed a message where it expects an exit code
 
 **Deferred from:** [transport.md](transport.md), Step 3.
+**Open. FU-16 merged in here on 2026-08-26** — it was a re-filing of this same defect
+with a higher count, and carrying a follow-up about a follow-up meant two entries to
+keep in step for one fix.
 
-`typer.Exit.__init__` is `(self, code: int = 0)`. Three call sites pass a string:
-`cli.py:31`, `cli.py:44`, `cli.py:87`. The message reaches the user only by accident
-of `SystemExit` semantics — `sys.exit(str)` prints to stderr and exits 1 — so the
-intended exit code is silently discarded and every failure exits 1.
+`typer.Exit.__init__` is `(self, code: int = 0)`. Call sites pass a string instead. The
+message reaches the user only by accident of `SystemExit` semantics — `sys.exit(str)`
+prints to stderr and exits 1 — so the intended exit code is silently discarded and
+every failure exits 1.
 
-**Fix:** print to stderr explicitly, then `raise typer.Exit(1)`.
+**The count is itself the finding.** Three at filing; eight when re-filed as FU-16
+against [optimizer-ux.md](optimizer-ux.md) §8; **nine on `main` at 2026-08-26** —
+`cli.py:56, 76, 159, 186, 196, 203, 209, 256, 263`. The idiom is being copied while the
+entry sits open, and `plan-simulate.md:176-177` copied it knowingly. Re-check the count
+when next touching this rather than trusting the line numbers above.
+
+**Fix:** print to stderr explicitly, then `raise typer.Exit(1)`. Mechanical, and cheaper
+the sooner it happens — every new command adds sites. `cli.py` already has the
+correct idiom in place at nine other sites (`raise typer.Exit(1)` after a
+`console.print`), so the two forms sit side by side in the same file.
 
 **Blocks:** `tests/test_stale_cache.py` can assert only the exception type, not the
 message, until this is fixed.
+
+**Do with FU-12** if convenient — that entry routes all output through
+`presentation.console`, and the stderr half of this fix is the same decision about
+which channel a failure message goes to. Neither depends on the other.
 
 ---
 
@@ -119,6 +157,12 @@ a captain per simulated gameweek.
 
 ## FU-7 — `fpl plan simulate` CLI command
 
+**Status: closed** — `50ae917` *Add fpl plan simulate CLI command (FU-7)* (2026-08-25).
+Verified: `@plan_app.command("simulate")` exists at `cli.py:178`, taking a squad path
+and a transfers path, and renders through `presentation.simulation_table` /
+`squad_state_table`. `Ledger.legacy` now has a reader — the command surfaces its
+warning.
+
 **Deferred from:** [transfers.md](transfers.md), Module layout.
 
 `domain/transfers.py` has no CLI entry point. The README Agent Plan names
@@ -134,6 +178,13 @@ reads that flag.
 ---
 
 ## FU-8 — Formation validity is never checked
+
+**Status: closed** — `0d4dc85` *Wire squad_min_play/squad_max_play into starting XI
+validation (FU-8)* (2026-08-25). Verified: `validate_plan` (`domain/squad.py:52-56`)
+counts starters by `element_type` and checks each count against that position's
+`squad_min_play`/`squad_max_play`, reading both from the snapshot — nothing hardcoded.
+A 1-GK/10-FWD XI no longer validates clean. This clears the blocker FU-9 was waiting
+on.
 
 **Deferred from:** [squad-builder.md](squad-builder.md), Decision 3.
 
@@ -162,8 +213,9 @@ backs — see FU-9.
 captain and vice-captain is a separate interaction, and the ledger format it
 writes (`log` of buy transactions) has no field to record any of them.
 
-Needs FU-8 first (an XI can't be offered before an illegal formation can be
-rejected) and overlaps FU-6, which already notes that `starters`/`captain`/
+~~Needs FU-8 first~~ — **FU-8 closed `0d4dc85`, so this is unblocked**
+(an XI can't be offered before an illegal formation can be rejected; it now can be).
+Still overlaps FU-6, which already notes that `starters`/`captain`/
 `vice_captain` are logically per-gameweek but stored as one global value each.
 Doing this properly probably means resolving FU-6's schema question at the same
 time rather than bolting a global XI onto a gameweek-aware ledger.
@@ -171,6 +223,13 @@ time rather than bolting a global XI onto a gameweek-aware ledger.
 ---
 
 ## FU-10 — `fpl squad validate` silently misparses the ledger file `fpl squad create` writes
+
+**Status: closed** — `0c6ea1c` *Implement FU-10: squad validate accepts both ledger and
+plan formats* (2026-08-25). Verified: `validate_squad_file` (`domain/squad.py:68-85`)
+implements all three shapes as specified — `"log" in payload` replays the ledger and
+runs `validate_squad` on the resulting player IDs, `"players" in payload` keeps the
+existing `SquadPlan` path, and anything else raises `ValueError` naming the path and
+the two keys it looked for. No fall-through to an empty squad remains.
 
 **Deferred from:** [squad-builder.md](squad-builder.md), Output.
 **Sharpened from user testing (2026-08-25):** this is not a load failure —
@@ -212,6 +271,26 @@ concern from the squad-builder branch that surfaced it.
 ---
 
 ## FU-11 — `p1`'s substitute term isn't gated by availability
+
+**Status: closed** — `a7b86d3` *Gate p1/xmins's substitute term by availability (FU-11)*
+(2026-08-25). Verified: `projections.py:100-101` reads
+
+```python
+p1    = p_start + (1 - p_start) * config.p_sub_appearance * availability
+xmins = p_start * e_mins_start + (1 - p_start) * config.p_sub_appearance * config.mins_per_sub * availability
+```
+
+— **both** lines gated, and `p60` untouched, exactly as the *Diagnosis, traced against
+the live snapshot* section below specifies.
+
+**Read the entry from that section down, not from the top.** The opening paragraphs are
+the filing-time draft and are superseded twice over: their candidate fix gates `p1`
+alone, which would have left `xmins` wrong, and their framing ("this may be intentional
+… needs a decision, not a silent patch") was the open question, since answered. The
+severity was also restated — the defect that justified fixing this is the
+**convergence** one under *Corrected severity*, not the inversion an earlier draft of
+optimizer-ux.md claimed. Both drafts are kept because the correction is the useful
+record. FU-21 was deliberately **not** bundled into the fix and remains open.
 
 **Deferred from:** [projections-v1.md](projections-v1.md) Decision 4, step 3
 (`task/projections-v1`).
@@ -357,22 +436,15 @@ squad builder, transfer simulation and projections.
 
 ---
 
-## FU-16 — FU-3 is still live, at eight call sites
+## FU-16 — *merged into FU-3*
 
-**Re-affirmed from:** [optimizer-ux.md](optimizer-ux.md), §8. Original: FU-3.
+**Status: merged** into **FU-3** on 2026-08-26. Not closed — the defect is still live.
 
-FU-3 recorded three `typer.Exit(str)` call sites. There are now eight:
-`cli.py:56, 76, 159, 178, 188, 195, 231, 238`. `typer.Exit.__init__` is
-`(self, code: int = 0)`, so every one of these discards its intended exit code
-and reaches the user only via `sys.exit(str)` semantics — print to stderr,
-exit 1.
-
-Filed separately from FU-3 rather than editing it, because the count growing
-from three to eight while the entry sat open is itself the finding: the idiom is
-being copied. `plan-simulate.md:176-177` copied it knowingly.
-
-**Fix (unchanged from FU-3):** print to stderr explicitly, then
-`raise typer.Exit(1)`.
+FU-16 re-filed FU-3 after the `typer.Exit(str)` count grew from three call sites to
+eight, deliberately as a new entry so that the growth was visible rather than edited
+away. That worked as a signal and has been folded into FU-3, which now carries the
+count and its history. The number is kept here because the plans reference it; the
+content is not duplicated.
 
 ---
 
@@ -418,6 +490,29 @@ fine; the conflict is not.
 ## FU-19 — `CLAUDE.md`'s "not yet written" line is stale
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+**Status: still open** — re-checked against `main` at `387ff0c` (2026-08-26).
+`CLAUDE.md` still reads *"Not yet written: domain/optimizer.py, interactive squad
+builder."* verbatim, and `src/fpl_cli/builder.py` is still 238 lines wired to
+`fpl squad create` (`cli.py:114`). Left open deliberately: `CLAUDE.md` is a source
+file, and editing it is a change to the instructions this reconciliation was run
+under, not part of reconciling the ledger.
+
+**How the line got there matters.** `git log -- CLAUDE.md` shows two commits, and the
+later one is `b522572` *Add interactive squad builder* — the commit that **added
+`builder.py`** rewrote `Current state` into `Structure` and wrote *"Not yet written:
+… interactive squad builder"* in the same diff. This was never accurate for a single
+commit; it is not documentation that drifted, it is documentation that was wrong on
+arrival, which is why no later commit would have caught it.
+
+That same rewrite silently dropped the line *"Note: plan specifies a `presentation/`
+package; currently a flat module"* — the exact conflict re-filed months later as
+**FU-18**. Two of this file's entries trace to one careless section rewrite.
+
+**Wider than filed.** The `Structure` block has drifted further since: `domain/` lists
+`rules.py, squad.py, transfers.py` but the package also holds `evaluation.py`,
+`projections.py` and `strength.py`; `api/` lists `transport.py`, which actually sits
+at `src/fpl_cli/transport.py`. Fix all four in one pass, and settle FU-18 with them
+since it is the same block.
 
 `CLAUDE.md` states *"Not yet written: domain/optimizer.py, interactive squad
 builder."* The interactive squad builder exists as `src/fpl_cli/builder.py`
@@ -499,6 +594,13 @@ i.e. the next entry after `captain` in that ordering, restricted to starters.
 ---
 
 ## FU-23 — `BootstrapSnapshot`'s lookup properties rebuild their dicts on every access
+
+**Status: closed** — `387ff0c` *Memoise BootstrapSnapshot's lookup mappings (FU-23)*
+(2026-08-26). Verified: `players_by_id`, `clubs` and `positions` (`api/models.py:173-183`)
+are `functools.cached_property`, not plain `@property` — the entry's second candidate
+route (build in `from_payload`) was not the one taken, but the constraint that mattered
+holds: the three property names are unchanged, so no call site moved. A comment at
+`api/models.py:168-171` records that a mutating caller must `del` the memo.
 
 **Deferred from:** [optimizer-search.md](optimizer-search.md) §2.
 
