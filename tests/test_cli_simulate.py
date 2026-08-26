@@ -13,6 +13,8 @@ from fpl_cli.domain.projections import ComponentProjection
 from fpl_cli.domain.squad import best_xi, objective_points
 from fpl_cli.domain.strength import BandedTeamRates
 
+from conftest import add_players
+
 
 class StubService:
     def __init__(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture] | None = None) -> None:
@@ -51,8 +53,9 @@ def test_simulate_plan_reports_valid_run(
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
     _future_deadline(bootstrap_snapshot, 2, datetime(2099, 1, 1, tzinfo=UTC))
-    bootstrap_snapshot.elements.append(
-        Player(id=101, web_name="P101", team=bootstrap_snapshot.players_by_id[1].team, element_type=1, now_cost=50)
+    add_players(
+        bootstrap_snapshot,
+        Player(id=101, web_name="P101", team=bootstrap_snapshot.players_by_id[1].team, element_type=1, now_cost=50),
     )
     monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(bootstrap_snapshot))
 
@@ -78,8 +81,9 @@ def test_simulate_plan_exits_1_on_rejected_gameweek(
     _future_deadline(bootstrap_snapshot, 2, datetime(2099, 1, 1, tzinfo=UTC))
     # Player 4's club already has 3 players; a same-position, same-club
     # replacement pushes it to 4 and fails structural validation.
-    bootstrap_snapshot.elements.append(
-        Player(id=101, web_name="P101", team=bootstrap_snapshot.players_by_id[4].team, element_type=1, now_cost=50)
+    add_players(
+        bootstrap_snapshot,
+        Player(id=101, web_name="P101", team=bootstrap_snapshot.players_by_id[4].team, element_type=1, now_cost=50),
     )
     monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(bootstrap_snapshot))
 
@@ -103,8 +107,9 @@ def test_simulate_plan_warns_on_legacy_squad_file(
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
     _future_deadline(bootstrap_snapshot, 3, datetime(2099, 1, 1, tzinfo=UTC))
-    bootstrap_snapshot.elements.append(
-        Player(id=102, web_name="P102", team=bootstrap_snapshot.players_by_id[1].team, element_type=1, now_cost=50)
+    add_players(
+        bootstrap_snapshot,
+        Player(id=102, web_name="P102", team=bootstrap_snapshot.players_by_id[1].team, element_type=1, now_cost=50),
     )
     monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(bootstrap_snapshot))
 

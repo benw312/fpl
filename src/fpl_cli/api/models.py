@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cached_property
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -162,15 +163,22 @@ class BootstrapSnapshot(BaseModel):
     fetched_at: datetime
     season: str = "unknown"
 
-    @property
+    # Memoised (FU-23): these otherwise rebuild a dict on every access, and
+    # every command reaches for them repeatedly — `apply_transfers` alone hits
+    # `players_by_id` twice per call. A snapshot is a fixed read of the API, so
+    # the mappings are built once, on first access. Nothing here mutates
+    # `teams`, `element_types` or `elements` after construction; anything that
+    # does must drop the memo it invalidates (`del snapshot.players_by_id`).
+
+    @cached_property
     def clubs(self) -> dict[int, Club]:
         return {club.id: club for club in self.teams}
 
-    @property
+    @cached_property
     def positions(self) -> dict[int, Position]:
         return {position.id: position for position in self.element_types}
 
-    @property
+    @cached_property
     def players_by_id(self) -> dict[int, Player]:
         return {player.id: player for player in self.elements}
 

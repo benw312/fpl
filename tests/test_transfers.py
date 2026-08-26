@@ -21,6 +21,8 @@ from fpl_cli.domain.transfers import (
     simulate,
 )
 
+from conftest import add_players
+
 
 def _rules(snapshot: BootstrapSnapshot) -> TransferRules:
     return TransferRules.from_snapshot(snapshot)
@@ -41,7 +43,8 @@ def _add_pool_player(
 ) -> None:
     """Append a same-position, same-club replacement candidate not currently held."""
     template = snapshot.players_by_id[template_id]
-    snapshot.elements.append(
+    add_players(
+        snapshot,
         Player(
             id=player_id,
             web_name=f"P{player_id}",
@@ -49,7 +52,7 @@ def _add_pool_player(
             element_type=template.element_type,
             now_cost=now_cost,
             can_transact=can_transact,
-        )
+        ),
     )
 
 
@@ -321,8 +324,9 @@ def test_transfer_creating_fourth_club_player_fails_structural_validation(bootst
     # Player 1's club already has 3 players (ids 1, 6, 11 -> team (id%5)+1 == 2).
     # A same-position replacement on a *different* club (e.g. player 4's club)
     # pushes that club to 4.
-    bootstrap_snapshot.elements.append(
-        Player(id=101, web_name="P101", team=bootstrap_snapshot.players_by_id[4].team, element_type=1, now_cost=50)
+    add_players(
+        bootstrap_snapshot,
+        Player(id=101, web_name="P101", team=bootstrap_snapshot.players_by_id[4].team, element_type=1, now_cost=50),
     )
     state = _state_at(1, free_transfers=1, holdings=_held(list(range(1, 16))), bank=250)
 

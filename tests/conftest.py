@@ -74,6 +74,17 @@ def bootstrap_snapshot() -> BootstrapSnapshot:
     return _bootstrap_snapshot()
 
 
+def add_players(snapshot: BootstrapSnapshot, *players: Player) -> None:
+    """Append players to a snapshot, dropping the memoised `players_by_id`.
+
+    `BootstrapSnapshot`'s lookups are `cached_property` (FU-23), so appending
+    to `elements` directly leaves a snapshot that has already been read from
+    denying the new players exist.
+    """
+    snapshot.elements.extend(players)
+    snapshot.__dict__.pop("players_by_id", None)
+
+
 def _builder_players() -> list[Player]:
     """~45 players across 8 clubs, varied prices and points.
 
