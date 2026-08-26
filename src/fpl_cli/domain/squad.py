@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from itertools import product
+from math import inf
 from pathlib import Path
 from typing import Any
 import json
@@ -90,6 +92,188 @@ class BestXI:
     captain: int
 
 
+@lru_cache(maxsize=None)
+def _formations_for(spec: tuple[tuple[int, int], ...], target: int) -> tuple[tuple[int, ...], ...]:
+    """Every per-position starter count summing to `target` within `spec`.
+
+    Cached on the derived `(min, max)` bounds rather than on the snapshot,
+    which is a Pydantic model and unhashable. The spec is a handful of
+    integers, so every snapshot of a season shares one entry.
+    """
+    return tuple(
+        combo for combo in product(*(range(low, high + 1) for low, high in spec)) if sum(combo) == target
+    )
+
+
+def legal_formations(snapshot: BootstrapSnapshot) -> tuple[tuple[int, ...], ...]:
+    """The legal starter counts per position, in `snapshot.element_types` order.
+
+    A snapshot-level constant — 8 combinations on the live snapshot. Bounds
+    are `squad_min_play`/`squad_max_play`, capped by `squad_select` since a
+    squad cannot start more of a position than it may own; the total is
+    `squad_squadplay`. All read from the snapshot, nothing hardcoded.
+
+    `xi_value` and `best_xi` both enumerate through this one function rather
+    than each iterating its own `product(...)`, so the fast path cannot drift
+    from the rule `validate_plan` checks (optimizer-search.md §6.2). FU-26's
+    vectorised scorer is the third caller.
+
+    Squad-specific feasibility is deliberately *not* applied here: whether a
+    given squad can field a formation depends on who is in it. That check
+    belongs with the squad, in `_xi_structure`.
+
+    Returns a tuple, not the `list` optimizer-search.md §6.2 named: the value
+    is cached and shared between callers, so it must not be mutable.
+    """
+    spec = tuple(
+        (position.squad_min_play, min(position.squad_max_play, position.squad_select))
+        for position in snapshot.element_types
+    )
+    return _formations_for(spec, snapshot.game_settings.squad_squadplay)
+
+
+@dataclass(frozen=True)
+class _XiStructure:
+    """What both `xi_value` and `best_xi` need, built once per squad.
+
+    `prefix_xp[i][k]` is the total xP of the best `k` players in position
+    `position_ids[i]`, so a formation's XI total is one lookup per position
+    and no sorted tuple has to exist to score it — which is the whole of
+    FU-24.
+
+    This is also the seam FU-26 vectorises: its numpy kernel builds these
+    prefix sums once per `(node, event)` and derives each child's from the
+    parent's rather than re-sorting. Private until that lands — promoting a
+    name later is cheaper than un-promoting one.
+    """
+
+    position_ids: tuple[int, ...]
+    ranked: tuple[tuple[int, ...], ...]
+    prefix_xp: tuple[tuple[float, ...], ...]
+    top_xp: tuple[float, ...]
+    formations: tuple[tuple[int, ...], ...]
+    target: int
+    invariant_captain_xp: float | None
+
+
+def _xi_structure(
+    player_ids: Sequence[int], projections: Mapping[int, Projection], snapshot: BootstrapSnapshot
+) -> _XiStructure:
+    """Rank each position by xP, build its prefix sums, and keep the
+    formations this particular squad can actually field."""
+    players_by_id = snapshot.players_by_id
+
+    def xp(player_id: int) -> float:
+        return projections[player_id].xp_total
+
+    by_position: dict[int, list[int]] = {}
+    for player_id in player_ids:
+        by_position.setdefault(players_by_id[player_id].element_type, []).append(player_id)
+
+    position_ids: list[int] = []
+    ranked: list[tuple[int, ...]] = []
+    prefix_xp: list[tuple[float, ...]] = []
+    top_xp: list[float] = []
+    every_position_starts = True
+    for position in snapshot.element_types:
+        candidates = sorted(by_position.get(position.id, []), key=lambda player_id: (-xp(player_id), player_id))
+        if len(candidates) < position.squad_min_play:
+            raise ValueError(
+                f"Cannot field a legal formation: {position.singular_name_short} needs at least "
+                f"{position.squad_min_play} starters but only {len(candidates)} are available."
+            )
+        sums = [0.0]
+        for player_id in candidates:
+            sums.append(sums[-1] + xp(player_id))
+        position_ids.append(position.id)
+        ranked.append(tuple(candidates))
+        prefix_xp.append(tuple(sums))
+        top_xp.append(xp(candidates[0]) if candidates else -inf)
+        every_position_starts = every_position_starts and position.squad_min_play >= 1
+
+    formations = tuple(
+        combo
+        for combo in legal_formations(snapshot)
+        if all(k <= len(candidates) for k, candidates in zip(combo, ranked))
+    )
+
+    # Every position starting at least one player means each position's top
+    # scorer is always a starter, so the captain is the squad's best player
+    # whatever the formation (optimizer-search.md §6.2). Hoisting it keeps the
+    # scoring loop comparing the same sums the pre-FU-24 code compared.
+    invariant_captain_xp = max(top_xp) if every_position_starts and top_xp else None
+
+    return _XiStructure(
+        position_ids=tuple(position_ids),
+        ranked=tuple(ranked),
+        prefix_xp=tuple(prefix_xp),
+        top_xp=tuple(top_xp),
+        formations=formations,
+        target=snapshot.game_settings.squad_squadplay,
+        invariant_captain_xp=invariant_captain_xp,
+    )
+
+
+def _best_formations(structure: _XiStructure) -> tuple[float, list[tuple[int, ...]]]:
+    """The best objective value, and every formation achieving it.
+
+    The objective is optimizer-ux.md §3's `Σ xP(XI) + xP(captain)`, so the
+    captain term belongs inside the maximisation, not bolted on after. Where
+    it is formation-invariant — always, on a snapshot whose positions all
+    have `squad_min_play >= 1` — it is added once at the end instead, which
+    both saves the per-formation `max` and leaves the comparison between
+    formations bit-for-bit what it was before FU-24.
+
+    Returning *every* tied formation rather than one is what lets `best_xi`
+    keep its documented tie-break (lexicographically smallest starters) while
+    `xi_value` materialises nothing: tied formations have equal value by
+    definition, so only the witness has to choose between them.
+    """
+    invariant = structure.invariant_captain_xp
+    best_value = -inf
+    winners: list[tuple[int, ...]] = []
+
+    for combo in structure.formations:
+        total = sum(sums[k] for sums, k in zip(structure.prefix_xp, combo))
+        if invariant is None:
+            total += max(top for top, k in zip(structure.top_xp, combo) if k)
+        if total > best_value:
+            best_value = total
+            winners = [combo]
+        elif total == best_value:
+            winners.append(combo)
+
+    if not winners:
+        raise ValueError(
+            f"No legal formation of exactly {structure.target} starters is possible from this squad."
+        )
+    if invariant is not None:
+        best_value += invariant
+    return best_value, winners
+
+
+def xi_value(
+    player_ids: Sequence[int], projections: Mapping[int, Projection], snapshot: BootstrapSnapshot
+) -> float:
+    """The objective value of the best legal XI — the value alone (FU-24).
+
+    Equal to `objective_points(best_xi(...))` by construction: both take the
+    same formation set from `legal_formations` and score it from the same
+    prefix sums, differing only in whether the winning XI is written down.
+    `best_xi` materialises one sorted 11-tuple; this materialises none, which
+    is the point on a hot path that scores ~10⁸ candidates.
+
+    The equality is asserted directly by the property test in
+    `tests/test_xi_value.py` (optimizer-search.md §8), and that test is the
+    contract FU-26's numpy kernel inherits.
+
+    Raises the same `ValueError`s as `best_xi` for a squad that cannot field
+    a legal XI.
+    """
+    value, _ = _best_formations(_xi_structure(player_ids, projections, snapshot))
+    return value
+
+
 def best_xi(
     player_ids: Sequence[int], projections: Mapping[int, Projection], snapshot: BootstrapSnapshot
 ) -> BestXI:
@@ -104,54 +288,19 @@ def best_xi(
     player fills the last slot in a position and, if several formations tie
     on total xP, for which formation wins — so the result is stable across
     runs.
+
+    The witness half of the FU-24 split: `xi_value` computes the same number
+    without building any of the tuples below. Only formations that tie for
+    the win are materialised here, so the common case builds exactly one.
     """
-    players_by_id = snapshot.players_by_id
+    structure = _xi_structure(player_ids, projections, snapshot)
+    _, winners = _best_formations(structure)
 
-    def xp(player_id: int) -> float:
-        return projections[player_id].xp_total
-
-    by_position: dict[int, list[int]] = {}
-    for player_id in player_ids:
-        by_position.setdefault(players_by_id[player_id].element_type, []).append(player_id)
-
-    ranked: dict[int, list[int]] = {}
-    feasible: dict[int, range] = {}
-    prefix_xp: dict[int, list[float]] = {}
-    for position in snapshot.element_types:
-        candidates = sorted(by_position.get(position.id, []), key=lambda player_id: (-xp(player_id), player_id))
-        ranked[position.id] = candidates
-        min_k, max_k = position.squad_min_play, min(position.squad_max_play, len(candidates))
-        if min_k > max_k:
-            raise ValueError(
-                f"Cannot field a legal formation: {position.singular_name_short} needs at least "
-                f"{min_k} starters but only {len(candidates)} are available."
-            )
-        feasible[position.id] = range(min_k, max_k + 1)
-        sums = [0.0]
-        for player_id in candidates:
-            sums.append(sums[-1] + xp(player_id))
-        prefix_xp[position.id] = sums
-
-    position_ids = [position.id for position in snapshot.element_types]
-    target = snapshot.game_settings.squad_squadplay
-
-    best_value: float | None = None
-    best_starters: tuple[int, ...] | None = None
-    for combo in product(*(feasible[position_id] for position_id in position_ids)):
-        if sum(combo) != target:
-            continue
-        value = sum(prefix_xp[position_id][k] for position_id, k in zip(position_ids, combo))
-        starters = tuple(
-            sorted(player_id for position_id, k in zip(position_ids, combo) for player_id in ranked[position_id][:k])
-        )
-        if best_value is None or value > best_value or (value == best_value and starters < best_starters):
-            best_value = value
-            best_starters = starters
-
-    if best_starters is None:
-        raise ValueError(f"No legal formation of exactly {target} starters is possible from this squad.")
-
-    captain = min(best_starters, key=lambda player_id: (-xp(player_id), player_id))
+    best_starters = min(
+        tuple(sorted(player_id for candidates, k in zip(structure.ranked, combo) for player_id in candidates[:k]))
+        for combo in winners
+    )
+    captain = min(best_starters, key=lambda player_id: (-projections[player_id].xp_total, player_id))
     return BestXI(starters=list(best_starters), captain=captain)
 
 
