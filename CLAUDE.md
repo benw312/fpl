@@ -11,11 +11,16 @@ SQLite + raw JSON snapshots (cache) · pytest (mocked API)
 Developed and run on Linux.
 
 ## Structure
-`api/` — official.py, models.py, snapshots.py, transport.py
-`domain/` — rules.py, squad.py, transfers.py
-`storage/` — cache.py · `cli.py` · `presentation.py` (flat module)
+All paths under `src/fpl_cli/`:
+`api/` — official.py, models.py, snapshots.py
+`domain/` — rules.py, squad.py, transfers.py, projections.py, strength.py,
+evaluation.py
+`storage/` — cache.py
+Top level — cli.py, transport.py, builder.py, presentation.py (a flat module;
+the README Agent Plan specifies a `presentation/` package — unresolved, see
+FU-18)
 
-Not yet written: domain/optimizer.py, interactive squad builder.
+Not yet written: domain/optimizer.py.
 See `docs/plans/` for written plans and `docs/plans/follow-ups.md` for
 filed follow-ups. The repo is the source of truth — check before assuming
 a module is missing.

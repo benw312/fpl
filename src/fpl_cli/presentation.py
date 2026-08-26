@@ -14,6 +14,13 @@ from fpl_cli.domain.transfers import SquadState, Transfer, TransferResult
 
 console = Console()
 
+# Failure messages go to stderr, so redirecting stdout does not swallow them —
+# which is what `typer.Exit(str)`'s accidental `sys.exit(str)` behaviour did
+# before FU-3. Markup and highlighting are off deliberately: every message on
+# this channel interpolates exception text, where a stray "[...]" would
+# otherwise be parsed as a Rich tag and either vanish or raise.
+error_console = Console(stderr=True, markup=False, highlight=False, style="red")
+
 
 def player_table(players: list[Player], snapshot: BootstrapSnapshot) -> Table:
     table = Table(title=f"FPL players | {snapshot.season}")

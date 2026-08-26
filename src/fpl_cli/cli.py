@@ -30,6 +30,7 @@ from fpl_cli.domain.strength import BandedTeamRates
 from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
 from fpl_cli.presentation import (
     console,
+    error_console,
     evaluation_category_table,
     evaluation_component_table,
     evaluation_table,
@@ -53,7 +54,8 @@ def load_snapshot() -> BootstrapSnapshot:
     try:
         result = service.load()
     except FplError as exc:
-        raise typer.Exit("No live snapshot or cached snapshot is available.") from exc
+        error_console.print("No live snapshot or cached snapshot is available.")
+        raise typer.Exit(1) from exc
     finally:
         service.close()
     if result.stale:
@@ -73,7 +75,8 @@ def sync() -> None:
         fixtures = service.refresh_fixtures()
         archive_path = service.archive(snapshot)
     except FplError as exc:
-        raise typer.Exit(str(exc)) from exc
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
     finally:
         service.close()
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
@@ -156,7 +159,8 @@ def validate_squad(path: Path) -> None:
     try:
         result = validate_squad_file(path, snapshot)
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise typer.Exit(f"Could not read squad plan: {exc}") from exc
+        error_console.print(f"Could not read squad plan: {exc}")
+        raise typer.Exit(1) from exc
     for error in result.errors:
         print(f"[red]✗ {error}[/red]")
     for warning in result.warnings:
@@ -183,7 +187,8 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
     try:
         ledger = Ledger.from_file(squad_path, snapshot)
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise typer.Exit(f"Could not read squad ledger: {exc}") from exc
+        error_console.print(f"Could not read squad ledger: {exc}")
+        raise typer.Exit(1) from exc
     if ledger.legacy:
         print(
             "[yellow]Legacy squad file: selling prices are estimated from current "
@@ -193,20 +198,23 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
     try:
         transfers_by_event = parse_transfers_plan(transfers_path)
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise typer.Exit(f"Could not read transfers plan: {exc}") from exc
+        error_console.print(f"Could not read transfers plan: {exc}")
+        raise typer.Exit(1) from exc
 
     rules = TransferRules.from_snapshot(snapshot)
     state = replay(ledger, snapshot)
     try:
         results = simulate(state, transfers_by_event, snapshot, rules)
     except ValueError as exc:
-        raise typer.Exit(f"Invalid transfers plan: {exc}") from exc
+        error_console.print(f"Invalid transfers plan: {exc}")
+        raise typer.Exit(1) from exc
 
     service = SnapshotService()
     try:
         fixtures_result = service.load_fixtures()
     except FplError as exc:
-        raise typer.Exit(f"Could not load fixtures: {exc}") from exc
+        error_console.print(f"Could not load fixtures: {exc}")
+        raise typer.Exit(1) from exc
     finally:
         service.close()
     model = ComponentProjection(
@@ -253,14 +261,16 @@ def evaluate_plan(
     current_snapshot = load_snapshot()
     gameweek = next((gw for gw in current_snapshot.events if gw.id == event), None)
     if gameweek is None:
-        raise typer.Exit(f"No gameweek {event} in the current snapshot.")
+        error_console.print(f"No gameweek {event} in the current snapshot.")
+        raise typer.Exit(1)
 
     service = SnapshotService()
     try:
         fixtures_result = service.load_fixtures()
         live_result = service.load_event_live(event, current_snapshot)
     except FplError as exc:
-        raise typer.Exit(str(exc)) from exc
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
     finally:
         service.close()
 
