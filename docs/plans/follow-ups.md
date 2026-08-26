@@ -681,18 +681,34 @@ the shared structure builder rather than staying textually inside `best_xi`, so
 would be worse than one that raised. §6.2's point that the check belongs to the
 squad and not the formation set still holds; only its position in the file changed.
 
-**The measured speedup is 1.56×, not 8.7× — and this needs settling before FU-26.**
-On the synthetic fixture: 66.4 µs before, 42.6 µs for `xi_value`; `best_xi` itself
-66.4 → 52.7 µs. The entry's 136 µs → 15.6 µs was measured on the *live* snapshot and
-could not be reproduced here, since tests never touch the live API. The gap is not
-explained by FU-23 having already landed — dropping the `players_by_id` memo adds
-only ~4 µs at 15 players, against the 63 µs FU-23 measured at 612. So either the
-live-snapshot baseline carries a cost the synthetic fixture does not, or the original
-figure needs re-measuring. **[Unresolved: which. Re-measure against a live snapshot
-before [optimizer-search.md](optimizer-search.md) §7's cost budget is relied on —
-§7 derives its runtime from the 15.6 µs figure, and FU-26's 44× is quoted against
-it.]** The split is still worth having on its own terms: it is the seam FU-26
-vectorises, and §8's property test is what will keep that kernel honest.
+**The measured speedup is 1.64×, not 8.7× — resolved 2026-08-26 against the live
+cached snapshot.** Both of the entry's figures were reproduced, and neither is wrong
+on its own terms; they were measured under different conditions, and the ratio
+between them never meant anything:
+
+- **136 µs is a pre-FU-23 number.** Dropping the `players_by_id` memo before each
+  call reproduces it at **136.9 µs**; with FU-23 in place the same call is
+  **71.7 µs**. The missing 65 µs is the dict rebuild FU-23 removed, not `best_xi`'s
+  own cost.
+- **15.6 µs excludes the structure build.** Timing only the scoring step, with the
+  per-position sorts and prefix sums hoisted out, gives **12.4 µs**; timing the whole
+  function gives **43.8 µs**. `_xi_structure` is the 33 µs difference, and 75% of
+  `xi_value`.
+
+Like for like — whole call, FU-23 in place, live snapshot, real squad and real
+projection table — FU-24 is **71.7 → 43.8 µs (1.64×)**, and `best_xi` itself
+**71.7 → 54.5 µs (1.32×)**.
+
+**Neither of the other two candidate explanations holds.** Squad composition: the
+live squad and the synthetic fixture are both 2/5/5/3 and differ by 1.2% on identical
+xP (43.8 vs 43.3 µs), so the synthetic fixture is a valid stand-in here.
+Projection-table lookup: reading all 15 `xp_total` values costs **0.78 µs**, and
+post-FU-23 `players_by_id` access costs **0.09 µs**. Neither is material.
+
+[optimizer-search.md](optimizer-search.md) §6.2's table and §7.1's budget were both
+corrected for this. **§7's runtime table was not affected** — it was measured end to
+end against a numpy prototype rather than derived from any per-child figure — but its
+pure-Python fallback was, and badly: see FU-26.
 
 **Deferred from:** [optimizer-search.md](optimizer-search.md) §2, §6.2.
 
@@ -819,10 +835,58 @@ same-position de-duplication — is a boolean mask over the same grid.
 pure-Python fallback. A second implementation of the hot kernel would be a second
 place for the objective to drift.
 
+**The 44× above is against the wrong baseline (corrected 2026-08-26).** It divides
+the numpy kernel's amortised 357 ns by the 15.6 µs row, which was timed with the
+structure build hoisted out and is not amortised. The like-for-like comparison is
+against the node-amortised pure-Python figure, 4.44 µs — **12.4×**, which is what
+§7 already uses and what the table's own last two rows say. Read 12.4×, not 44×.
+
+**This entry is now more load-bearing, not less.** §7's runtime table was measured
+end to end against a numpy prototype, so it stands as written — but its pure-Python
+fallback does not. The "≈ 8 min at horizon 5" it quoted is the 4.44 µs
+node-amortised variant, which **does not exist in the repo**; the only pure-Python
+scorer that does is `xi_value` as landed, non-amortised at 43.8 µs, which puts the
+default horizon-5 `--beam 4` run at **~1.7 hours** rather than 8 minutes. The gap
+this entry closes on that row is ~157×, not 12.4×. **k ≤ 2 at every beam level and
+horizon 8 hold only if this lands.**
+
 **Prerequisite:** ~~FU-24~~ — **closed `5afd728`**, so this is unblocked. The
 `xi_value` seam and §8's property test both exist; `domain/squad._XiStructure` holds
 the per-position prefix sums to vectorise, and is private pending this entry
-promoting it. Its own branch, before `domain/optimizer.py`. **Read FU-24's Status
-line first:** the per-child cost this entry's 44× is quoted against did not
-reproduce on the synthetic fixture, and wants re-measuring before §7's budget is
-relied on.
+promoting it. Its own branch, before `domain/optimizer.py`.
+
+**Re-record §7's measured column as part of this work.** Those figures were taken
+against a prototype of `domain/optimizer.py` and this kernel, neither of which is in
+the repo, so nothing in it can confirm them today.
+
+---
+
+## FU-27 — `xi_value` builds the witness half of its structure and then discards it
+
+**Deferred from:** FU-24's re-measurement (2026-08-26, `task/optimizer-cost-budget`).
+
+`_xi_structure` (`domain/squad.py`) builds one structure serving both halves of the
+FU-24 split, so `xi_value` pays for two things it never reads: the per-position
+`ranked` tuples, which only the witness materialises from, and the frozen
+`_XiStructure` dataclass wrapping seven fields. It also calls `legal_formations`
+(2.3 µs, mostly the `spec` tuple build and cache-key hash) and resolves every
+`xp_total` through a closure over the Pydantic model on each of ~34 accesses.
+
+Measured on the live snapshot: `xi_value` is **43.8 µs**, of which `_xi_structure`
+is **33 µs**. A variant hoisting `xp_total` into a plain dict once, taking the
+formation list as a parameter, and skipping the witness-only tuples ran at
+**24.9 µs** — a **1.76×** saving, verified to return the identical value.
+
+**Not done with FU-24**, which was scoped to the split itself; this is an
+optimisation of one side of it and wants its own before/after.
+
+**Low priority, and possibly moot.** FU-26 amortises the structure build across a
+node's children, which is exactly the cost this would reduce, so the saving largely
+disappears once that lands. It only matters if a pure-Python scoring path survives
+FU-26 — and [optimizer-search.md](optimizer-search.md) §7.1 now shows that path is
+unusable at the default horizon either way (~1.7 h against ~1.0 h with this fix).
+**Do FU-26 first and re-check whether this is worth doing at all.**
+
+The property test in `tests/test_xi_value.py` is what makes it safe to try: any
+divergence between a faster `xi_value` and `best_xi` fails there.
+

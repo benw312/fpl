@@ -867,20 +867,66 @@ function makes the edge disappear.
 ### 6.2 — `best_xi` per node, or incrementally updated (§10)
 
 **Split value from witness, and score a node's children as one vectorised batch.**
-Measured per child, all four variants on this machine, back to back:
 
-| | Cost per child | vs current |
-|---|---:|---:|
-| `best_xi` + `objective_points` as written today | 136 µs | — |
-| value only, winner's tuple materialised once | **15.6 µs** | 8.7× |
-| node-amortised incremental, pure Python, over a full k ≤ 2 expansion | **4.44 µs** | 31× |
-| **the same, vectorised with numpy** | **357 ns** | **381×** |
+> **Re-measured 2026-08-26, after FU-24 landed (`5afd728`). The first two rows of the
+> table below were not measured under the same conditions as each other, and their
+> 8.7× is an artefact of that.** Both were reproduced exactly, which is how the
+> mismatch was identified — see *The two rows, reconciled* immediately below. The
+> node-amortised and numpy rows are unaffected, and so is §7: those two were timed
+> against each other, and §7's table was measured end to end rather than derived from
+> any row here.
+
+| | Cost per child | Conditions | vs row 1 |
+|---|---:|---|---:|
+| `best_xi` + `objective_points`, as measured originally | 136 µs | whole call, **`players_by_id` rebuilt every call** (pre-FU-23) | — |
+| the same, with FU-23's memoisation in place | **71.7 µs** | whole call | 1.9× |
+| `best_xi` + `objective_points`, post-FU-24 | **54.5 µs** | whole call | 2.5× |
+| `xi_value`, post-FU-24 | **43.8 µs** | whole call | 3.1× |
+| value only, winner's tuple materialised once, as measured originally | 15.6 µs | **scoring only, structure build hoisted out** | — |
+| the same, re-measured post-FU-24 | **12.4 µs** | scoring only, structure hoisted | — |
+| `xi_value`'s scoring step alone | **9.3 µs** | scoring only, structure hoisted | — |
+| node-amortised incremental, pure Python, over a full k ≤ 2 expansion | **4.44 µs** | structure amortised per node-event | — |
+| **the same, vectorised with numpy** | **357 ns** | structure amortised per node-event | — |
 
 *(The pure-Python row was 2.82 µs in the previous revision and re-measures at 4.44 µs
 here; that is the same code on a colder machine, and the 12.4× numpy figure below is
 the like-for-like comparison, both timed in one process minutes apart. Per
 node-event, over the root's full 162,793-child k ≤ 2 expansion: **722 ms pure Python,
 58 ms vectorised**.)*
+
+**The two rows, reconciled.** Measured on the live cached snapshot (612 players,
+2026_27) with the real 15-player squad from `squad.json` and a real
+`ComponentProjection` table, every figure the median of ≥12,800 timed calls:
+
+- **Row 1's 136 µs is a pre-FU-23 measurement.** Dropping the `players_by_id` memo
+  before each call reproduces it at **136.9 µs**; leaving FU-23's memoisation in
+  place gives **71.7 µs**. The missing 65 µs is precisely the dict rebuild FU-23
+  measured at 63 µs, and it is *not* part of `best_xi`'s own cost any more.
+- **Row 2's 15.6 µs excludes the structure build.** Timing the scoring step with the
+  per-position sort and prefix sums hoisted out of the loop gives **12.4 µs**;
+  timing the whole function gives **43.8 µs**. The 33 µs difference is
+  `_xi_structure`, which row 1 pays and row 2 does not.
+
+So the 8.7× divided a whole call carrying 65 µs of since-removed overhead by a
+fragment of a call. **Neither number is wrong on its own terms; the ratio between
+them never meant anything.** Like for like, whole call, FU-23 in place: FU-24 is
+**1.64×** (71.7 → 43.8 µs), and `best_xi` itself is 1.32× (71.7 → 54.5 µs).
+
+**Neither squad composition nor projection-table lookup explains any of it.** The
+live squad and the synthetic fixture are both 2/5/5/3 and score within 1.2% of each
+other on identical xP (43.8 µs vs 43.3 µs), so the synthetic fixture is a valid
+stand-in for this measurement. Reading all 15 `xp_total` values out of the
+projection table costs **0.78 µs**, and `players_by_id` access post-FU-23 costs
+**0.09 µs**. `_xi_structure` is 75% of `xi_value`, and the sorts and prefix sums
+inside it are the cost.
+
+**What this changes downstream.** The like-for-like figure to quote against the numpy
+kernel is the **node-amortised** one — 4.44 µs — because FU-26 amortises the
+structure build across a node's children, which is exactly the cost row 2 was
+excluding. Against that, numpy is **12.4×**, the figure §7 already uses. FU-26's
+entry in follow-ups.md quotes **44×** against the 15.6 µs row instead; that
+comparison is between a non-amortised fragment and an amortised kernel and should be
+read as 12.4×.
 
 **Verified before it was timed.** The vectorised kernel is exact against the repo's
 own path: `objective_points(best_xi(...))` agrees to 1e-9 on all **559** k = 1
@@ -1048,11 +1094,44 @@ the first of their kind in each process and their **≈ 10 MB over the k ≤ 2 b
 is genuine — it reproduced in two independent processes, 54 → 63 MB and 57 → 67 MB.)*
 
 **Answering the question this revision was rebuilt around: k ≤ 2 at every beam level
-is viable, and it holds to horizon 8.** 39 s at the default horizon 5, 75 s at
-horizon 8, both at `--beam 4`. The pure-Python figure this replaces is ≈ 8 min at
-horizon 5 and ≈ 15 min at horizon 8 (655 and 1,258 event-passes at the measured
-722 ms each), rising past half an hour at the wide end of the matrix — which is
-where the previously measured ~34 min sits. The 12.4× is entirely §6.2's kernel.
+is viable, and it holds to horizon 8 — but only with FU-26.** 39 s at the default
+horizon 5, 75 s at horizon 8, both at `--beam 4`. The 12.4× is entirely §6.2's
+kernel.
+
+**Re-derived 2026-08-26 against the per-child costs actually measured (§6.2).** The
+table above was measured end to end with a numpy prototype, not derived from any
+per-child figure, so §6.2's correction does not move it. What the correction does
+move is the fallback: the implied cost of the measured rows is **221–354 ns per
+scored candidate**, consistent with §6.2's 357 ns, while the two pure-Python columns
+below are the same candidate counts at the two pure-Python costs.
+
+| Horizon | `--beam` | Scored candidates | Measured (numpy) | Node-amortised @ 4.44 µs | Today's `xi_value` @ 43.8 µs |
+|---:|---:|---:|---:|---:|---:|
+| 3 | 4 | 54,756,355 | 14.9 s | ~4 min | ~40 min |
+| 5 | 1 | 43,514,091 | 9.6 s | ~3 min | ~32 min |
+| 5 | 2 | 75,752,308 | 18.3 s | ~6 min | ~55 min |
+| **5** | **4** *(default)* | 140,140,569 | **39.0 s** | ~10 min | **~1.7 h** |
+| 5 | 8 | 267,658,647 | 94.7 s | ~20 min | ~3.3 h |
+| 8 | 1 | 74,454,753 | 16.8 s | ~6 min | ~54 min |
+| 8 | 2 | 137,691,096 | 33.8 s | ~10 min | ~1.7 h |
+| **8** | **4** | 264,048,842 | **74.6 s** | ~20 min | **~3.2 h** |
+
+**The "≈ 8 min pure Python" this section previously quoted was the 4.44 µs column,
+and that variant does not exist in the repo either.** The only pure-Python scorer
+that does exist is `xi_value` as landed in `5afd728`, which is not node-amortised
+and costs 43.8 µs per child — putting the default run at **~1.7 hours**, not 8
+minutes. Both pure-Python columns are unusable, so the conclusion is unchanged in
+direction and stronger in degree: **FU-26 is load-bearing for this budget, not an
+optimisation of it**, and the gap it closes on the default row is **~157×** against what
+is implemented today (1.7 h → 39 s) rather than the 12.4× against a variant that is
+also still to be written.
+
+**[Unverifiable from the repo: every figure in the "Measured (numpy)" column.** They
+were taken against a prototype of `domain/optimizer.py` and FU-26's kernel, neither
+of which is in the repo — `git log` has no commit adding either. Nothing in this
+re-derivation confirms or refutes them; the per-candidate rate they imply is at
+least internally consistent with §6.2's 357 ns. They should be re-run and re-recorded
+as part of FU-26, and treated as a design estimate until then.]**
 
 Extrapolating the same rate — expansions grow as
 `1 + first_moves + first_moves · beam · (H − 2)` and the run costs ~3.5 M scored
