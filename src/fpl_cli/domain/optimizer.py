@@ -710,6 +710,53 @@ def _terminal_value(node: Node, rules: TransferRules, decay: float, horizon: int
     return (decay ** (horizon - 1)) * ft_value * free_transfers
 
 
+# --- Robustness: rescore found paths under an alternate model (§6.1) --------
+
+
+def first_move_key(transfers: Sequence[Transfer]) -> tuple[tuple[int, int], ...]:
+    """A hashable, order-independent identity for a first move — `()` for hold."""
+    return tuple(sorted((transfer.out_id, transfer.in_id) for transfer in transfers))
+
+
+def rescore_first_moves(
+    paths: Sequence[Path],
+    root: SquadState,
+    snapshot: BootstrapSnapshot,
+    decay: float,
+    events: Sequence[int],
+    alt_projections_by_event: dict[int, dict[int, Projection]],
+) -> dict[tuple[tuple[int, int], ...], float]:
+    """optimizer-ux.md §6.1's cheap `--robustness=rescore`: recompute every
+    found path's score under an alternate model's projection table, grouped
+    by first move (best score per group). Hit points and terminal value
+    don't depend on the projection model — only each node's XI delta does —
+    so this rescores without re-running the search.
+
+    "Found" is exactly `paths`: a first move the primary search's beam or
+    `first_moves` cut pruned before it ever became a `Path` cannot be
+    rescored here, which is precisely the weaker claim §6.1 says to label
+    ("among the paths found") rather than a full independent search.
+    """
+    hold_objective_alt = {
+        event: xi_value(root.player_ids, alt_projections_by_event[event], snapshot) for event in events
+    }
+    best_by_first_move: dict[tuple[tuple[int, int], ...], float] = {}
+    for path in paths:
+        score = 0.0
+        for node in path.chain():
+            decay_factor = decay ** (node.event - events[0])
+            delta = (
+                xi_value(node.state.player_ids, alt_projections_by_event[node.event], snapshot)
+                - hold_objective_alt[node.event]
+            )
+            score += decay_factor * delta
+        score += path.terminal_value - path.node.hit_points
+        key = first_move_key(path.first_move)
+        if key not in best_by_first_move or score > best_by_first_move[key]:
+            best_by_first_move[key] = score
+    return best_by_first_move
+
+
 # --- Orchestration ------------------------------------------------------------
 
 

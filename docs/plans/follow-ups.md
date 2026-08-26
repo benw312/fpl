@@ -973,3 +973,34 @@ bucket simultaneously, which is exactly the same-position, same-club shape
 dominance test is scoped to k = 1 (provably exact) and documents the k = 2 gap in its
 own docstring rather than asserting a property that doesn't hold.
 
+---
+
+## FU-29 — `--schedule` (optimizer-search.md §5.7) is not implemented
+
+**Deferred from:** `task/optimise-cli`, while wiring `fpl plan optimise`.
+
+`optimizer-search.md` §5.7 specifies `--schedule` — a per-gameweek transfer count
+fixed by the user (e.g. `--schedule 0,0,3`), searched by complete enumeration over
+players at each scheduled count rather than the free `k_enum = 2` beam search.
+`domain/optimizer.py`'s own module docstring already scopes it out: *"`--schedule`
+(§5.7), `--max-transfers-per-gw 3` at the root (§5.4) and the decision-margin
+threshold (§6.4) are out of scope for this branch."* `optimizer-ux.md` §2's CLI
+command surface doesn't list it at all — it belongs to the search plan, not the UX
+plan `fpl plan optimise` was built against.
+
+**Not a CLI-wiring task.** It needs real search-algorithm work: `NodeScorer.
+score_children` hard-raises above 2 incoming players per position, so a scheduled
+count of 3 needs new masking and scoring, not just a new flag; the schedule also
+fixes the horizon (`--schedule 0,0,3` implies `--horizon 3`) and moves the DP-prune
+bucket key to the first gameweek with a non-zero scheduled count (§5.7's own text).
+
+**Worth doing.** §5.7 measured `--schedule 0,0,3,0,0` at **3.2 s** against an
+estimated ~35 minutes for the equivalent shape under the free k ≤ 2 search — it is
+the only way to plan "bank two transfers, then take a hit for a specific fixture
+swing," which free k ≤ 2 cannot represent at all past k = 2. It is the feature that
+makes that standard piece of FPL play plannable, not a nice-to-have.
+
+**Rejected for this branch:** a stub flag that only raises "not implemented" was
+considered and declined — it would advertise a capability in `--help` that doesn't
+exist, and stub flags tend to outlive the reason they were added.
+

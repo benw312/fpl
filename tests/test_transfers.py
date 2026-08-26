@@ -16,6 +16,7 @@ from fpl_cli.domain.transfers import (
     TransferRules,
     apply_transfers,
     parse_transfers_plan,
+    write_transfers_plan,
     replay,
     selling_price,
     simulate,
@@ -533,3 +534,23 @@ def test_parse_transfers_plan_empty_list(tmp_path: Path) -> None:
     path.write_text("[]", encoding="utf-8")
 
     assert parse_transfers_plan(path) == {}
+
+
+# --- write_transfers_plan() --------------------------------------------------
+
+
+def test_write_transfers_plan_round_trips_through_parse(tmp_path: Path) -> None:
+    """optimizer-ux.md §8.6: what `fpl plan optimise --output` writes must
+    read back identical through `parse_transfers_plan`, including a
+    scheduled hold event with an empty transfers list.
+    """
+    path = tmp_path / "plan.json"
+    original = {
+        5: [Transfer(out_id=351, in_id=233)],
+        6: [],
+        7: [Transfer(out_id=100, in_id=200), Transfer(out_id=101, in_id=201)],
+    }
+
+    write_transfers_plan(path, original)
+
+    assert parse_transfers_plan(path) == original

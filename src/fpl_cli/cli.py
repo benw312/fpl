@@ -17,6 +17,16 @@ from fpl_cli.domain.evaluation import (
     flat_points_per_game_projections,
     select_archived_snapshot,
 )
+from fpl_cli.domain.optimizer import (
+    DEFAULT_DECAY,
+    DEFAULT_FT_VALUE,
+    OptimiseResult,
+    Path as OptPath,
+    SearchTooExpensive,
+    first_move_key,
+    optimise,
+    rescore_first_moves,
+)
 from fpl_cli.domain.projections import (
     ComponentProjection,
     NaiveProjection,
@@ -25,15 +35,29 @@ from fpl_cli.domain.projections import (
     ProjectionModel,
 )
 from fpl_cli.domain.rules import validate_squad as validate_squad_players
-from fpl_cli.domain.squad import best_xi, objective_points, to_ledger_payload, validate_squad_file
+from fpl_cli.domain.squad import best_xi, objective_points, to_ledger_payload, validate_squad_file, xi_value
 from fpl_cli.domain.strength import BandedTeamRates
-from fpl_cli.domain.transfers import Ledger, TransferRules, parse_transfers_plan, replay, simulate
+from fpl_cli.domain.transfers import (
+    Ledger,
+    TransferRules,
+    apply_transfers,
+    parse_transfers_plan,
+    replay,
+    selling_price,
+    simulate,
+    write_transfers_plan,
+)
 from fpl_cli.presentation import (
+    PathRow,
     console,
     error_console,
     evaluation_category_table,
     evaluation_component_table,
     evaluation_table,
+    optimise_header,
+    optimise_paths_table,
+    optimise_recommendation,
+    optimise_why_table,
     player_table,
     simulation_table,
     squad_state_table,
@@ -249,6 +273,519 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
 
     if any(not result.validation.valid for result in results):
         raise typer.Exit(1)
+
+
+# --- fpl plan optimise (docs/plans/optimizer-ux.md) -------------------------
+
+# §4: "there is no empirical basis for any threshold until the benchmark has
+# been run. Until then the value is a placeholder and the output must say so
+# rather than implying the margin is calibrated." No `fpl plan evaluate` run
+# is persisted anywhere in this repo (it prints and exits), so there is no
+# recorded RMSE to derive one from — this constant is that placeholder, in
+# decayed-score points between the best and second-best distinct first move.
+# [gap: uncalibrated; optimizer-ux.md §4 names this open question directly.]
+_DECISION_MARGIN_PLACEHOLDER = 0.5
+
+_MODEL_CHOICES = ("component", "naive", "official-ep")
+_ROBUSTNESS_CHOICES = ("rescore", "full", "off")
+
+
+def _next_open_event(snapshot: BootstrapSnapshot, now: datetime) -> int | None:
+    open_events = sorted(
+        (gw for gw in snapshot.events if gw.deadline_time is not None and gw.deadline_time > now),
+        key=lambda gw: gw.id,
+    )
+    return open_events[0].id if open_events else None
+
+
+def _ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _build_model(name: str, snapshot: BootstrapSnapshot, fixtures_result) -> ProjectionModel:
+    if name == "component":
+        return ComponentProjection(
+            snapshot,
+            fixtures_result.fixtures,
+            BandedTeamRates(snapshot),
+            fixtures_stale=fixtures_result.stale,
+            fixtures_fetched_at=fixtures_result.fetched_at,
+        )
+    if name == "naive":
+        return NaiveProjection(snapshot, fixtures_result.fixtures)
+    if name == "official-ep":
+        return OfficialEpProjection(snapshot, fixtures_result.fixtures)
+    raise typer.BadParameter(f"--model must be one of {_MODEL_CHOICES}.")
+
+
+def _projections_by_event(
+    model: ProjectionModel, player_ids: list[int], events: list[int]
+) -> dict[int, dict[int, Projection]]:
+    flat = model.project(player_ids, events)
+    return {event: {pid: proj for (pid, proj_event), proj in flat.items() if proj_event == event} for event in events}
+
+
+def _flat_ppg_by_event(snapshot: BootstrapSnapshot, events: list[int]) -> dict[int, dict[int, Projection]]:
+    return {event: flat_points_per_game_projections(snapshot, event) for event in events}
+
+
+def _alt_models(
+    primary: str, snapshot: BootstrapSnapshot, fixtures_result, horizon: int, from_event: int
+) -> list[tuple[str, ProjectionModel | None]]:
+    """optimizer-ux.md §6: re-rank under every model but the one already
+    chosen as primary, plus the flat baseline (`None` marks it — it's a
+    function, not a `ProjectionModel`). `OfficialEpProjection` only
+    participates at horizon 1 *and* only when `from_event` is the snapshot's
+    own next event — its own `.project` raises `ValueError` for any other
+    event (projections.py:383-387), so this guard is what keeps that call
+    safe rather than catching the exception after the fact.
+    """
+    next_event = next((gw.id for gw in snapshot.events if gw.is_next), None)
+    alts: list[tuple[str, ProjectionModel | None]] = []
+    for name in _MODEL_CHOICES:
+        if name == primary:
+            continue
+        if name == "official-ep" and (horizon != 1 or from_event != next_event):
+            continue
+        alts.append((name, _build_model(name, snapshot, fixtures_result)))
+    alts.append(("baseline/flat-ppg", None))
+    return alts
+
+
+def _group_best_by_first_move(paths: list[OptPath]) -> dict[tuple[tuple[int, int], ...], float]:
+    best: dict[tuple[tuple[int, int], ...], float] = {}
+    for path in paths:
+        key = first_move_key(path.first_move)
+        if key not in best or path.score > best[key]:
+            best[key] = path.score
+    return best
+
+
+def _robustness_report(
+    primary_key: tuple[tuple[int, int], ...],
+    alt_named_scores: list[tuple[str, dict[tuple[tuple[int, int], ...], float]]],
+) -> tuple[str, str]:
+    total = 1 + len(alt_named_scores)
+    agree = 1
+    disagreements: list[str] = []
+    for name, scores in alt_named_scores:
+        ranked = sorted(scores.items(), key=lambda item: -item[1])
+        rank = next((index + 1 for index, (key, _) in enumerate(ranked) if key == primary_key), None)
+        if rank == 1:
+            agree += 1
+        elif rank is None:
+            disagreements.append(f"{name} did not find this move")
+        else:
+            disagreements.append(f"{name} ranks it {_ordinal(rank)}")
+    verdict = "ROBUST" if agree == total else "MARGINAL" if agree > total / 2 else "UNSTABLE"
+    label = f"{verdict} — {agree} of {total} models rank this first"
+    if disagreements:
+        label += " (" + "; ".join(disagreements) + ")"
+    return verdict, label
+
+
+def _distinct_top_paths(paths: list[OptPath], count: int) -> list[OptPath]:
+    seen: set[tuple[tuple[int, int], ...]] = set()
+    selected: list[OptPath] = []
+    for path in paths:
+        key = first_move_key(path.first_move)
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(path)
+        if len(selected) >= count:
+            break
+    return selected
+
+
+def _move_description(transfers, snapshot: BootstrapSnapshot, hit: int, *, horizon_edge: bool) -> str:
+    if not transfers:
+        return "—"
+    players_by_id = snapshot.players_by_id
+    description = " + ".join(
+        f"{players_by_id[t.out_id].display_name}→{players_by_id[t.in_id].display_name}" for t in transfers
+    )
+    if hit:
+        description += f" (−{hit})"
+    if horizon_edge:
+        description += "‡"
+    return description
+
+
+def _path_row(label: str, path: OptPath, snapshot: BootstrapSnapshot, projections_by_event: dict[int, dict[int, Projection]]) -> PathRow:
+    chain = path.chain()
+    moves: list[str] = []
+    points: list[float] = []
+    for index, node in enumerate(chain):
+        step_hit = node.hit_points - (node.parent.hit_points if node.parent is not None else 0)
+        moves.append(_move_description(node.transfers, snapshot, step_hit, horizon_edge=index == len(chain) - 1))
+        points.append(objective_points(node.xi, projections_by_event[node.event]))
+    return PathRow(label=label, moves=moves, points=points, net=path.net, score=path.score)
+
+
+@plan_app.command("optimise")
+def optimise_plan(
+    squad_path: Path,
+    horizon: int = typer.Option(5, "--horizon", help="Gameweeks to search."),
+    from_event: int | None = typer.Option(None, "--from-event", help="First gameweek to plan."),
+    paths: int = typer.Option(3, "--paths", min=1, help="Full paths to display."),
+    max_hit: int | None = typer.Option(None, "--max-hit", help="Cap on hit points per gameweek (default: uncapped)."),
+    model: str = typer.Option("component", "--model", help="component | naive | official-ep."),
+    decay: float = typer.Option(DEFAULT_DECAY, "--decay", help="Per-gameweek discount on the ranking objective."),
+    robustness: str = typer.Option("rescore", "--robustness", help="rescore | full | off."),
+    explain: bool = typer.Option(False, "--explain", help="Per-gameweek, per-player decomposition for the top path."),
+    output: Path | None = typer.Option(None, "--output", help="Write the winning path as a transfers-plan JSON."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Search for the best transfer plan over the horizon (docs/plans/optimizer-ux.md)."""
+    if model not in _MODEL_CHOICES:
+        raise typer.BadParameter(f"--model must be one of {_MODEL_CHOICES}.")
+    if robustness not in _ROBUSTNESS_CHOICES:
+        raise typer.BadParameter(f"--robustness must be one of {_ROBUSTNESS_CHOICES}.")
+    if model == "official-ep" and horizon != 1:
+        error_console.print("--model official-ep only supports --horizon 1 (projections.py:383-387).")
+        raise typer.Exit(1)
+
+    snapshot = load_snapshot()
+    now = datetime.now(UTC)
+
+    try:
+        ledger = Ledger.from_file(squad_path, snapshot)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        error_console.print(f"Could not read squad ledger: {exc}")
+        raise typer.Exit(1) from exc
+    rules = TransferRules.from_snapshot(snapshot)
+    initial_state = replay(ledger, snapshot)
+
+    if from_event is None:
+        auto = _next_open_event(snapshot, now)
+        if auto is None:
+            error_console.print("No upcoming gameweek with an open deadline in this snapshot. Run `fpl sync`.")
+            raise typer.Exit(1)
+        from_event = auto
+    else:
+        gameweek = next((gw for gw in snapshot.events if gw.id == from_event), None)
+        if gameweek is None or gameweek.deadline_time is None:
+            error_console.print(f"Gameweek {from_event} has no known deadline in this snapshot.")
+            raise typer.Exit(1)
+        if now >= gameweek.deadline_time:
+            auto = _next_open_event(snapshot, now)
+            suggestion = f" The next open gameweek is GW{auto}." if auto is not None else ""
+            error_console.print(f"GW{from_event}'s deadline has passed.{suggestion}")
+            raise typer.Exit(1)
+
+    scheduled_events = [gw.id for gw in snapshot.events]
+    last_scheduled = max(scheduled_events) if scheduled_events else None
+    horizon_clamped = False
+    if last_scheduled is not None and from_event + horizon - 1 > last_scheduled:
+        horizon = last_scheduled - from_event + 1
+        horizon_clamped = True
+        if horizon < 1:
+            error_console.print(f"No scheduled gameweek at or after GW{from_event} in this snapshot.")
+            raise typer.Exit(1)
+
+    service = SnapshotService()
+    try:
+        fixtures_result = service.load_fixtures()
+    except FplError as exc:
+        error_console.print(f"Could not load fixtures: {exc}")
+        raise typer.Exit(1) from exc
+    finally:
+        service.close()
+
+    primary_model = _build_model(model, snapshot, fixtures_result)
+    events = [from_event + offset for offset in range(horizon)]
+    player_ids = [player.id for player in snapshot.elements]
+    try:
+        projections_flat = primary_model.project(player_ids, events)
+    except ValueError as exc:
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
+
+    effective_max_hit = max_hit if max_hit is not None else 10**9
+
+    try:
+        result: OptimiseResult = optimise(
+            initial_state,
+            snapshot,
+            projections_flat,
+            rules,
+            from_event=from_event,
+            horizon=horizon,
+            decay=decay,
+            ft_value=DEFAULT_FT_VALUE,
+            max_hit=effective_max_hit,
+            now=now,
+        )
+    except SearchTooExpensive as exc:
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
+
+    events = result.events  # the (possibly re-derived) horizon the search actually used
+    projections_by_event = _projections_by_event(primary_model, player_ids, events)
+
+    # Two different points on the hold path are needed: state right before the
+    # horizon starts (for the header's "state at GW{from_event}") and state at
+    # the horizon's last event (for the pinned HOLD row's terminal free-transfer
+    # value) — free transfers accrue between the two even though bank does not.
+    state_at_from_event = apply_transfers(initial_state, [], from_event, snapshot, rules, now=now).state
+    hold_terminal = apply_transfers(initial_state, [], events[-1], snapshot, rules, now=now).state
+    hold_points = [xi_value(initial_state.player_ids, projections_by_event[event], snapshot) for event in events]
+    hold_free_after = min(hold_terminal.free_transfers, rules.free_transfer_cap)
+    hold_score = (decay ** (horizon - 1)) * DEFAULT_FT_VALUE * hold_free_after
+    hold_row = PathRow(label="", moves=[], points=hold_points, net=0.0, score=hold_score, is_hold=True)
+
+    display_paths = _distinct_top_paths(result.paths, paths)
+    rows = [_path_row(str(index + 1), path, snapshot, projections_by_event) for index, path in enumerate(display_paths)]
+    rows.append(hold_row)
+
+    winner = result.paths[0]
+    margin = (
+        display_paths[0].score - display_paths[1].score if len(display_paths) >= 2 else float("inf")
+    )
+    headline_verdict = "RECOMMENDED" if margin >= _DECISION_MARGIN_PLACEHOLDER else "MARGINAL"
+
+    if winner.first_move:
+        root_hit = winner.chain()[0].hit_points
+        description = _move_description(winner.first_move, snapshot, root_hit, horizon_edge=False)
+        break_even = float(root_hit)
+    else:
+        resulting_free = winner.chain()[0].state.free_transfers if winner.chain() else initial_state.free_transfers
+        description = f"hold (roll to {resulting_free} free transfers)"
+        break_even = 0.0
+    gross = winner.net + winner.hit_points
+    event_range = f"GW{events[0]}–GW{events[-1]}" if len(events) > 1 else f"GW{events[0]}"
+
+    robustness_line: str | None = None
+    if robustness != "off":
+        primary_key = first_move_key(winner.first_move)
+        alt_named_scores: list[tuple[str, dict[tuple[tuple[int, int], ...], float]]] = []
+        for name, alt_model in _alt_models(model, snapshot, fixtures_result, horizon, from_event):
+            try:
+                alt_table = (
+                    _flat_ppg_by_event(snapshot, events)
+                    if alt_model is None
+                    else _projections_by_event(alt_model, player_ids, events)
+                )
+            except ValueError:
+                continue
+            if robustness == "rescore":
+                scores = rescore_first_moves(result.paths, initial_state, snapshot, decay, events, alt_table)
+            else:  # full
+                alt_flat = {(pid, event): proj for event, table in alt_table.items() for pid, proj in table.items()}
+                try:
+                    alt_result = optimise(
+                        initial_state, snapshot, alt_flat, rules,
+                        from_event=from_event, horizon=horizon, decay=decay,
+                        ft_value=DEFAULT_FT_VALUE, max_hit=effective_max_hit, now=now,
+                    )
+                except (SearchTooExpensive, ValueError):
+                    continue
+                scores = _group_best_by_first_move(alt_result.paths)
+            alt_named_scores.append((name, scores))
+        _, robustness_line = _robustness_report(primary_key, alt_named_scores)
+
+    last_finished = max((gw.id for gw in snapshot.events if gw.finished), default=None)
+    scope_gap_lines = [
+        f"GW{gap.event} allows up to {gap.k_rules} transfers under the rules; this search only "
+        f"considers ≤{gap.k_enum} at every gameweek (FU-29, --schedule)."
+        for gap in result.scope_gaps
+    ]
+
+    if json_output:
+        payload = {
+            "squad": str(squad_path),
+            "model": primary_model.name,
+            "events": events,
+            "horizon": horizon,
+            "horizon_clamped": horizon_clamped,
+            "from_event": from_event,
+            "unvalidated": True,
+            "dominance_pruning_unsound": True,
+            "dominance_exclusions": len(result.dominance_exclusions),
+            "scope_gaps": [
+                {"event": gap.event, "free_transfers": gap.free_transfers, "k_rules": gap.k_rules, "k_enum": gap.k_enum}
+                for gap in result.scope_gaps
+            ],
+            "recommendation": {
+                "verdict": headline_verdict,
+                "description": description,
+                "break_even": break_even,
+                "gross": gross,
+                "net": winner.net,
+            },
+            "robustness": robustness_line,
+            "paths": [
+                {"label": row.label, "moves": row.moves, "points": row.points, "net": row.net, "score": row.score}
+                for row in rows
+            ],
+        }
+        if output is not None:
+            transfers_by_event = {node.event: list(node.transfers) for node in winner.chain()}
+            write_transfers_plan(output, transfers_by_event)
+            payload["output"] = str(output)
+        print(json.dumps(payload, indent=2))
+        return
+
+    console.print(
+        optimise_header(
+            squad_path=str(squad_path),
+            events=events,
+            horizon=horizon,
+            horizon_clamped=horizon_clamped,
+            model_name=primary_model.name,
+            last_finished_event=last_finished,
+            snapshot_fetched_at=snapshot.fetched_at,
+            fixtures_fetched_at=fixtures_result.fetched_at,
+            fixtures_stale=fixtures_result.stale,
+            from_event=from_event,
+            deadline=next((gw.deadline_time for gw in snapshot.events if gw.id == from_event), None),
+            now=now,
+            bank=state_at_from_event.bank,
+            free_transfers=state_at_from_event.free_transfers,
+            unvalidated=True,
+            dominance_unsound=True,
+            scope_gap_lines=scope_gap_lines,
+        )
+    )
+    console.print(
+        optimise_recommendation(
+            verdict=headline_verdict,
+            from_event=from_event,
+            description=description,
+            break_even=break_even,
+            gross=gross,
+            net=winner.net,
+            event_range=event_range,
+            robustness_line=robustness_line,
+        )
+    )
+    console.print("")
+    console.print(optimise_paths_table(rows, events))
+    console.print(
+        "  Net = projected points vs holding, after hits.  Score = decayed "
+        f"({decay}), the sort key."
+    )
+    if any("‡" in move for row in rows for move in row.moves):
+        console.print("  ‡ horizon-edge decision — see optimizer-ux.md §5.3.")
+
+    later_transfer_nodes = [node for node in winner.chain()[1:] if node.transfers]
+    if later_transfer_nodes and winner.first_move:
+        first_later = later_transfer_nodes[0]
+        first_move_hit = winner.chain()[0].hit_points
+        first_move_state = winner.chain()[0].state
+        first_move_realised_total = sum(
+            xi_value(first_move_state.player_ids, projections_by_event[event], snapshot)
+            - xi_value(initial_state.player_ids, projections_by_event[event], snapshot)
+            for event in events
+        )
+        first_move_net = first_move_realised_total - first_move_hit
+        remaining = winner.net - first_move_net
+        later_hit = first_later.hit_points - first_later.parent.hit_points
+        later_desc = _move_description(first_later.transfers, snapshot, 0, horizon_edge=False)
+        hit_word = "free" if later_hit == 0 else f"−{later_hit}"
+        console.print(f"\n  Path 1's remaining {remaining:+.1f} comes from GW{first_later.event} {later_desc} ({hit_word}). See --explain.")
+
+    if not explain:
+        if output is not None:
+            transfers_by_event = {node.event: list(node.transfers) for node in winner.chain()}
+            write_transfers_plan(output, transfers_by_event)
+            console.print(f"\n[green]Wrote {output}.[/green]")
+        return
+
+    console.print("")
+    if not winner.first_move:
+        console.print(f"Why — GW{from_event}: hold — no transfer to explain.")
+    else:
+        first_node = winner.chain()[0]
+        first_move_state = first_node.state
+        out_rows = [
+            (
+                f"{snapshot.players_by_id[t.out_id].display_name} ({snapshot.clubs[snapshot.players_by_id[t.out_id].team].short_name})",
+                [projections_by_event[event][t.out_id].xp_total for event in events],
+                sum(projections_by_event[event][t.out_id].xp_total for event in events),
+            )
+            for t in winner.first_move
+        ]
+        in_rows = [
+            (
+                f"{snapshot.players_by_id[t.in_id].display_name} ({snapshot.clubs[snapshot.players_by_id[t.in_id].team].short_name})",
+                [projections_by_event[event][t.in_id].xp_total for event in events],
+                sum(projections_by_event[event][t.in_id].xp_total for event in events),
+            )
+            for t in winner.first_move
+        ]
+        raw_delta = [
+            sum(projections_by_event[event][t.in_id].xp_total for t in winner.first_move)
+            - sum(projections_by_event[event][t.out_id].xp_total for t in winner.first_move)
+            for event in events
+        ]
+        realised = [
+            xi_value(first_move_state.player_ids, projections_by_event[event], snapshot)
+            - xi_value(initial_state.player_ids, projections_by_event[event], snapshot)
+            for event in events
+        ]
+        hit = float(first_node.hit_points)
+        net = sum(realised) - hit
+
+        console.print(f"Why — GW{from_event}: {description}  (the first move of path 1)")
+        console.print("")
+        console.print(
+            optimise_why_table(
+                events=events,
+                out_rows=out_rows,
+                in_rows=in_rows,
+                raw_delta=raw_delta,
+                raw_delta_total=sum(raw_delta),
+                realised=realised,
+                realised_total=sum(realised),
+                hit=hit,
+                net=net,
+            )
+        )
+
+        footnotes: list[str] = []
+        for event in events:
+            hold_xi = best_xi(initial_state.player_ids, projections_by_event[event], snapshot)
+            for t in winner.first_move:
+                out_player = snapshot.players_by_id[t.out_id]
+                if projections_by_event[event][t.out_id].fixtures == 0:
+                    footnotes.append(f"GW{event}: {out_player.display_name}'s club blanks (0 fixtures)")
+                elif t.out_id not in hold_xi.starters:
+                    footnotes.append(
+                        f"GW{event}: {out_player.display_name} would have been benched anyway — "
+                        "selling him cost nothing that week"
+                    )
+        for note in footnotes:
+            console.print(f"  * {note}")
+
+        for t in winner.first_move:
+            out_player = snapshot.players_by_id[t.out_id]
+            in_player = snapshot.players_by_id[t.in_id]
+            holding = initial_state.holdings[t.out_id]
+            sale = selling_price(holding.purchase_price, out_player.now_cost, rules)
+            profit = sale - holding.purchase_price
+            if profit > 0:
+                console.print(
+                    f"  Sale: {out_player.display_name} £{sale / 10:.1f}m (bought £{holding.purchase_price / 10:.1f}m; "
+                    f"+£{profit / 10:.1f}m kept after the {rules.sell_on_fee * 100:.0f}% sell-on fee)"
+                )
+            else:
+                console.print(f"  Sale: {out_player.display_name} £{sale / 10:.1f}m (bought £{holding.purchase_price / 10:.1f}m)")
+            console.print(f"  Buy:  {in_player.display_name} £{in_player.price_millions:.1f}m")
+        console.print(f"  Bank £{initial_state.bank / 10:.1f}m → £{first_move_state.bank / 10:.1f}m")
+
+    if output is not None:
+        transfers_by_event = {node.event: list(node.transfers) for node in winner.chain()}
+        write_transfers_plan(output, transfers_by_event)
+        console.print(f"\n[green]Wrote {output}.[/green]")
+
+
+plan_app.command("optimize", hidden=True)(optimise_plan)
 
 
 @plan_app.command("evaluate")

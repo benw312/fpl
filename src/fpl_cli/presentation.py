@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -198,3 +200,183 @@ def squad_grid(slots: SquadSlots, snapshot: BootstrapSnapshot) -> Group:
         rows.append(Text(f"{position.singular_name_short:>4}  " + "  ".join(cells)))
 
     return Group(header, Text(""), *rows)
+
+
+# --- fpl plan optimise (optimizer-ux.md §4, §5) ------------------------------
+
+
+def _format_timedelta(delta: timedelta) -> str:
+    if delta.total_seconds() <= 0:
+        return "overdue"
+    days, remainder = divmod(int(delta.total_seconds()), 86400)
+    hours = remainder // 3600
+    if days:
+        return f"{days}d {hours}h"
+    minutes = (remainder % 3600) // 60
+    return f"{hours}h {minutes}m"
+
+
+def optimise_header(
+    *,
+    squad_path: str,
+    events: Sequence[int],
+    horizon: int,
+    horizon_clamped: bool,
+    model_name: str,
+    last_finished_event: int | None,
+    snapshot_fetched_at: datetime,
+    fixtures_fetched_at: datetime | None,
+    fixtures_stale: bool,
+    from_event: int,
+    deadline: datetime | None,
+    now: datetime,
+    bank: int,
+    free_transfers: int,
+    unvalidated: bool,
+    dominance_unsound: bool,
+    scope_gap_lines: Sequence[str],
+) -> Group:
+    lines: list[Text] = []
+    event_range = f"GW{events[0]}–GW{events[-1]}" if len(events) > 1 else f"GW{events[0]}"
+    lines.append(Text(f"Plan · {squad_path} · {event_range} (horizon {horizon}) · {model_name}"))
+    if horizon_clamped:
+        lines.append(
+            Text(
+                f"! Horizon clamped to {horizon}: no scheduled gameweek beyond GW{events[-1]} in the current snapshot.",
+                style="yellow",
+            )
+        )
+
+    finished = f"GW{last_finished_event} finished" if last_finished_event is not None else "no gameweek finished yet"
+    fixtures_line = f", fixtures {fixtures_fetched_at.isoformat()}" if fixtures_fetched_at else ""
+    lines.append(Text(f"Snapshot {finished}, fetched {snapshot_fetched_at.isoformat()}{fixtures_line}"))
+    if fixtures_stale:
+        lines.append(Text("! fixtures list is stale — blanks and doubles may be wrong", style="yellow"))
+
+    if deadline is not None:
+        lines.append(Text(f"Deadline GW{from_event}: {deadline:%a %d %b %H:%M} UTC (in {_format_timedelta(deadline - now)})"))
+    else:
+        lines.append(Text(f"! GW{from_event} has no known deadline in this snapshot.", style="yellow"))
+
+    lines.append(Text(f"State at GW{from_event}: bank £{bank / 10:.1f}m · {free_transfers} free transfer{'s' if free_transfers != 1 else ''}"))
+
+    lines.append(Text(""))
+    if unvalidated:
+        lines.append(
+            Text(
+                f"! UNVALIDATED — {model_name} has never been scored against realised points.\n"
+                f"  Run `fpl plan evaluate --event {last_finished_event}` before trusting the magnitudes below."
+                if last_finished_event is not None
+                else f"! UNVALIDATED — {model_name} has never been scored against realised points.",
+                style="bold yellow",
+            )
+        )
+    if dominance_unsound:
+        lines.append(
+            Text(
+                "! DOMINANCE PRUNING IS UNSOUND (FU-28) — a same-position transfer pair drawn from one\n"
+                "  club can be excluded with unbounded error. §6.3's attributability guarantee does not\n"
+                "  hold today; see docs/plans/follow-ups.md#fu-28.",
+                style="bold red",
+            )
+        )
+    for line in scope_gap_lines:
+        lines.append(Text(f"! {line}", style="yellow"))
+
+    return Group(*lines)
+
+
+@dataclass(frozen=True)
+class PathRow:
+    """One row of the paths table (optimizer-ux.md §4).
+
+    `moves` is one transfer description per event, already formatted (e.g.
+    "Semenyo→Saka (−4)", "—" for a held event, with a trailing "‡" on the
+    horizon-edge move per §5.3) — joined with " · " to form the row's
+    single descriptive cell. `points` is the undiscounted gross XI value
+    per event, one entry per event in the same order.
+    """
+
+    label: str
+    moves: list[str]
+    points: list[float]
+    net: float
+    score: float
+    is_hold: bool = False
+
+
+def optimise_paths_table(rows: Sequence[PathRow], events: Sequence[int]) -> Table:
+    table = Table(title="Paths")
+    table.add_column("", justify="right")
+    table.add_column("Path")
+    for event in events:
+        table.add_column(f"GW{event}", justify="right")
+    table.add_column("Net", justify="right")
+    table.add_column("Score", justify="right")
+
+    for row in rows:
+        style = "bold" if row.is_hold else None
+        description = "HOLD (no transfers)" if row.is_hold else " · ".join(row.moves)
+        table.add_row(
+            row.label,
+            description,
+            *[f"{value:.1f}" for value in row.points],
+            f"{row.net:+.1f}",
+            f"{row.score:.2f}",
+            style=style,
+        )
+    return table
+
+
+def optimise_recommendation(
+    *,
+    verdict: str,
+    from_event: int,
+    description: str,
+    break_even: float,
+    gross: float,
+    net: float,
+    event_range: str,
+    robustness_line: str | None,
+) -> Group:
+    style = "bold green" if verdict == "RECOMMENDED" else "bold yellow"
+    lines = [
+        Text(f"{verdict} — GW{from_event}: {description}", style=style),
+        Text(f"  break-even {break_even:+.1f} · gross {gross:+.1f} · net {net:+.1f} over {event_range}"),
+    ]
+    if robustness_line is not None:
+        lines.append(Text(f"  robustness: {robustness_line}"))
+    return Group(*lines)
+
+
+def optimise_why_table(
+    *,
+    events: Sequence[int],
+    out_rows: Sequence[tuple[str, list[float], float]],
+    in_rows: Sequence[tuple[str, list[float], float]],
+    raw_delta: list[float],
+    raw_delta_total: float,
+    realised: list[float],
+    realised_total: float,
+    hit: float,
+    net: float,
+) -> Table:
+    table = Table(title="Why")
+    table.add_column("")
+    for event in events:
+        table.add_column(f"GW{event}", justify="right")
+    table.add_column("Total", justify="right")
+
+    for label, values, total in out_rows:
+        table.add_row(f"out  {label}", *[f"{v:.1f}" for v in values], f"{total:.1f}")
+    for label, values, total in in_rows:
+        table.add_row(f"in   {label}", *[f"{v:.1f}" for v in values], f"{total:.1f}")
+    table.add_row(
+        "raw player delta", *[f"{v:+.1f}" for v in raw_delta], f"{raw_delta_total:+.1f}", style="dim"
+    )
+    table.add_row(
+        "realised in XI", *[f"{v:+.1f}" for v in realised], f"{realised_total:+.1f}", style="bold"
+    )
+    table.add_row("hit", *([""] * len(events)), f"{-hit:.1f}")
+    table.add_row("net", *([""] * len(events)), f"{net:+.1f}", style="bold")
+    return table

@@ -113,6 +113,22 @@ def parse_transfers_plan(path: Path) -> dict[int, list[Transfer]]:
     return transfers_by_event
 
 
+def write_transfers_plan(path: Path, transfers_by_event: dict[int, list[Transfer]]) -> None:
+    """Write a transfers-plan file in `parse_transfers_plan`'s schema, so a
+    written plan reads back identical to what was written (optimizer-ux.md
+    §8.6) — an entry per event, ascending, including events with an empty
+    transfers list (a scheduled hold), which `parse_transfers_plan` accepts.
+    """
+    payload = [
+        {
+            "event": event,
+            "transfers": [{"out": transfer.out_id, "in": transfer.in_id} for transfer in transfers_by_event[event]],
+        }
+        for event in sorted(transfers_by_event)
+    ]
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def current_event_id(snapshot: BootstrapSnapshot) -> int:
     for event in snapshot.events:
         if event.is_current:
