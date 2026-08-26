@@ -778,6 +778,47 @@ so a wrong constant degrades visibly rather than silently.
 
 ## FU-26 — Vectorise `xi_value` and score a node's children as one batch
 
+**Status: closed** — `8dc390b` (2026-08-26). `domain/squad.NodeScorer` scores a whole
+`(node, event)` expansion as batched numpy; `numpy>=1.26,<3` is a straight runtime
+dependency in `pyproject.toml`, no optional extra and no pure-Python fallback.
+`XiStructure`/`xi_structure` were promoted from private as this entry anticipated,
+so the kernel scores against the same ranking `best_xi` uses.
+
+**Measured, replacing the projections** (live snapshot, real `squad.json` squad, real
+projections, root k ≤ 2 expansion of 158,650 children; timing and memory in separate
+passes because `tracemalloc` inflated a shared loop by 5.5×):
+
+| | Projected | Measured |
+|---|---:|---:|
+| Per scored child | 357 ns | **105 ns** |
+| Per node-event | 58 ms | **16.6 ms** |
+| Speedup over the pure-Python reference | 12.4× | **362×** |
+
+**The 105 ns is only meaningful with its grid size attached.** Per-out-combination
+overhead dominates — 120 `score_children` calls at ~130 µs each — so the expansion
+costs ~15 ms almost regardless of pool width, and per-child cost falls from 461 ns at
+a pool of 20 to 38 ns at a pool of 90. Widening the pool improves the per-child
+figure while making the run slower. [optimizer-search.md](optimizer-search.md) §7.1a
+carries the sweep.
+
+**§8's property test holds against the kernel.** `tests/test_node_scorer.py` asserts
+`score_children(...)[i] == xi_value(child) == objective_points(best_xi(child))` for
+k = 1, k = 2 cross-position and k = 2 same-position, over four xP distributions, to
+1e-9. `xi_value` is the reference implementation, not a fallback: nothing in the
+runtime chooses between them. Four mutations were confirmed to fail it before the
+tests were kept — dropping the two-incoming term, dropping incoming players from the
+captain term, removing the right-hand `-inf` pad, and an off-by-one in the prefix
+index.
+
+**What is still not measured, and why it matters.** §7.1's Runtime/Peak RSS/Best
+score columns came from an uncommitted prototype and **remain unreproducible**. This
+entry measures only the kernel's share. §7.1a re-derives a runtime *floor* per row
+from measured throughput × structural expansion counts — 10.9 s at the default
+horizon 5 `--beam 4`, 20.9 s at horizon 8 — but candidate generation, dominance
+pruning, feasibility masking, `apply_transfers` and beam bucketing are all excluded.
+**k ≤ 2 at every beam level and horizon 8 hold on the kernel, measured; whether they
+hold for the whole search needs `domain/optimizer.py`.**
+
 **Deferred from:** [optimizer-search.md](optimizer-search.md) §2, §6.2, §7.
 
 **This is a prerequisite of the optimiser's cost budget, not an optimisation of
@@ -880,12 +921,15 @@ formation list as a parameter, and skipping the witness-only tuples ran at
 **Not done with FU-24**, which was scoped to the split itself; this is an
 optimisation of one side of it and wants its own before/after.
 
-**Low priority, and possibly moot.** FU-26 amortises the structure build across a
-node's children, which is exactly the cost this would reduce, so the saving largely
-disappears once that lands. It only matters if a pure-Python scoring path survives
-FU-26 — and [optimizer-search.md](optimizer-search.md) §7.1 now shows that path is
-unusable at the default horizon either way (~1.7 h against ~1.0 h with this fix).
-**Do FU-26 first and re-check whether this is worth doing at all.**
+**Superseded in practice by FU-26 (`8dc390b`), but not closed.** `NodeScorer` amortises
+the structure build across a node's children, so `xi_value` is no longer on any hot
+path — it is the reference implementation `tests/test_node_scorer.py` checks the
+kernel against, called once per child in tests and never in a search. At that duty
+cycle a 1.76× saving buys nothing, and the witness-only fields this would strip are
+what make `xi_value` readable as the definition of the objective.
+
+**Recommend closing as won't-do** unless a pure-Python scoring path reappears. Left
+open only because that is a judgement call rather than a fact.
 
 The property test in `tests/test_xi_value.py` is what makes it safe to try: any
 divergence between a faster `xi_value` and `best_xi` fails there.

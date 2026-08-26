@@ -886,7 +886,8 @@ function makes the edge disappear.
 | the same, re-measured post-FU-24 | **12.4 µs** | scoring only, structure hoisted | — |
 | `xi_value`'s scoring step alone | **9.3 µs** | scoring only, structure hoisted | — |
 | node-amortised incremental, pure Python, over a full k ≤ 2 expansion | **4.44 µs** | structure amortised per node-event | — |
-| **the same, vectorised with numpy** | **357 ns** | structure amortised per node-event | — |
+| the same, vectorised with numpy — *projected* | 357 ns | structure amortised per node-event | — |
+| **`NodeScorer`, as implemented (FU-26)** | **105 ns** | **measured**, root k ≤ 2 expansion, 158,650 children | **683×** |
 
 *(The pure-Python row was 2.82 µs in the previous revision and re-measures at 4.44 µs
 here; that is the same code on a colder machine, and the 12.4× numpy figure below is
@@ -1058,7 +1059,14 @@ never mentioned memory. That omission is not a documentation gap — it is the r
 budget that constrains only the axis you happened to think of does not constrain the
 run; it just picks which way it fails.
 
-### 7.1 — Measured
+### 7.1 — The prototype estimate, retained for comparison
+
+> **These rows were taken against a prototype of `domain/optimizer.py` and FU-26's
+> kernel that was never committed, and nothing in the repo can reproduce them.**
+> They are kept because the *expansion* and *scored-candidate* columns are structural
+> and still useful, and because §7.1a's measured kernel figures are worth reading
+> against them. Treat the Runtime, Peak RSS and Best score columns as a design
+> estimate until `domain/optimizer.py` exists. **§7.1a is the measured section.**
 
 Root GW2, `--max-hit 4`, `--first-moves 50`, k ≤ 2 at every level, §2's
 FU-23/FU-24/FU-26 prerequisites in place. Peak RSS is the process high-water mark
@@ -1126,20 +1134,97 @@ optimisation of it**, and the gap it closes on the default row is **~157×** aga
 is implemented today (1.7 h → 39 s) rather than the 12.4× against a variant that is
 also still to be written.
 
-**[Unverifiable from the repo: every figure in the "Measured (numpy)" column.** They
-were taken against a prototype of `domain/optimizer.py` and FU-26's kernel, neither
-of which is in the repo — `git log` has no commit adding either. Nothing in this
-re-derivation confirms or refutes them; the per-candidate rate they imply is at
-least internally consistent with §6.2's 357 ns. They should be re-run and re-recorded
-as part of FU-26, and treated as a design estimate until then.]**
+### 7.1a — Measured against the kernel as built (FU-26, 2026-08-26)
 
-Extrapolating the same rate — expansions grow as
-`1 + first_moves + first_moves · beam · (H − 2)` and the run costs ~3.5 M scored
-candidates per second — `--beam 4` crosses two minutes at about **horizon 11**. The
-runtime wall is therefore *not* what limits the horizon in practice: optimizer-ux.md
-§2 clamps to the last scheduled gameweek and records that fixtures beyond GW+5 are
-provisional, and §4.4 flags ~8 as where beam continuation error becomes the argument
-against the whole approach. **Both of those bind well before the clock does.**
+The "Measured (numpy)" column above was taken against a prototype that was never
+committed, and was marked unverifiable for that reason. `NodeScorer` now exists, so
+the part of that budget the kernel owns is measured here against it. **The part it
+does not own is still not measured, and is named explicitly below rather than
+estimated.**
+
+Conditions: live cached snapshot (612 players, 2026_27), the real 15-player squad
+from `squad.json`, real `ComponentProjection` xP for the next open gameweek, root
+k ≤ 2 expansion over a candidate pool of 42 per position — **158,650 children**, the
+closest match to §6.2's 162,793. Best of 7 × 3 runs; every benchmark capped at 120 s.
+Timing and memory were measured in **separate passes**: `tracemalloc` instruments
+every allocation and inflated the same loop by 5.5× when they shared one.
+
+| | Measured |
+|---|---:|
+| Full root k ≤ 2 expansion, 158,650 children | **16.6 ms** |
+| Per scored child | **105 ns** |
+| `NodeScorer` construction, once per node-event | **113 µs** |
+| Same expansion via `xi_value`, child by child | **5.8 s** (47.5 µs/child) |
+| **Speedup over the pure-Python reference, same children** | **362×** |
+
+**Throughput is dominated by per-out-combination overhead, not per-child
+arithmetic.** The 120 `score_children` calls carry a fixed ~130 µs each, so the
+expansion costs ~15 ms almost regardless of how wide the candidate grids are:
+
+| Pool / position | Children | Time | Per child | Peak grid alloc |
+|---:|---:|---:|---:|---:|
+| 20 | 32,294 | 14.9 ms | 461 ns | 91 KiB |
+| 30 | 77,709 | 15.6 ms | 201 ns | 213 KiB |
+| 37 | 122,845 | 16.3 ms | 133 ns | 294 KiB |
+| **42** | **158,650** | **16.9 ms** | **107 ns** | **355 KiB** |
+| 60 | 322,310 | 18.9 ms | 59 ns | 616 KiB |
+| 90 | 590,095 | 22.4 ms | 38 ns | 1,448 KiB |
+
+**A per-child figure is therefore only meaningful with its grid size attached** —
+quoting 105 ns without "at 158,650 children per node-event" is quoting the pool size
+as much as the kernel. Widening the pool makes the *per-child* number look better
+while making the run slower in absolute terms.
+
+**Node expansions are structural and need no prototype.** §7.3's
+`1 + first_moves + first_moves · beam · max(0, H − 2)` reproduces the expansion
+column above exactly for every row. Multiplying it by the measured per-node-event
+cost of **16.74 ms** (16.62 ms scoring + 0.12 ms scorer construction) gives a
+measured **floor** on runtime:
+
+| Horizon | `--beam` | Expansions | Kernel floor (measured) | Prototype estimate (§7.1) | Pure-Python reference |
+|---:|---:|---:|---:|---:|---:|
+| 3 | 4 | 251 | **4.2 s** | 14.9 s | ~24 min |
+| 5 | 1 | 201 | **3.4 s** | 9.6 s | ~19 min |
+| 5 | 2 | 351 | **5.9 s** | 18.3 s | ~34 min |
+| **5** | **4** *(default)* | 651 | **10.9 s** | 39.0 s | **~1.0 h** |
+| 5 | 8 | 1,251 | **20.9 s** | 94.7 s | ~2.0 h |
+| 8 | 1 | 351 | **5.9 s** | 16.8 s | ~34 min |
+| 8 | 2 | 651 | **10.9 s** | 33.8 s | ~1.0 h |
+| **8** | **4** | 1,251 | **20.9 s** | 74.6 s | **~2.0 h** |
+
+**These are floors, not runtimes.** They count XI scoring and nothing else. Candidate
+generation, dominance pruning (§5.2), feasibility masking, `apply_transfers`, hit
+arithmetic and beam bucketing are all absent, and all of them scale with the same
+expansion count. The prototype column suggests scoring was roughly a quarter to a
+third of its total; if that ratio holds, the real figures land near or below the
+prototype's. **[Not measured: the ratio. It needs `domain/optimizer.py`, which does
+not exist — `git log --all` has no commit adding it. Re-record this table end to end
+when it does.]**
+
+**Memory: the kernel is small, and never chunks.** Peak *grid* allocation is 355 KiB
+at the default pool and 1.4 MiB at a pool of 90, against process RSS of 49 MB
+dominated by the projection table. §7.2's 2²¹-cell chunking is a property of the
+search's streaming design, not of this kernel: `score_children` materialises one
+`(8, m₀, m₁)` grid, which at m = 88 is 62 K cells — the 2 M-cell cap would not
+trigger until a pool of ~512 per position, ~36× wider than anything realistic.
+Chunking is still required of the *search*, for the reason §7.2 records; nothing
+here relieves it of that.
+
+### 7.1b — Does k ≤ 2 at every beam level still hold, and to horizon 8?
+
+**On the kernel: yes, measured, with two orders of magnitude to spare.** Horizon 8 at
+`--beam 4` spends **20.9 s** in scoring — the widest row in the matrix, and the one
+the k ≤ 2 decision was in doubt over. The pure-Python reference on the same work is
+~2.0 hours, so the decision that made k ≤ 2 affordable is confirmed by measurement
+rather than projection: **362× on the real root expansion**, against the 12.4× §6.2
+projected and the 44× FU-26's entry claimed.
+
+**On the whole search: not yet answerable, and this is not a formality.** Scoring is
+a floor. Nothing above measures generation, masking or bucketing, and a search whose
+scoring costs 21 s could still miss a usable bound if those cost several times more.
+What can be said on measured numbers is that **scoring is no longer the binding
+constraint at any row in the matrix** — which is precisely what §6.2 set out to
+achieve and what the previous revision could only assert.
 
 ### 7.2 — Memory is flat by construction, and that is a design property
 
