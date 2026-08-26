@@ -71,10 +71,33 @@ committed as a known-failing test.
 
 ## FU-3 — `typer.Exit` is passed a message where it expects an exit code
 
-**Deferred from:** [transport.md](transport.md), Step 3.
-**Open. FU-16 merged in here on 2026-08-26** — it was a re-filing of this same defect
+**Status: closed** — `33cd761` *Give typer.Exit an exit code, not a message (FU-3,
+FU-16); fix CLAUDE.md Structure (FU-19)* (2026-08-26). Closes **FU-16** with it.
+Verified: no `typer.Exit` in `src/` receives a non-integer argument. All nine sites
+print through the new `presentation.error_console` and then `raise typer.Exit(1)`,
+the eight inside `except` blocks keeping their `from exc`.
+
+**The channel is not `console`.** `error_console` is a separate `Console(stderr=True,
+markup=False, highlight=False, style="red")`. stderr because that is where
+`sys.exit(str)` already put these messages — sending them through the existing
+stdout `console` would have been a silent regression, letting
+`fpl squad validate x.json > out.txt` swallow the error. Markup off because every
+message on this channel interpolates exception text, and an exception carrying
+`['foo']` would otherwise be read as a Rich tag. This does not pre-empt **FU-12**;
+it gives it one named channel to consolidate onto.
+
+**What stops it coming back.** `tests/test_cli_exit_codes.py` asserts exit code 1 and
+message-on-stderr-not-stdout across all nine paths, and adds an AST scan over `src/`
+that fails on any `typer.Exit` given a non-integer first argument, reporting it by
+`file:line`. Both the scan and a behaviour test were confirmed to fail against the old
+idiom before being kept. The growth from three sites to nine happened one copied line
+at a time with nothing to catch it; that is now caught at the moment of writing rather
+than at the next audit.
+
+**FU-16 was merged in here on 2026-08-26** — it was a re-filing of this same defect
 with a higher count, and carrying a follow-up about a follow-up meant two entries to
-keep in step for one fix.
+keep in step for one fix. Its body is below, kept as the record of why the count
+mattered.
 
 `typer.Exit.__init__` is `(self, code: int = 0)`. Call sites pass a string instead. The
 message reaches the user only by accident of `SystemExit` semantics — `sys.exit(str)`
@@ -92,8 +115,9 @@ the sooner it happens — every new command adds sites. `cli.py` already has the
 correct idiom in place at nine other sites (`raise typer.Exit(1)` after a
 `console.print`), so the two forms sit side by side in the same file.
 
-**Blocks:** `tests/test_stale_cache.py` can assert only the exception type, not the
-message, until this is fixed.
+**Blocks:** ~~`tests/test_stale_cache.py` can assert only the exception type, not the
+message, until this is fixed.~~ Unblocked by the fix —
+`tests/test_cli_exit_codes.py` now asserts both the code and the message text.
 
 **Do with FU-12** if convenient — that entry routes all output through
 `presentation.console`, and the stderr half of this fix is the same decision about
@@ -438,7 +462,8 @@ squad builder, transfer simulation and projections.
 
 ## FU-16 — *merged into FU-3*
 
-**Status: merged** into **FU-3** on 2026-08-26. Not closed — the defect is still live.
+**Status: closed** — merged into **FU-3** on 2026-08-26 and closed with it the same
+day by `33cd761`. See FU-3 for what was verified.
 
 FU-16 re-filed FU-3 after the `typer.Exit(str)` count grew from three call sites to
 eight, deliberately as a new entry so that the growth was visible rather than edited
@@ -473,6 +498,13 @@ the point of failure.
 ## FU-18 — `presentation.py` is a flat module; the Agent Plan specifies a package
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
+**Status: open, narrowed** (2026-08-26, `33cd761`). The documentation half is settled:
+`CLAUDE.md`'s Structure block now states the flat module *and* names the conflict with
+the README Agent Plan, so the two no longer disagree silently. What remains is the
+decision this entry was actually filed for — split into a package and update
+`CLAUDE.md`, or amend the README's file list. Note the entry's line count is stale:
+`presentation.py` is 200 lines now, still with seven renderers — the growth is the
+`error_console` singleton added by FU-3, not another renderer.
 
 The README Agent Plan's file list names `src/fpl_cli/presentation/` — a package.
 The repo has `src/fpl_cli/presentation.py`, a flat module, now at 185 lines with
@@ -490,12 +522,17 @@ fine; the conflict is not.
 ## FU-19 — `CLAUDE.md`'s "not yet written" line is stale
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
-**Status: still open** — re-checked against `main` at `387ff0c` (2026-08-26).
-`CLAUDE.md` still reads *"Not yet written: domain/optimizer.py, interactive squad
-builder."* verbatim, and `src/fpl_cli/builder.py` is still 238 lines wired to
-`fpl squad create` (`cli.py:114`). Left open deliberately: `CLAUDE.md` is a source
-file, and editing it is a change to the instructions this reconciliation was run
-under, not part of reconciling the ledger.
+**Status: closed** — `33cd761` *Give typer.Exit an exit code, not a message (FU-3,
+FU-16); fix CLAUDE.md Structure (FU-19)* (2026-08-26). Verified against the tree:
+`transport.py` is listed at top level where it actually lives, `domain/` now lists
+`evaluation.py`, `projections.py` and `strength.py`, `builder.py` is listed, paths are
+stated as relative to `src/fpl_cli/`, and *"Not yet written"* is down to
+`domain/optimizer.py` alone.
+
+**FU-18 is not closed by this.** The `presentation.py` entry regained the note that
+the README Agent Plan specifies a `presentation/` package — restoring what the
+`b522572` rewrite dropped — but that records the conflict rather than deciding it.
+FU-18's remaining half is the decision itself.
 
 **How the line got there matters.** `git log -- CLAUDE.md` shows two commits, and the
 later one is `b522572` *Add interactive squad builder* — the commit that **added
