@@ -477,6 +477,7 @@ def _expand_root(
     decay: float,
     max_hit: int,
     first_moves: int,
+    now: datetime | None,
 ) -> list[Node]:
     root_event = events[0]
     decay_factors = {event: decay ** (event - root_event) for event in events}
@@ -553,7 +554,15 @@ def _expand_root(
         transfers = [Transfer(out_id=o, in_id=i) for o, i in zip(out_ids, in_ids)]
         decay_factor = decay_factors[root_event]
         node = _materialize(
-            root, root_event, transfers, snapshot, rules, projections_by_event[root_event], decay_factor, root_event_delta
+            root,
+            root_event,
+            transfers,
+            snapshot,
+            rules,
+            projections_by_event[root_event],
+            decay_factor,
+            root_event_delta,
+            now,
         )
         if node is not None:
             nodes.append(node)
@@ -574,6 +583,7 @@ def _expand_node(
     decay_factor: float,
     max_hit: int,
     local_retain: int,
+    now: datetime | None,
 ) -> list[Node]:
     held = set(node.state.holdings)
     free_available = _accrue(node.state.free_transfers, rules)
@@ -584,7 +594,7 @@ def _expand_node(
 
     # k = 0: hold. `apply_transfers` folds idle-event accrual itself, so this
     # is not a special case, and it is never top-k'd away.
-    hold_node = _materialize(node, event, [], snapshot, rules, projections_at_event, decay_factor, 0.0)
+    hold_node = _materialize(node, event, [], snapshot, rules, projections_at_event, decay_factor, 0.0, now)
     if hold_node is not None:
         candidates.append(hold_node)
 
@@ -623,7 +633,7 @@ def _expand_node(
             root_event_delta = float(delta[tuple(m[rank] for m in multi)])
             transfers = [Transfer(out_id=o, in_id=i) for o, i in zip(combo, in_ids)]
             child = _materialize(
-                node, event, transfers, snapshot, rules, projections_at_event, decay_factor, root_event_delta
+                node, event, transfers, snapshot, rules, projections_at_event, decay_factor, root_event_delta, now
             )
             if child is not None:
                 candidates.append(child)
@@ -663,6 +673,7 @@ def _expand_level(
     decay_factor: float,
     max_hit: int,
     beam: int,
+    now: datetime | None,
 ) -> list[Node]:
     children: list[Node] = []
     for node in bucket:
@@ -678,6 +689,7 @@ def _expand_level(
                 decay_factor,
                 max_hit,
                 local_retain=beam,
+                now=now,
             )
         )
     survivors = _dp_prune(children)
@@ -721,6 +733,7 @@ def optimise(
     beam: int = DEFAULT_BEAM,
     first_moves: int = DEFAULT_FIRST_MOVES,
     max_cells: int = DEFAULT_MAX_CELLS,
+    now: datetime | None = None,
 ) -> OptimiseResult:
     """optimizer-search.md §4.4: beam search over an exactly-pruned candidate
     set, root enumerated exhaustively, `k_enum = 2` at every level, DP
@@ -778,7 +791,7 @@ def optimise(
             scope_gaps.append(ScopeGap(event=event, free_transfers=running_free, k_rules=k_rules))
 
     root_level_nodes = _expand_root(
-        root, events, projections_by_event, hold_objective, snapshot, rules, pool, decay, max_hit, first_moves
+        root, events, projections_by_event, hold_objective, snapshot, rules, pool, decay, max_hit, first_moves, now
     )
 
     buckets: list[list[Node]] = [[node] for node in root_level_nodes]
@@ -792,7 +805,17 @@ def optimise(
         for index, bucket in enumerate(buckets):
             hold_objective_value = hold_objective[event]
             buckets[index] = _expand_level(
-                bucket, event, projections_at_event, hold_objective_value, snapshot, rules, pool, decay_factor, max_hit, beam
+                bucket,
+                event,
+                projections_at_event,
+                hold_objective_value,
+                snapshot,
+                rules,
+                pool,
+                decay_factor,
+                max_hit,
+                beam,
+                now,
             )
 
     paths: list[Path] = []
