@@ -544,18 +544,18 @@ def optimise_plan(
     rows.append(hold_row)
 
     winner = result.paths[0]
+    winner_chain = winner.chain()  # one node per horizon event; never empty
     margin = (
         display_paths[0].score - display_paths[1].score if len(display_paths) >= 2 else float("inf")
     )
     headline_verdict = "RECOMMENDED" if margin >= _DECISION_MARGIN_PLACEHOLDER else "MARGINAL"
 
     if winner.first_move:
-        root_hit = winner.chain()[0].hit_points
+        root_hit = winner_chain[0].hit_points
         description = _move_description(winner.first_move, snapshot, root_hit, horizon_edge=False)
         break_even = float(root_hit)
     else:
-        resulting_free = winner.chain()[0].state.free_transfers if winner.chain() else initial_state.free_transfers
-        description = f"hold (roll to {resulting_free} free transfers)"
+        description = f"hold (roll to {winner_chain[0].state.free_transfers} free transfers)"
         break_even = 0.0
     gross = winner.net + winner.hit_points
     event_range = f"GW{events[0]}–GW{events[-1]}" if len(events) > 1 else f"GW{events[0]}"
@@ -625,7 +625,7 @@ def optimise_plan(
             ],
         }
         if output is not None:
-            transfers_by_event = {node.event: list(node.transfers) for node in winner.chain()}
+            transfers_by_event = {node.event: list(node.transfers) for node in winner_chain}
             write_transfers_plan(output, transfers_by_event)
             payload["output"] = str(output)
         print(json.dumps(payload, indent=2))
@@ -673,11 +673,11 @@ def optimise_plan(
     if any("‡" in move for row in rows for move in row.moves):
         console.print("  ‡ horizon-edge decision — see optimizer-ux.md §5.3.")
 
-    later_transfer_nodes = [node for node in winner.chain()[1:] if node.transfers]
+    later_transfer_nodes = [node for node in winner_chain[1:] if node.transfers]
     if later_transfer_nodes and winner.first_move:
         first_later = later_transfer_nodes[0]
-        first_move_hit = winner.chain()[0].hit_points
-        first_move_state = winner.chain()[0].state
+        first_move_hit = winner_chain[0].hit_points
+        first_move_state = winner_chain[0].state
         first_move_realised_total = sum(
             xi_value(first_move_state.player_ids, projections_by_event[event], snapshot)
             - xi_value(initial_state.player_ids, projections_by_event[event], snapshot)
@@ -692,7 +692,7 @@ def optimise_plan(
 
     if not explain:
         if output is not None:
-            transfers_by_event = {node.event: list(node.transfers) for node in winner.chain()}
+            transfers_by_event = {node.event: list(node.transfers) for node in winner_chain}
             write_transfers_plan(output, transfers_by_event)
             console.print(f"\n[green]Wrote {output}.[/green]")
         return
@@ -701,7 +701,7 @@ def optimise_plan(
     if not winner.first_move:
         console.print(f"Why — GW{from_event}: hold — no transfer to explain.")
     else:
-        first_node = winner.chain()[0]
+        first_node = winner_chain[0]
         first_move_state = first_node.state
         out_rows = [
             (
@@ -780,7 +780,7 @@ def optimise_plan(
         console.print(f"  Bank £{initial_state.bank / 10:.1f}m → £{first_move_state.bank / 10:.1f}m")
 
     if output is not None:
-        transfers_by_event = {node.event: list(node.transfers) for node in winner.chain()}
+        transfers_by_event = {node.event: list(node.transfers) for node in winner_chain}
         write_transfers_plan(output, transfers_by_event)
         console.print(f"\n[green]Wrote {output}.[/green]")
 
