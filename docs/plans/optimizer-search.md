@@ -1533,6 +1533,49 @@ and `apply_transfers` spends about half its time re-checking them (measured reje
 rate: **0.105%**). FU-34 records both readings; the profile can price the change but
 cannot settle the contract.
 
+### 7.1e — FU-32 landed: measured against the ~19 s prediction (`task/fu-32`, 2026-08-27)
+
+FU-32 is implemented: `_materialize` (`optimizer.py`) no longer calls `best_xi`, and
+`Node.xi` is always `None` off the search — the field stays on the dataclass as the
+`None` cache state its own docstring already allowed. `cli.py`'s `_path_row`, `node.xi`'s
+one reader, now reproduces the XI at display time from `node.state.player_ids` and
+`projections_by_event[node.event]`, exactly as the docstring specifies.
+
+**Exactness, proven rather than asserted.** `fpl plan optimise squad.json` (default
+config, `--robustness off`) was run before and after the change, in each of the plain,
+`--explain` and `--json` forms, and the outputs diffed. `--json` — the form with no
+console formatting to absorb noise — is **byte-identical** in both runs. The plain and
+`--explain` forms differ only in the header's snapshot-fetched timestamp (derived from
+the cache file's mtime, which a live re-fetch updates between runs, per
+`storage/cache.py:28`); every path, move, points, net and score line is unchanged. This
+is on top of `pytest -q`, which passes all 231 tests including `test_optimise_is_deterministic`.
+
+**Runtime**, re-measured with §7.1c/7.1d's own method (`domain.optimizer.optimise()`
+called directly — the CLI still doesn't expose `--beam`, FU-31 — same setup the CLI
+performs, live cached snapshot, root GW2, `squad.json`, `component` model, `--max-hit
+4`, `--first-moves 50`, decay/`ft_value` at defaults, own subprocess, `RLIMIT_AS` 3 GB,
+120 s cap):
+
+| | Expansions | Scored candidates | Runtime | Peak RSS | Best score |
+|---|---:|---:|---:|---:|---:|
+| §7.1c baseline (pre-FU-32) | 651 | 114,154,055 | 92.5 s | 90.5 MB | 70.066 |
+| FU-32 landed (best of 2: 70.5 s, 71.9 s) | 651 | 112,969,160 | **71.9 s** | 90.1 MB | 70.066 |
+
+**~20.6 s saved, against §7.1d's ~19 s prediction (20.6% of 92.5 s) — the two agree to
+within the run-to-run noise this table's own repeat shows (70.5 s vs 71.9 s, 1.4 s
+apart).** Best score is unchanged (70.066), the strongest single number here: it is the
+search's actual output, not a proxy for it, and it survived the change exactly. The
+small drop in scored candidates (114,154,055 → 112,969,160) is not FU-32's doing — `optimise()`'s cost projection is arithmetic over `expansions` and pool size (§7.3),
+independent of whether `xi` is computed, and `expansions` is unchanged at 651; the
+difference is the live snapshot itself moving between §7.1c's capture and this one
+(`SnapshotService.load()` re-fetches live data each run, per the timestamp drift the
+correctness check above also hit), shifting the dominance pool by a handful of players.
+
+**FU-33 and FU-34 remain unimplemented.** §7.1d's combined "~60 s" projection was for
+FU-32 and FU-33 together; this branch lands only FU-32, so 71.9 s against 92.5 s (not
+~60 s) is the correct comparison. FU-33's mask reformulation and FU-34's materialisation
+restructure are unaffected by this change and stay filed as before.
+
 ### 7.2 — Memory is flat by construction, and that is a design property
 
 Peak RSS varies between 52 MB and 57 MB across a 6× range of runtime and a 6× range

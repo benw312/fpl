@@ -420,7 +420,11 @@ def _path_row(label: str, path: OptPath, snapshot: BootstrapSnapshot, projection
     for index, node in enumerate(chain):
         step_hit = node.hit_points - (node.parent.hit_points if node.parent is not None else 0)
         moves.append(_move_description(node.transfers, snapshot, step_hit, horizon_edge=index == len(chain) - 1))
-        points.append(objective_points(node.xi, projections_by_event[node.event]))
+        # FU-32: node.xi is deferred, not cached — reproduced here from
+        # state.player_ids and the projection table (Node's docstring).
+        node_projections = projections_by_event[node.event]
+        xi = best_xi(node.state.player_ids, node_projections, snapshot)
+        points.append(objective_points(xi, node_projections))
     return PathRow(label=label, moves=moves, points=points, net=path.net, score=path.score)
 
 

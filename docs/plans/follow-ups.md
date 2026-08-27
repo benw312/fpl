@@ -1101,6 +1101,16 @@ refusal without editing source.
 
 ## FU-32 — `_materialize` computes `best_xi` for every candidate; it is read ~15 times
 
+**Status: closed** — `task/fu-32` (2026-08-27). `_materialize` (`optimizer.py`) no
+longer calls `best_xi`; every `Node` it builds carries `xi=None`, and `cli.py`'s
+`_path_row` — `node.xi`'s one reader — reproduces the XI at display time from
+`node.state.player_ids` and the event's projection table, per the `Node` docstring.
+Verified exact: `fpl plan optimise squad.json` run before/after in plain, `--explain`
+and `--json` form — `--json` byte-identical, the other two differing only in the
+cache-mtime-derived fetched-at header — plus `pytest -q` (231 passed). Measured
+**71.9 s against the pre-change 92.5 s baseline (§7.1c)**, a 20.6 s saving against
+§7.1d's ~19 s prediction; full re-measurement in optimizer-search.md §7.1e.
+
 **Deferred from:** `task/perf-findings`, profiling the non-scoring path after §7.1c
 found scoring to be only 13.8% of the default run.
 

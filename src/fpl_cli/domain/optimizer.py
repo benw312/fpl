@@ -32,7 +32,7 @@ import numpy as np
 
 from fpl_cli.api.models import BootstrapSnapshot, Player
 from fpl_cli.domain.projections import Projection
-from fpl_cli.domain.squad import BestXI, NodeScorer, best_xi, xi_value
+from fpl_cli.domain.squad import BestXI, NodeScorer, xi_value
 from fpl_cli.domain.transfers import (
     SquadState,
     Transfer,
@@ -433,20 +433,24 @@ def _materialize(
     transfers: list[Transfer],
     snapshot: BootstrapSnapshot,
     rules: TransferRules,
-    projections_at_event: Mapping[int, Projection],
     decay_factor: float,
     delta_from_grid: float,
     now: datetime | None,
 ) -> Node | None:
     """§5.3: the generator does arithmetic; `apply_transfers` is the
     authority. A candidate it rejects is dropped here — the property test in
-    `tests/test_optimizer.py` is what asserts this never happens."""
+    `tests/test_optimizer.py` is what asserts this never happens.
+
+    `xi` is left `None` (FU-32): the Node docstring already licenses it as a
+    cache, reproducible from `state.player_ids` and the projection table, and
+    it has exactly one reader — `cli.py`'s display-time `_path_row` — against
+    every node the search materialises. Computing it here priced 318,619
+    calls to serve ~15 reads (optimizer-search.md §7.1d)."""
     result = apply_transfers(parent.state, transfers, event, snapshot, rules, now=now)
     if not result.validation.valid:
         return None
     net = parent.net + delta_from_grid - result.hit_points
     score = parent.score + decay_factor * delta_from_grid - result.hit_points
-    xi = best_xi(result.state.player_ids, projections_at_event, snapshot)
     new_ids = {player_id for transfer in transfers for player_id in (transfer.out_id, transfer.in_id)}
     return Node(
         parent=parent,
@@ -456,7 +460,7 @@ def _materialize(
         score=score,
         net=net,
         hit_points=parent.hit_points + result.hit_points,
-        xi=xi,
+        xi=None,
         total_transfers=parent.total_transfers + len(transfers),
         path_ids=tuple(sorted(set(parent.path_ids) | new_ids)),
         exclusions={},
@@ -559,7 +563,6 @@ def _expand_root(
             transfers,
             snapshot,
             rules,
-            projections_by_event[root_event],
             decay_factor,
             root_event_delta,
             now,
@@ -599,7 +602,7 @@ def _expand_node(
     # any path that has made a transfer, and holding it into this event still
     # carries that squad's own value here.
     hold_delta = scorer.value() - hold_objective_value
-    hold_node = _materialize(node, event, [], snapshot, rules, projections_at_event, decay_factor, hold_delta, now)
+    hold_node = _materialize(node, event, [], snapshot, rules, decay_factor, hold_delta, now)
     if hold_node is not None:
         candidates.append(hold_node)
 
@@ -638,7 +641,7 @@ def _expand_node(
             root_event_delta = float(delta[tuple(m[rank] for m in multi)])
             transfers = [Transfer(out_id=o, in_id=i) for o, i in zip(combo, in_ids)]
             child = _materialize(
-                node, event, transfers, snapshot, rules, projections_at_event, decay_factor, root_event_delta, now
+                node, event, transfers, snapshot, rules, decay_factor, root_event_delta, now
             )
             if child is not None:
                 candidates.append(child)
