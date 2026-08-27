@@ -1101,7 +1101,7 @@ refusal without editing source.
 
 ## FU-32 — `_materialize` computes `best_xi` for every candidate; it is read ~15 times
 
-**Status: closed** — `task/fu-32` (2026-08-27). `_materialize` (`optimizer.py`) no
+**Status: closed** — `c4a2f5b` (2026-08-27). `_materialize` (`optimizer.py`) no
 longer calls `best_xi`; every `Node` it builds carries `xi=None`, and `cli.py`'s
 `_path_row` — `node.xi`'s one reader — reproduces the XI at display time from
 `node.state.player_ids` and the event's projection table, per the `Node` docstring.
