@@ -9,7 +9,8 @@ from the plans in this directory, so it must not shift. A closed entry carries a
 code, not just what the commit claimed. Its body is left as written, so where the
 fix diverged from the entry the Status line says how.
 
-**Last reconciled against `main`:** 2026-08-27 (`725698c`).
+**Last reconciled against `main`:** 2026-08-27 (`76809ae`). FU-28 is marked closed
+against `task/fu-28-dominance`, which is not on `main` yet; its Status line says so.
 
 ---
 
@@ -936,14 +937,30 @@ divergence between a faster `xi_value` and `best_xi` fails there.
 
 ---
 
-## FU-28 — Dominance pruning is not exact for a same-bucket k = 2 double-pick — **CLOSED**
+## FU-28 — Dominance pruning is not exact for a same-bucket k = 2 double-pick
+
+**Status: closed** — `e69bb3d` *Make dominance pruning exact: exclude only at m usable
+dominators (FU-28)* and `b9706c6` *Raise the --max-cells default from 400M to 800M
+(FU-28)* (2026-08-27, `task/fu-28-dominance`). Verified in the code, not taken from
+the commit message: `_dominance_pool` (`optimizer.py`) collects dominators into a list
+and excludes only at `len(dominators) >= max_from_bucket`, with
+`max_from_bucket = min(limit, position.squad_select)` derived per bucket; the inner
+loop skips `not _validator_usable(other)`, and `_validator_usable` is
+`can_select and not removed`. Pool admission is still `can_transact and not removed`,
+unchanged. `DEFAULT_MAX_CELLS` is `800_000_000`. The `dominance_unsound` parameter is
+gone from `presentation.optimise_header` and the `dominance_pruning_unsound` key from
+`cli.py`'s `--json` payload; `tests/test_cli_optimise.py` asserts the absence of both.
+Three end-to-end regressions in `tests/test_optimizer.py`
+(`..._never_excludes_against_a_held_dominator`, `..._survives_a_same_bucket_double_buy`,
+`..._counts_only_dominators_the_validator_would_accept`), each demonstrated failing on
+`76809ae` first, plus a property test raised from a single pick to a joint pick of up
+to `m`. **Diverged from the entry below in two ways**, both recorded there: the defect
+was not limited to k = 2, and the "restrict `_mask_k2`" option does not restore
+exactness. Designed in `docs/plans/fu-28-dominance.md`; landed behaviour documented in
+optimizer-search.md §5.2, §6.3 and §7.1g. **Not yet on `main`** at the time of writing.
 
 **Deferred from:** §8's dominance property test (`tests/test_optimizer.py`,
 2026-08-26, `task/optimizer`).
-
-**Closed 2026-08-27 by `task/fu-28-dominance`** (`e69bb3d` the fix, `b9706c6` the
-`--max-cells` raise it needs). Designed in `docs/plans/fu-28-dominance.md`; the landed
-behaviour is documented in optimizer-search.md §5.2, §6.3 and §7.1g.
 
 **The fix: exclude a player only once `m = min(squad_team_limit,
 position.squad_select)` *selectable* dominators exist**, rather than on the first
@@ -1435,6 +1452,23 @@ to FU-34), and closes the false-exclusion path above, which is the real reason t
 
 ## FU-36 — §8 tests that pass because the fixture cannot produce the condition they guard
 
+**Status: closed** — `120eda3` *Fix two vacuous §8 guard tests and add the missing
+--max-cells tests (FU-36, FU-37)* (2026-08-27, `task/fu-36-37`, merged as `8ba4ccf`).
+Verified in the code: both instances this entry names now assert their own
+reachability. `test_generator_children_are_all_accepted_by_apply_transfers`
+(`tests/test_optimizer.py:252`) ends with `assert rejections` — "the can_select guard
+was never exercised … so the loop above proves nothing" — so the rejection path this
+entry measured at **0** occurrences must now actually run; it also asserts the
+property that is true (a rejected candidate never reaches the output) rather than the
+false one (no candidate is ever rejected).
+`test_known_outcome_matches_brute_force_enumeration` (`:191`) prices player 10 beyond
+any reachable bank and asserts it, so the affordability mask binds; the club half was
+already declared and justified in its docstring and this entry accepted that.
+
+The general point — each property test asserting that the condition it guards was
+reachable — is now the house pattern rather than a one-off: FU-28's four new tests
+(`e69bb3d`) each carry sizing checks naming what would make them vacuous.
+
 **Deferred from:** `task/fu-34-resolution`, from an audit asked for after FU-34's
 measurement showed the generator rejecting 335 children per run while the test asserting
 it never rejects any was green.
@@ -1487,6 +1521,29 @@ what it says.
 ---
 
 ## FU-37 — §8's two `--max-cells` guard tests do not exist
+
+**Status: closed** — `120eda3` *Fix two vacuous §8 guard tests and add the missing
+--max-cells tests (FU-36, FU-37)* (2026-08-27, `task/fu-36-37`, merged as `8ba4ccf`).
+Verified in the code: both tests §8 specifies now exist in `tests/test_optimizer.py`.
+`test_search_too_expensive_raises_before_any_grid_is_built` (`:1153`) monkeypatches
+`_expand_root` to an `AssertionError`, so the refusal is proved to happen *before* the
+first grid, asserts `cost.projected_cells > 0` so `max_cells=0` is not refusing an
+empty search, and checks all four flag names appear in the message.
+`test_cells_per_node_matches_candidates_actually_scored` (`:1200`) counts finite cells
+through a wrapped `_top_k_indices` and asserts equality with `cost.cells_per_node` —
+the drift check this entry called "the one worth writing".
+
+Measured while closing this, since the second test's value depends entirely on its
+fixture masking something: of the 205 grid cells that fixture offers, **86 (42%) are
+masked out**, and the surviving 119 match `cells_per_node` exactly. So the agreement
+is a real check today, not the trivial one this entry's sibling FU-36 warns about.
+
+`[gap: that 42% is a property of the fixture, not an assertion. The docstring names
+the vacuous case ("a fixture where nothing is ever masked … would make the two counts
+agree trivially") but nothing asserts against it, so a later change to
+`bootstrap_snapshot` or to the extras could drop it to 0% silently and the test would
+still pass. One line — assert some cell was masked — would close it. Left rather than
+fixed: this branch is FU-28's, and the test is sound as it stands.]`
 
 **Deferred from:** `task/fu-34-resolution`, found during FU-36's audit.
 
