@@ -941,6 +941,11 @@ divergence between a faster `xi_value` and `best_xi` fails there.
 **Deferred from:** §8's dominance property test (`tests/test_optimizer.py`,
 2026-08-26, `task/optimizer`).
 
+**Answered by `docs/plans/fu-28-dominance.md`** (`task/fu-28-plan`, 2026-08-27): both
+counterexamples reproduced against `8ba4ccf`, the three options below measured on the
+default configuration, a fourth found, and a recommendation made. Two claims in the
+entry below are **wrong** and the plan document supersedes them — read it first.
+
 optimizer-search.md §5.2 claims exact `(position, club)` dominance: a dominated
 player can always be swapped for its dominator at no cost in legality or value. The
 property test's random search found a counterexample — recorded in full, with the
@@ -958,8 +963,12 @@ bucket simultaneously, which is exactly the same-position, same-club shape
 `_mask_k2`'s `i < j` dedup was built to support.
 
 **Options, none implemented:**
-- Restrict `_mask_k2` so a same-position k = 2 pair can never share a club — cheap,
-  restores exactness, but silently drops a real move shape (stacking one club's
+- ~~Restrict `_mask_k2` so a same-position k = 2 pair can never share a club — cheap,
+  restores exactness~~ — **it does not restore exactness; measured, see
+  `fu-28-dominance.md` §3.1.** It cannot touch the k = 1 shape below, and on the k = 2
+  counterexample it makes the answer *worse* (gap 1.0 → 6.0), because removing a move
+  shape does not recover the value the pruning discarded. Also
+  silently drops a real move shape (stacking one club's
   defence for a fixture swing) instead of reporting it per §5.3's own standard for
   unenumerated shapes.
 - Widen the pool per bucket to the top `m` Pareto layers, `m = min(squad_team_limit,
@@ -969,9 +978,21 @@ bucket simultaneously, which is exactly the same-position, same-club shape
   k_enum` is named in §5.3, rather than continuing to claim an exactness the
   algorithm does not have.
 
-**Unblocks:** nothing currently blocks on this — `tests/test_optimizer.py`'s
-dominance test is scoped to k = 1 (provably exact) and documents the k = 2 gap in its
-own docstring rather than asserting a property that doesn't hold.
+**A fourth option, found while measuring the three above:** exclude a player only once
+**`m` distinct players dominate them**, rather than on the first dominator found. Exact
+for every k by the same exchange argument as the Pareto-layer option, prunes strictly
+harder (373 vs 405 survivors on the live snapshot), 8.6 s cheaper, and a smaller diff.
+**This is the recommendation** — `fu-28-dominance.md` §3.4 and §4.
+
+**~~Unblocks:~~ nothing currently blocks on this — `tests/test_optimizer.py`'s
+dominance test is scoped to k = 1 (provably exact)** — **also wrong.** k = 1 is exact
+only in the bucket-in-isolation setting that test constructs, where the squad holds
+nothing. In the search, an excluded player whose dominator is **already held** is
+unreachable on a *single* transfer: `_dominance_pool` never consults the node's
+holdings, and `_candidates_for` then filters the dominator out as already held. That
+shape is reproduced in `fu-28-dominance.md` §2.2 and fires 14 times on the live
+snapshot at GW2. The property test documents the k = 2 gap in its own docstring but
+asserts a k = 1 property that does not hold in the search.
 
 ---
 
