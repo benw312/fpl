@@ -1204,6 +1204,68 @@ comprehension and should get the same treatment while the file is open.
 
 ## FU-34 — `_expand_node` materialises 390 candidates for every 1 that survives
 
+**Status: decided, not implemented** — resolved 2026-08-27 on `task/fu-34-resolution`;
+full evidence in optimizer-search.md §7.1f. **The restructure is approved, and the
+second reading below is the correct one** — but see the priority note at the end of
+this entry, which puts FU-28 ahead of it.
+
+The `[gap]` this entry left open is closed by measurement, not by argument:
+
+- **The dominance test needs three things the generator does not already hold**, and
+  none of them is state arithmetic it does not already do. `bank` after the buy is the
+  masks' own `bank_after − cost` — the value they compute and discard as a boolean.
+  Post-move `free_transfers` is `max(0, free_available − k)`, constant per
+  out-combination, extending a block already headed *"mirroring `transfers.py`'s
+  `_fold_event`"*. The holdings key is a set operation. `score`, `total_transfers` and
+  `path_ids` are already derived without `apply_transfers` today. **0 mismatches in
+  318,568 accepted children** on all five derived quantities, and 0 in 122,580 more at
+  horizon 3 with hits actually charged (k ∈ {0,1,2}, hit ∈ {0,4}, five distinct
+  free-transfer transitions).
+- **It relocates an existing check rather than adding duplication.** Affordability and
+  the club limit are expressed twice today, in the masks and again in
+  `validate_squad_structure` / the `bank < 0` check, and both expressions run on all
+  318,903 candidates. After the change the same two expressions sit in the same two
+  places; only the execution count falls, by 390×.
+- **The CLAUDE.md guarantee holds literally.** Recommendations are nodes on returned
+  paths, every one a materialised survivor, and every survivor still passes
+  `apply_transfers` → `validate_squad_structure`.
+- **The validator's *other*, unstated role — filtering candidates before they can
+  influence pruning — is replaceable exactly.** All 335 rejections per default run have
+  one cause: `"<player> is not selectable"`, from four pool members that are
+  `can_transact=True, removed=False, can_select=False` (FU-35). Every other error path
+  in `apply_transfers` is either structurally impossible for a candidate that passed
+  `_candidates_for` and the masks, or candidate-*independent* (deadline,
+  `transfers_cap` — one check per level).
+
+**Implementation shape, when it is done.** `_expand_node` returns tuples; `_expand_level`
+dp-prunes, sorts, slices to `beam`, materialises only those. Apply selectability to the
+**retained tuples, after the per-combination top-k — not inside the mask**: masking those
+four players out would free the top-k slots they currently occupy and waste, changing
+which candidates reach `_dp_prune`. Filtering after top-k reproduces today's candidate
+set exactly, which is what makes the change byte-exact rather than merely equivalent in
+spirit. Keep `_materialize`'s `return None` as a backstop, backfill from the next-ranked
+survivor if it fires, and make it loud in tests.
+
+**Re-measured cost, on current code** (§7.1d's phase table predates FU-32 and §7.1e
+recorded its FU-33 attribution missing by ~5 s): `_materialize` from `_expand_node` is
+**29.6 s of 65.1 s instrumented — 45.5%**. On 816 survivors that becomes ~0.08 s, against
+~0.5 s of replacement per-candidate work. **Net ~29 s: 63.1 s → ~34 s**, band mid-30s to
+low-40s.
+
+**The top-N approximation recorded below as a fallback is rejected, not deferred** — the
+exact route is measured and costs nothing extra. (`_dp_prune` removes only 9.4% of
+children, 288,775 of 318,568, so the approximation's margin would in fact be generous;
+there is simply no reason to take it.)
+
+**Priority: FU-28 first.** This entry buys ~29 s on a run that already completes. FU-28
+is *unsound pruning*: a dominated player is stripped from the pool before the search
+starts, and §5.2's recorded counterexample shows the true optimum can need it — a 4.8
+point loss on that seed, **with no floor established under how much larger the gap could
+be on a different bucket**. An accuracy defect with unbounded error outranks a
+performance defect with a measured 29 s ceiling. The 120 s cap in optimizer-search.md
+§7.1c/d is a budget this project set for itself, not an external requirement, and horizon
+8 fitting inside it is not a reason to reorder these.
+
 **Deferred from:** `task/perf-findings`, same profile as FU-32. **This is the largest
 single finding and the only one of the three that needs a design decision.**
 
@@ -1277,4 +1339,123 @@ before the question above is answered.
 claims ~19 s independently. With FU-32 and FU-33 landed and this one restructured,
 optimizer-search.md §7.1d projects the default run at **~35 s against today's 92.5 s**,
 and horizon 8 at `--beam 4` back inside the 120 s budget.
+
+---
+
+## FU-35 — `_dominance_pool` and `validate_squad_structure` disagree on which players are usable
+
+**Deferred from:** `task/fu-34-resolution` (optimizer-search.md §7.1f), where it turned
+up as the cause of every rejection FU-34 measured.
+
+`_dominance_pool` (`optimizer.py:184`) admits a player on `can_transact and not
+removed`. `validate_squad_structure` (`rules.py:57`) rejects a squad containing one that
+is `not can_select or removed`. `can_select` is not checked anywhere between the two, so
+a player with `can_transact=True, can_select=False, removed=False` enters the pool, is
+enumerated, masked, scored and materialised at every node of the search — and is then
+thrown away by the validator, along with the retained top-k slot it occupied.
+
+Measured on the live snapshot (default config, horizon 5, `--beam 4`, root GW2): **four
+such players in the 189-member pool** — 197 Bassette, 225 Uche, 298 Destan, 530
+Patterson, all `status='u'` — accounting for **all 335 of the run's `apply_transfers`
+rejections** (75/75 at horizon 3). Snapshot-wide, 42 of 614 players carry the same
+flag combination.
+
+**The second-order effect is the one that matters.** Those four are not merely wasted
+work: they compete in `_dominance_pool` and can exclude *usable* players from the pool
+entirely. On this snapshot exactly one player is excluded by an unselectable dominator
+(299 Burstow, dominated by 298 Destan) and Burstow is himself unselectable, so nothing
+legitimate is lost **today** — but nothing prevents it. A cheap, unusable player is
+exactly the shape that dominates on cost.
+
+**Not a free fix, and deliberately not bundled into FU-34.** Filtering the pool on
+`can_select` takes it from 189 to 185 and frees the top-k slots those four currently
+consume, so more legitimate candidates reach `_dp_prune`. That is a strictly better
+search, but it **changes the output** — which is why it cannot ride along with FU-34, a
+change whose whole claim is byte-exactness. It needs its own before/after and its own
+justification.
+
+**Also decide which flag is authoritative.** `can_transact` and `can_select` are
+separate API fields; §5.2's pool and §5.3's validator currently encode different
+answers to "is this player usable". One of them is wrong, and the plan does not say
+which.
+
+**Unblocks:** removes 335 wasted materialisations per default run (a rounding error next
+to FU-34), and closes the false-exclusion path above, which is the real reason to do it.
+
+---
+
+## FU-36 — §8 tests that pass because the fixture cannot produce the condition they guard
+
+**Deferred from:** `task/fu-34-resolution`, from an audit asked for after FU-34's
+measurement showed the generator rejecting 335 children per run while the test asserting
+it never rejects any was green.
+
+`test_generator_children_are_all_accepted_by_apply_transfers` (`tests/test_optimizer.py:237`)
+asserts §8's *"the generator is a filter, not a bypass"*: every child the search
+materialises is accepted by `apply_transfers`, and a rejection fails the test.
+**On live data that property is false** — it fires 335 times per default run (FU-35).
+The test is green because `bootstrap_snapshot` (`tests/conftest.py:50-69`) builds every
+player on `Player`'s defaults, so no `can_select=False`, `removed=True` or
+`can_transact=False` player exists and the rejection branch is unreachable.
+
+Measured across the whole suite by wrapping `_materialize`, `_mask_k1` and `_mask_k2`
+for one `pytest -q` run (233 passed):
+
+| Guard | Times exercised in the entire suite |
+|---|---:|
+| `_materialize` returning `None` (the property this test asserts) | **0** |
+| affordability mask blocking a cell | 10,861 |
+| club-limit mask blocking a cell | 68,604 |
+
+The mask half is genuinely covered; the **authority** half is a tautology. The property
+test alone makes 8,712 `_materialize` calls in which `assert result.validation.valid`
+cannot fail.
+
+**A second, milder instance in the same shape.**
+`test_known_outcome_matches_brute_force_enumeration` (`tests/test_optimizer.py:183`) is
+the one test that checks the search against an independent brute-force oracle, and its
+fixture blocks **0** cells on both masks: `_tiny_snapshot` gives every player a distinct
+club and an identical price. The club half is declared in the docstring (*"all distinct
+clubs so the team limit (3) never binds"*) and justified — it keeps the oracle a clean
+read on xP. The affordability half is not declared anywhere. To its credit this test
+does guard its *own* stated condition: lines 224-228 assert the fixture is big enough
+that `first_moves`/`beam` genuinely truncate. That assertion is the pattern the other
+tests need.
+
+**Fix, roughly.** Give the optimiser fixture at least one player per adverse flag and a
+budget tight enough to bind, and — the general point — have each property test assert
+that the condition it guards was reachable, the way the known-outcome test asserts its
+own sizing. A property test that cannot fail is worse than no test: it reads as
+coverage.
+
+**Note for FU-34.** The restructure moves selectability into the generator's pre-filter,
+which makes this test's property *true* rather than vacuous. It should be fixed first,
+so it is a real guard on the change rather than a green light that means nothing.
+
+**Unblocks:** nothing blocks on it, but FU-34 and FU-35 both rely on this test meaning
+what it says.
+
+---
+
+## FU-37 — §8's two `--max-cells` guard tests do not exist
+
+**Deferred from:** `task/fu-34-resolution`, found during FU-36's audit.
+
+optimizer-search.md §8 specifies two tests for the pre-flight guard: that a
+configuration whose `projected_cells` exceeds `--max-cells` **raises before the first
+grid is built** and names the flags that reduce it, and — separately — that
+`cells_per_node` **agrees with the number of candidates actually scored**, "since a
+projection that drifts from reality is a guard that fires on the wrong runs".
+
+Neither exists. `SearchTooExpensive`, `projected_cells` and `cells_per_node` appear
+nowhere under `tests/`; the only mention of `max_cells` is `max_cells=10**9` in four
+optimizer tests, i.e. every test that touches the search **disables** the guard.
+
+The second one is the one worth writing. `_cells_for_node` (`optimizer.py:352`) re-runs
+`_mask_k1`/`_mask_k2` and sums the masks, so it is a second expression of the candidate
+count — the same drift risk §6.2 names for the objective, in a component whose only job
+is to refuse work. Nothing currently ties it to what the search actually scores.
+
+**Unblocks:** nothing, but `SearchTooExpensive` is the only thing standing between a
+mistyped `--horizon` and a machine (§7.2's defect cost one), and it is untested.
 

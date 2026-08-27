@@ -1625,6 +1625,145 @@ missing in the same direction.
 390 : 1 materialisation discard ratio is orthogonal to the club mask, and stays filed as
 before.
 
+### 7.1f — FU-34's open question, resolved by measurement (`task/fu-34-resolution`, 2026-08-27)
+
+§7.1d filed FU-34 with a `[gap]` that the profile could price but not settle: whether
+`apply_transfers` is the authority on *candidate generation* or on *recommendations*.
+This section closes it. **The decision is to restructure**, and the reasoning below is
+measurement, not preference — every claim in it is a count taken from a run, not an
+argument from the design.
+
+Method: `domain.optimizer.optimise()` driven directly with the same inputs the CLI
+builds (live cached snapshot, `squad.json`, `component`, root GW2, `--max-hit 4`,
+`--first-moves 50`, decay/`ft_value` at defaults), with `_materialize`, `_expand_node`
+and `_dp_prune` wrapped by monkeypatch. Every candidate's derived state was compared
+against `apply_transfers`' own answer for that candidate, in the same call.
+
+**Reproduction of §7.1d's counts, on the current code.** 318,903 `_materialize` calls
+from `_expand_node`, 318,568 accepted, 335 rejected, 204 `_dp_prune` calls, best score
+70.066 — matching §7.1d's table and §7.1e's score exactly.
+
+**1. What the dominance test needs that the masks do not already have.** `_dp_prune`
+and `_beats` need six things per candidate: the holdings set (the grouping key),
+`bank`, `free_transfers`, `score`, `total_transfers`, `path_ids`. Four of those are
+already computed without `apply_transfers`: `total_transfers` and `path_ids` come from
+the parent and the transfer ids (`optimizer.py:464-465` reads no `result`), and `score`
+is `parent.score + decay_factor·delta − hit`, where `delta` (`optimizer.py:632`) and
+`hit` (`optimizer.py:627`, via `_hit_points`) are both already in hand — `_materialize`
+takes `hit` from `result.hit_points`, which duplicates the `_hit_points` value the grid
+was already penalised with. Only three are genuinely absent:
+
+| Needed | Status in the generator today |
+|---|---|
+| `bank` after the buy | `_mask_k1:284` / `_mask_k2:313` compute `bank_after` and test `cost <= bank_after`. The dominance test needs `bank_after − cost`. **The same expression, one step short — the value is computed and discarded as a boolean.** |
+| `free_transfers` after the move | `max(0, free_available − k)`. `free_available` already exists at `_expand_node:592`. Constant per out-combination, not per candidate. |
+| holdings key | `(parent − out_ids) | in_ids`. A set operation; no rules arithmetic. |
+
+Measured against `apply_transfers`: **0 mismatches in 318,568 accepted children** on
+bank, free transfers, holdings, hit points and score. Re-run at horizon 3 with
+`--max-hit` uncapped (the CLI's own default), **0 mismatches in 122,580**, and
+non-vacuously — hit ∈ {0 (15,973), 4 (106,607)}, k ∈ {0, 1, 2}, and five distinct
+free-transfer transitions (0→0, 0→1, 1→0, 1→1, 1→2).
+
+`_expand_node`'s `apply_transfers` also **never folds an idle event**:
+`event − parent.state.event == 1` on all 318,903 calls. The free-transfer derivation is
+one `_accrue`, not a loop.
+
+**2. New duplication, or relocation of an existing check?** Relocation, plus one small
+genuine addition. The mask↔validator duplication is **pre-existing and unchanged in
+code**: affordability and the club limit are each expressed twice today (the masks;
+then `validate_squad_structure` and the `bank < 0` check at `transfers.py:330-333`), and
+both expressions execute on all 318,903 candidates. After the restructure the same two
+expressions sit in the same two places — the validator simply runs 390× less often. The
+genuinely new arithmetic is one subtraction (the mask's own discarded operand) and one
+`max(0, free_available − k)`; the latter extends a block already headed *"Free-transfer
+accrual, mirroring `transfers.py`'s `_fold_event`"* (`optimizer.py:240`), which already
+carries two of `_fold_event`'s three free-transfer parts. §5.3's *"the generator does
+arithmetic; `apply_transfers` is the authority"* already concedes the first half of that
+sentence; what changes is which candidates the authority is asked about.
+
+**3. Does the validator on 816 survivors still satisfy CLAUDE.md's guarantee?**
+Literally, and unchanged. Recommendations are the nodes on returned paths; every one is
+a materialised survivor, and every survivor still passes through `apply_transfers` →
+`validate_squad_structure`.
+
+What deferral does change is the validator's *second*, unstated role today: it filters
+candidates before they can influence pruning, so an invalid candidate cannot dominate a
+valid one out of the beam. That role has to be met by something else — and the
+measurement says it can be met exactly, without touching state arithmetic:
+
+**All 335 rejections at horizon 5 (75/75 at horizon 3) have a single cause:
+`"<player> is not selectable"`.** Four players in the 189-member pool trip it — 197
+Bassette, 225 Uche, 298 Destan, 530 Patterson — every one of them
+`can_transact=True, removed=False, can_select=False, status='u'`. `_dominance_pool:184`
+filters on `can_transact and not removed`; `validate_squad_structure:57` requires
+`can_select and not removed`. That gap is the entire rejection set (see FU-35).
+
+Walking the remaining error paths for a candidate that has passed `_candidates_for` and
+the masks: duplicate/self/unknown/not-held/already-held are structurally impossible by
+construction; squad size and position counts are preserved (k out, k in, same
+`element_type`); club limit and bank are masked; out-side `can_transact` is a per-node
+static check; deadline and `transfers_cap` are candidate-*independent* — one check per
+level, not one per candidate. **Nothing in the residual set needs squad-state
+arithmetic.**
+
+**The exact restructure.** `_expand_node` returns cheap tuples; `_expand_level`
+dp-prunes, sorts, slices to `beam`, and materialises only those. Selectability is
+applied to the *retained tuples*, after the per-combination top-k — **not folded into
+the mask**. That distinction is what makes the change byte-exact: masking those four
+players out would free the top-k slots they currently occupy and waste, admitting
+candidates that today never reach `_dp_prune`, which is a different (better, but
+different) search. Filtering after top-k reproduces today's post-rejection candidate set
+exactly, and with §7.1f-1's derivation verified, `_dp_prune`'s survivors and their order
+are then identical.
+
+`_materialize`'s `return None` stays as a hard backstop; on a rejection, backfill from
+the next-ranked survivor and make it loud in tests rather than silently short a level.
+
+**Cost, re-measured on current code.** §7.1d's phase table predates FU-32, and §7.1e
+recorded its FU-33 attribution missing by ~5 s, so it is no longer a safe basis:
+
+| | Measured |
+|---|---:|
+| `_materialize` from `_expand_node`, today | **29.6 s of 65.1 s instrumented — 45.5%** |
+| The same work on 816 survivors | 816 × 92.8 µs ≈ **0.08 s** |
+| Replacement per-candidate work (318,568×: holdings key 0.27–0.36 s, bank 0.06 s, tuple build 0.07 s) | **≈ 0.5 s** |
+| Net | **≈ 29 s — 63.1 s becomes ~34 s** |
+
+That agrees with §7.1d's ~35 s projection, but read the band as mid-30s to low-40s:
+§7.1e's own record is that a phase-table attribution can miss by 5 s and the reason go
+unestablished.
+
+**The trade-off, stated.** One class of validity knowledge — static player selectability
+— moves into the generator, joining affordability and the club limit already there. The
+generator would then pre-check 3 of `apply_transfers`' ~12 error conditions, all three
+being conditions it already holds every input for. The cost is that a future API or
+rules change introducing a new *per-candidate* rejection cause would leave the
+pre-filter stale, and candidates would be pruned against competitors that cannot
+actually be bought. Output stays valid — the backstop and the validator still run on
+survivors — but it could silently become suboptimal. That is a real, bounded and
+testable risk, and it is the price of a 390 : 1 discard ratio.
+
+**The top-N approximation fallback is rejected**, not deferred. It is unnecessary now
+the exact route is measured, and it is an approximation where the exact route is not.
+For the record its margin does look generous — `_dp_prune` removes only 9.4% of children
+(288,775 of 318,568 survive) — but there is no reason to take it.
+
+**Priority: FU-28 outranks this.** FU-34 is worth ~29 s on a run that already completes.
+FU-28 is unsound pruning — a dominated player stripped from the pool before the search
+starts can be one the true optimum needs, and §5.2's own recorded counterexample cost
+4.8 points *with no floor established under how much larger the gap could be on a
+different bucket*. That is an accuracy defect with unbounded error, against a
+performance defect with a measured 29 s ceiling. The 120 s cap in §7.1c/§7.1d is a
+budget this project set for itself, not an external requirement. **Land FU-28 first.**
+
+**Filed from this investigation:** FU-35 (the `_dominance_pool` / `validate_squad_structure`
+flag mismatch — the cause of all 335 rejections, and not a free fix: filtering the pool
+on `can_select` changes the pool from 189 to 185 and frees the top-k slots those four
+occupy, so it changes output and must not be bundled into FU-34), FU-36 (§8 tests that
+pass because the fixture cannot produce the condition they exist to guard), FU-37 (§8's
+two `--max-cells` guard tests do not exist).
+
 ### 7.2 — Memory is flat by construction, and that is a design property
 
 Peak RSS varies between 52 MB and 57 MB across a 6× range of runtime and a 6× range
