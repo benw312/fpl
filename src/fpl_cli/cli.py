@@ -424,6 +424,34 @@ def _path_row(label: str, path: OptPath, snapshot: BootstrapSnapshot, projection
     return PathRow(label=label, moves=moves, points=points, net=path.net, score=path.score)
 
 
+def _event_range(events: list[int]) -> str:
+    return f"GW{events[0]}–GW{events[-1]}" if len(events) > 1 else f"GW{events[0]}"
+
+
+def _scope_gap_lines(scope_gaps: list) -> list[str]:
+    """FU-29: one line per run of consecutive events sharing the same k_rules,
+    instead of one line per event."""
+    lines: list[str] = []
+    index = 0
+    while index < len(scope_gaps):
+        run_end = index
+        while (
+            run_end + 1 < len(scope_gaps)
+            and scope_gaps[run_end + 1].event == scope_gaps[run_end].event + 1
+            and scope_gaps[run_end + 1].k_rules == scope_gaps[index].k_rules
+            and scope_gaps[run_end + 1].k_enum == scope_gaps[index].k_enum
+        ):
+            run_end += 1
+        run = scope_gaps[index : run_end + 1]
+        verb = "allows" if len(run) == 1 else "allow"
+        lines.append(
+            f"{_event_range([gap.event for gap in run])} {verb} up to {run[0].k_rules} transfers under the "
+            f"rules; this search considers ≤{run[0].k_enum} per gameweek (FU-29, --schedule)."
+        )
+        index = run_end + 1
+    return lines
+
+
 @plan_app.command("optimise")
 def optimise_plan(
     squad_path: Path,
@@ -558,7 +586,7 @@ def optimise_plan(
         description = f"hold (roll to {winner_chain[0].state.free_transfers} free transfers)"
         break_even = 0.0
     gross = winner.net + winner.hit_points
-    event_range = f"GW{events[0]}–GW{events[-1]}" if len(events) > 1 else f"GW{events[0]}"
+    event_range = _event_range(events)
 
     robustness_line: str | None = None
     if robustness != "off":
@@ -590,11 +618,7 @@ def optimise_plan(
         _, robustness_line = _robustness_report(primary_key, alt_named_scores)
 
     last_finished = max((gw.id for gw in snapshot.events if gw.finished), default=None)
-    scope_gap_lines = [
-        f"GW{gap.event} allows up to {gap.k_rules} transfers under the rules; this search only "
-        f"considers ≤{gap.k_enum} at every gameweek (FU-29, --schedule)."
-        for gap in result.scope_gaps
-    ]
+    scope_gap_lines = _scope_gap_lines(result.scope_gaps)
 
     if json_output:
         payload = {
@@ -749,6 +773,7 @@ def optimise_plan(
         )
 
         footnotes: list[str] = []
+        benched_events_by_out_id: dict[int, list[int]] = {}
         for event in events:
             hold_xi = best_xi(initial_state.player_ids, projections_by_event[event], snapshot)
             for t in winner.first_move:
@@ -756,6 +781,17 @@ def optimise_plan(
                 if projections_by_event[event][t.out_id].fixtures == 0:
                     footnotes.append(f"GW{event}: {out_player.display_name}'s club blanks (0 fixtures)")
                 elif t.out_id not in hold_xi.starters:
+                    benched_events_by_out_id.setdefault(t.out_id, []).append(event)
+        for t in winner.first_move:
+            benched_events = benched_events_by_out_id.get(t.out_id, [])
+            out_player = snapshot.players_by_id[t.out_id]
+            if benched_events == events:
+                footnotes.append(
+                    f"{out_player.display_name} would have been benched in {_event_range(benched_events)} — "
+                    "selling him cost nothing those weeks"
+                )
+            else:
+                for event in benched_events:
                     footnotes.append(
                         f"GW{event}: {out_player.display_name} would have been benched anyway — "
                         "selling him cost nothing that week"
