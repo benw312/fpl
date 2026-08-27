@@ -19,7 +19,7 @@ import pytest
 from fpl_cli.api.models import BootstrapSnapshot, Club, GameSettings, Gameweek, Player, Position
 from fpl_cli.domain.projections import Projection
 from fpl_cli.domain.optimizer import Transfer as OptTransfer
-from fpl_cli.domain.optimizer import DEFAULT_BEAM, Node, _club_counts, _dominance_pool, _mask_k2, optimise
+from fpl_cli.domain.optimizer import DEFAULT_BEAM, Node, SearchTooExpensive, _club_counts, _dominance_pool, _mask_k2, optimise
 from fpl_cli.domain.transfers import Holding, SquadState, TransferRules, apply_transfers, selling_price
 
 from conftest import add_players
@@ -63,8 +63,8 @@ def _tiny_snapshot() -> BootstrapSnapshot:
         Position(id=3, singular_name_short="MID", squad_select=2, squad_min_play=1, squad_max_play=2),
         Position(id=4, singular_name_short="FWD", squad_select=1, squad_min_play=1, squad_max_play=1),
     ]
-    # id -> (element_type, club); all same price, all distinct clubs so the
-    # team limit (3) never binds and every combination is a clean read on xP.
+    # id -> (element_type, club); all distinct clubs so the team limit (3)
+    # never binds and every combination is a clean read on xP.
     layout = {
         1: (1, 1), 2: (1, 2), 3: (1, 3),  # GKP: 1 held, 2 pool
         4: (2, 4), 5: (2, 5), 6: (2, 6), 7: (2, 7),  # DEF: 2 held, 2 pool
@@ -75,6 +75,14 @@ def _tiny_snapshot() -> BootstrapSnapshot:
         Player(id=pid, web_name=f"P{pid}", team=club, element_type=position, now_cost=40)
         for pid, (position, club) in layout.items()
     ]
+    # FU-36: prices were uniform, so the affordability mask blocked 0 cells —
+    # a milder instance of the same vacuous-guard shape as the generator
+    # test below. Player 10 (a flat, already-non-optimal MID pool candidate:
+    # see the `xp` table in the test) is priced far beyond any reachable
+    # bank, so the mask actually binds without changing the known optimum.
+    for player in players:
+        if player.id == 10:
+            player.now_cost = 500
     return BootstrapSnapshot(
         events=[
             Gameweek(
@@ -227,6 +235,13 @@ def test_known_outcome_matches_brute_force_enumeration() -> None:
     assert total_root_candidates > first_moves + 1
     assert total_root_candidates > beam
 
+    # Sizing check (FU-36): id 10 must be unaffordable under any reachable
+    # bank — selling the entire held squad included — or the affordability
+    # mask never actually blocks a cell and this fixture is back to proving
+    # nothing about it.
+    max_possible_bank_after = state.bank + sum(snapshot.players_by_id[pid].now_cost for pid in _TINY_HELD)
+    assert snapshot.players_by_id[10].now_cost > max_possible_bank_after
+
     expected_best = _brute_force_best_score(state, snapshot, projections_by_event, rules, [2, 3], decay=0.84, ft_value=1.5)
     assert result.paths[0].score == pytest.approx(expected_best, abs=1e-9)
 
@@ -235,10 +250,23 @@ def test_known_outcome_matches_brute_force_enumeration() -> None:
 
 
 def test_generator_children_are_all_accepted_by_apply_transfers(bootstrap_snapshot: BootstrapSnapshot, monkeypatch: pytest.MonkeyPatch) -> None:
-    """optimizer-search.md §5.3: every child the search materialises must
-    pass `apply_transfers`. Wrap the real function so a rejection — which
-    `_materialize` would otherwise swallow by returning `None` — fails the
-    test instead of silently vanishing.
+    """optimizer-search.md §5.3: "the generator is a filter, not a bypass" —
+    a candidate `apply_transfers` rejects must never survive into the
+    search's output. `_materialize` enforces this by returning `None`
+    (dropping the candidate) rather than wrapping the rejected result into a
+    `Node`.
+
+    FU-36: the previous version of this test asserted the *opposite* and
+    stronger claim — that no candidate is ever rejected — which is false on
+    live data (FU-35: `_dominance_pool` doesn't filter `can_select`, so an
+    unselectable player can reach `apply_transfers` and be rejected there;
+    335 times per default run). The fixture had no `can_select=False`
+    player, so that branch was never reachable and the assertion could not
+    fail: 0 of 8,712 `_materialize` calls across the whole suite. This
+    version adds one dominant-but-unselectable candidate so the rejection
+    path is actually exercised, and checks the property that is actually
+    true of the current code — rejects get dropped, not smuggled through —
+    rather than the one that was never true of it.
     """
     import fpl_cli.domain.optimizer as optimizer_module
     from fpl_cli.domain.transfers import apply_transfers as real_apply_transfers
@@ -291,12 +319,27 @@ def test_generator_children_are_all_accepted_by_apply_transfers(bootstrap_snapsh
                 return held
         raise RuntimeError("could not sample a club-legal squad")
 
+    # FU-36: added after the held-squad sampling pool above is captured, so
+    # it can only ever be offered as a *buy* candidate, never dealt into a
+    # starting squad — `can_select=False` there would just make the fixture
+    # illegal from the outset, testing nothing about the generator.
+    unselectable_id = next_id
+    add_players(
+        bootstrap_snapshot,
+        Player(
+            id=unselectable_id, web_name=f"P{unselectable_id}", team=(unselectable_id % 15) + 1,
+            element_type=3, now_cost=45, can_select=False,
+        ),
+    )
+
     calls = []
+    rejections = []
 
     def wrapper(*args, **kwargs):
         result = real_apply_transfers(*args, **kwargs)
         calls.append(result)
-        assert result.validation.valid, f"generator emitted a child apply_transfers rejected: {result.validation.errors}"
+        if not result.validation.valid:
+            rejections.append(result)
         return result
 
     monkeypatch.setattr(optimizer_module, "apply_transfers", wrapper)
@@ -310,7 +353,13 @@ def test_generator_children_are_all_accepted_by_apply_transfers(bootstrap_snapsh
             for pid in bootstrap_snapshot.players_by_id
             for event in (2, 3)
         }
-        optimise(
+        # Dominate the MID pool on xP so the unselectable candidate is
+        # (almost) always the top pick for a MID out-slot, forcing the
+        # rejection branch rather than leaving it to chance.
+        for event in (2, 3):
+            projections[(unselectable_id, event)] = _projection(unselectable_id, event, 100.0)
+
+        result = optimise(
             state,
             bootstrap_snapshot,
             projections,
@@ -324,7 +373,21 @@ def test_generator_children_are_all_accepted_by_apply_transfers(bootstrap_snapsh
             now=NOW,
         )
 
+        for path in result.paths:
+            for node in path.chain():
+                assert unselectable_id not in node.path_ids, (
+                    "an apply_transfers-rejected candidate reached the search output — "
+                    "the generator bypassed apply_transfers instead of filtering through it"
+                )
+
     assert calls, "the property was never exercised — no apply_transfers calls were made"
+    # Sizing check (FU-36), following test_known_outcome's pattern: without
+    # this, the assertion above can't fail either, for the same reason the
+    # original version of this test couldn't — nothing ever gets rejected.
+    assert rejections, (
+        "the can_select guard was never exercised — the unselectable player was never "
+        "offered to apply_transfers, so the loop above proves nothing"
+    )
 
 
 # --- Dominance is exact ------------------------------------------------------
@@ -735,3 +798,117 @@ def test_mask_k2_club_check_matches_tensor_reference_randomised() -> None:
         np.testing.assert_array_equal(
             actual, expected, err_msg=f"trial {trial}: n_clubs={n_clubs}, limit={limit}, out_a={out_a}, out_b={out_b}"
         )
+
+
+# --- FU-37: the --max-cells guard (optimizer-search.md §7.3) ---------------
+
+
+def test_search_too_expensive_raises_before_any_grid_is_built(
+    bootstrap_snapshot: BootstrapSnapshot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """optimizer-search.md §7.3/§8: a configuration whose `projected_cells`
+    exceeds `--max-cells` must raise before the first grid is built, and the
+    message must name the flags that reduce it.
+    """
+    import fpl_cli.domain.optimizer as optimizer_module
+
+    next_id = max(player.id for player in bootstrap_snapshot.elements) + 1
+    # One free-club (6-9), unheld candidate per position, so at least one
+    # combo is legal and `projected_cells` is not trivially 0 regardless of
+    # `max_cells` — a 0-vs-0 comparison would guard nothing.
+    extras = [
+        Player(id=next_id + i, web_name=f"P{next_id + i}", team=6 + i, element_type=1 + i, now_cost=45)
+        for i in range(4)
+    ]
+    add_players(bootstrap_snapshot, *extras)
+    rules = TransferRules.from_snapshot(bootstrap_snapshot)
+
+    held = list(range(1, 16))
+    holdings = {pid: Holding(player=pid, purchase_price=50, bought_event=0) for pid in held}
+    state = SquadState(holdings=holdings, bank=50, event=1, free_transfers=1)
+    projections = {
+        (pid, event): _projection(pid, event, 5.0) for pid in bootstrap_snapshot.players_by_id for event in (2, 3)
+    }
+
+    def _grid_should_not_be_built(*args, **kwargs):
+        raise AssertionError("a grid was scored after the guard should have refused the run")
+
+    monkeypatch.setattr(optimizer_module, "_expand_root", _grid_should_not_be_built)
+
+    with pytest.raises(SearchTooExpensive) as excinfo:
+        optimise(
+            state, bootstrap_snapshot, projections, rules,
+            from_event=2, horizon=2, beam=2, first_moves=5, max_hit=4, max_cells=0, now=NOW,
+        )
+
+    # Sizing check: the guard must actually have something to refuse, or a
+    # `max_cells=0` pass proves nothing about the projection itself.
+    assert excinfo.value.cost.projected_cells > 0
+
+    message = str(excinfo.value)
+    for flag in ("--horizon", "--beam", "--first-moves", "--max-cells"):
+        assert flag in message, f"{flag} missing from refusal message: {message!r}"
+
+
+def test_cells_per_node_matches_candidates_actually_scored(
+    bootstrap_snapshot: BootstrapSnapshot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """optimizer-search.md §7.3/§8: `cells_per_node` must agree with the
+    number of candidates the real expansion actually scores as finite
+    (mask-passed) cells — "a projection that drifts from reality is a guard
+    that fires on the wrong runs".
+
+    `bootstrap_snapshot`'s held squad already has every club at
+    `squad_team_limit` (5 clubs x 3 players = 15), so a pool candidate
+    sharing a saturated club is legal only for the one out-slot whose own
+    club it is: some out-combinations get partially masked cells and others
+    none. A fixture where nothing is ever masked (or everything is) would
+    make the two counts agree trivially, the same vacuous shape FU-36 found
+    elsewhere in this file.
+    """
+    import fpl_cli.domain.optimizer as optimizer_module
+
+    next_id = max(player.id for player in bootstrap_snapshot.elements) + 1
+    extras = [
+        # One always-legal, free-club (6) candidate per position.
+        Player(id=next_id + 0, web_name="Pfree0", team=6, element_type=1, now_cost=45),
+        Player(id=next_id + 1, web_name="Pfree1", team=6, element_type=2, now_cost=45),
+        Player(id=next_id + 2, web_name="Pfree2", team=6, element_type=3, now_cost=45),
+        Player(id=next_id + 3, web_name="Pfree3", team=6, element_type=4, now_cost=45),
+        # A second MID candidate in club 1 — held MID P10's own club (P10:
+        # id 10, `team = 10 % 5 + 1 == 1`) — so it is legal only for the
+        # out=10 combo and club-blocked for every other MID out-slot.
+        Player(id=next_id + 4, web_name="Psaturated", team=1, element_type=3, now_cost=45),
+    ]
+    add_players(bootstrap_snapshot, *extras)
+    rules = TransferRules.from_snapshot(bootstrap_snapshot)
+    assert bootstrap_snapshot.players_by_id[10].team == 1  # the shared-club premise above
+
+    held = list(range(1, 16))
+    holdings = {pid: Holding(player=pid, purchase_price=50, bought_event=0) for pid in held}
+    state = SquadState(holdings=holdings, bank=50, event=1, free_transfers=1)
+    projections = {
+        (pid, event): _projection(pid, event, 5.0) for pid in bootstrap_snapshot.players_by_id for event in (2, 3)
+    }
+
+    scored = 0
+    real_top_k = optimizer_module._top_k_indices
+
+    def counting_top_k(values, k, chunk_cells=optimizer_module.GRID_CHUNK_CELLS):
+        nonlocal scored
+        scored += int(np.isfinite(values).sum())
+        return real_top_k(values, k, chunk_cells)
+
+    monkeypatch.setattr(optimizer_module, "_top_k_indices", counting_top_k)
+
+    # horizon=1 so every `_top_k_indices` call comes from `_expand_root` —
+    # `cells_per_node` is defined and verified against the root node only
+    # (optimizer-search.md §7.3's own table), and a deeper beam level would
+    # count candidates the projection was never claiming to cover.
+    result = optimise(
+        state, bootstrap_snapshot, projections, rules,
+        from_event=2, horizon=1, beam=4, first_moves=50, max_hit=4, max_cells=10**9, now=NOW,
+    )
+
+    assert scored > 0, "no candidate was ever scored — this fixture proves nothing"
+    assert scored == result.cost.cells_per_node
