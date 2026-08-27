@@ -1543,10 +1543,53 @@ carefully avoid. Options, none costed:
 - Leave it, and treat §7.1g's measurement as the check. Honest, but the check then
   only happens when someone remembers to re-measure.
 
-**Do it before FU-29.** `--schedule` at k = 3 puts a single out-combination past 10⁹
-cells by optimizer-search.md §7.3's own arithmetic — that is how §5.7 derives its
-ceiling of 3 — so the next branch to touch this number is already known. Deciding how
+**The headroom, measured, because the value matters and not only the missing test.**
+Default configuration (horizon 5, `--beam 4`, `--first-moves 50`), cached snapshot
+2026-08-27T22:18Z, 616 players, root GW2, `squad.json`:
+
+| | `projected_cells` | Ceiling | Headroom | Ratio |
+|---|---:|---:|---:|---:|
+| before FU-28 | 112,969,160 | 400,000,000 | 287,030,840 | **3.54×** |
+| after FU-28 | **515,771,890** | 800,000,000 | **284,228,110** | **1.55×** |
+
+`--max-hit` makes no difference to this: at GW2 one free transfer accrues to two, so
+`k_max` is 2 whether the flag is set to 4 or left uncapped, and the CLI default
+projects the same 515,771,890. The absolute headroom is almost unchanged (287.0M →
+284.2M) while the *ratio* has more than halved. A ceiling with 1.55× headroom is a
+different kind of object from one with 3.5×: it will be reached by ordinary drift, not
+only by a mistyped flag. §5.2 predicts the pool grows as players differentiate through
+the season, and each pool player costs roughly quadratically at k = 2.
+
+**Do it before FU-29, and expect to move the number again.** `--schedule` at k = 3
+enumerates a third incoming slot, and the pool the third slot draws from is the one
+FU-28 doubled. Measured on the same snapshot, counting the same `i < j < k` dedup the
+generator uses but **without** the budget and club masks — so a strict upper bound on
+what the guard would count:
+
+| k | unmasked cells per node |
+|---:|---:|
+| 1 | 1,525 |
+| 2 | 914,566 |
+| 3 | **286,265,852** |
+
+**One k = 3 node expansion is 36% of the entire 800M ceiling**, against 0.11% for
+k = 2. §7.3 says the guard "also bounds `--schedule`" and that this is why §5.7 can
+state its ceiling of 3 as a consequence rather than a rule — that reasoning still
+holds, but the margin it holds by is now much thinner, and `--schedule 0,0,3` will
+have to be costed against this ceiling rather than assumed to clear it. Deciding how
 the ceiling is tested is better done before it moves again than during.
+
+**Reproducibility note.** §7.1g and FU-28's commit messages cite a 2026-08-27T13:33Z
+capture with 614 players; the figures above are from a 22:18Z capture with 616. The
+difference is two players, both excluded under either rule (exclusions 425 → 427 under
+the old rule, 240 → 241 under the new one), and it is snapshot drift, not a rule
+difference — confirmed by running both rules against the same capture. The 13:33Z
+capture no longer exists: `SnapshotService.load()` saves on every successful live
+fetch, so the verification runs for this branch overwrote it, and `~/.fpl-cli/archive`
+holds nothing between 2026-08-27T00:30 and now. `[gap: any measurement in these plans
+taken against "the cached snapshot" is reproducible only until the next `fpl` command
+runs. Nothing pins a capture for measurement purposes. Not this entry's concern, but
+it is the reason two figures that should match do not.]`
 
 **Also unresolved, from the same measurement (§7.1g):** the ceiling is expressed in
 cells but justified in seconds, and the conversion between them is not a constant.
