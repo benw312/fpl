@@ -1144,6 +1144,21 @@ optimizer-search.md §7.1d for the phase table this came from.
 
 ## FU-33 — `_mask_k2` builds a 3-D club tensor 20× the size of the mask it produces
 
+**Status: closed** — `task/fu-33` (2026-08-27). `_mask_k2` (`optimizer.py`) no longer
+builds the `(len_a, len_b, n_clubs)` tensor; `free_a`/`free_b` (two 1-D slots-free
+vectors) plus one equality outer product (`club_a[:, None] == club_b[None, :]`) decide
+the same predicate this entry specifies below. `_mask_k1` was left as filed — it was
+already O(a), not a tensor, so the "same treatment" note below did not apply. Verified
+exact: a dedicated test (`tests/test_optimizer.py::test_mask_k2_club_check_matches_tensor_reference_*`)
+keeps the old tensor code as the reference and checks equality across an explicit
+slots-free-boundary case (0/1/2/3 free) and 200 randomised trials; a deliberate `>= 1` →
+`>= 0` mutation was confirmed to fail both. Also verified end-to-end: `fpl plan optimise`
+run before/after in plain, `--explain` and `--json` form — `--json` byte-identical, the
+other two differing only in the cache-mtime header — plus `pytest -q` (233 passed).
+Measured **63.1 s with FU-32 also landed, against 71.9 s with FU-32 alone** — an ~8.8 s
+saving, short of this entry's ~14 s estimate; full re-measurement and the gap's
+discussion in optimizer-search.md §7.1e.
+
 **Deferred from:** `task/perf-findings`, same profile as FU-32.
 
 `_mask_k2` (`optimizer.py:321-327`) enforces the club limit by materialising

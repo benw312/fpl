@@ -312,19 +312,19 @@ def _mask_k2(
     cost_b = np.array([players_by_id[player_id].now_cost for player_id in in_ids_b])
     affordable = (cost_a[:, None] + cost_b[None, :]) <= bank_after
 
-    club_a = [players_by_id[player_id].team for player_id in in_ids_a]
-    club_b = [players_by_id[player_id].team for player_id in in_ids_b]
-    clubs = sorted(set(club_a) | set(club_b))
-    index = {club: i for i, club in enumerate(clubs)}
-    base = np.array([counts.get(club, 0) for club in clubs])
-
-    add_a = np.zeros((len(in_ids_a), len(clubs)), dtype=np.int8)
-    add_a[np.arange(len(in_ids_a)), [index[club] for club in club_a]] = 1
-    add_b = np.zeros((len(in_ids_b), len(clubs)), dtype=np.int8)
-    add_b[np.arange(len(in_ids_b)), [index[club] for club in club_b]] = 1
-
-    totals = base[None, None, :] + add_a[:, None, :] + add_b[None, :, :]
-    club_ok = (totals <= limit).all(axis=2)
+    # FU-33: a pair (x, y) is club-infeasible iff club(x) is full, club(y) is
+    # full, or club(x) == club(y) with at most one slot free. `counts` is
+    # already <= limit for every club (the held squad is valid before either
+    # sale), so the only club whose total can exceed the limit after adding
+    # x and/or y is club(x) or club(y) itself — no other club's count needs
+    # checking. Two 1-D "slots free" vectors plus one equality outer product
+    # is exact for this, in place of the O(a·b·clubs) tensor this replaces.
+    club_a = np.array([players_by_id[player_id].team for player_id in in_ids_a])
+    club_b = np.array([players_by_id[player_id].team for player_id in in_ids_b])
+    free_a = limit - np.array([counts.get(club, 0) for club in club_a])
+    free_b = limit - np.array([counts.get(club, 0) for club in club_b])
+    same_club = club_a[:, None] == club_b[None, :]
+    club_ok = (free_a[:, None] >= 1) & (free_b[None, :] >= 1) & (~same_club | (free_a[:, None] >= 2))
 
     mask = affordable & club_ok
     same_position = players_by_id[out_a].element_type == players_by_id[out_b].element_type

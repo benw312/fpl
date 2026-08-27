@@ -13,13 +13,14 @@ import random
 import tracemalloc
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
 
 from fpl_cli.api.models import BootstrapSnapshot, Club, GameSettings, Gameweek, Player, Position
 from fpl_cli.domain.projections import Projection
 from fpl_cli.domain.optimizer import Transfer as OptTransfer
-from fpl_cli.domain.optimizer import DEFAULT_BEAM, _dominance_pool, optimise
-from fpl_cli.domain.transfers import Holding, SquadState, TransferRules, apply_transfers
+from fpl_cli.domain.optimizer import DEFAULT_BEAM, Node, _club_counts, _dominance_pool, _mask_k2, optimise
+from fpl_cli.domain.transfers import Holding, SquadState, TransferRules, apply_transfers, selling_price
 
 from conftest import add_players
 
@@ -536,3 +537,201 @@ def test_optimise_is_deterministic(bootstrap_snapshot: BootstrapSnapshot) -> Non
     assert first.cost == second.cost
     assert first.dominance_exclusions == second.dominance_exclusions
     assert first.scope_gaps == second.scope_gaps
+
+
+# --- FU-33: _mask_k2's club check, tensor reference vs O(a + b + a·b) -------
+
+
+def _mask_k2_tensor_reference(
+    out_a: int,
+    out_b: int,
+    in_ids_a: list[int],
+    in_ids_b: list[int],
+    node: Node,
+    snapshot: BootstrapSnapshot,
+    rules: TransferRules,
+) -> np.ndarray:
+    """The pre-FU-33 implementation: a `(len_a, len_b, n_clubs)` int8 tensor,
+    reduced with `.all(axis=2)`. Kept only as this test's reference — `_mask_k2`
+    itself no longer does this."""
+    players_by_id = snapshot.players_by_id
+    holding_a = node.state.holdings[out_a]
+    holding_b = node.state.holdings[out_b]
+    sale = selling_price(holding_a.purchase_price, players_by_id[out_a].now_cost, rules) + selling_price(
+        holding_b.purchase_price, players_by_id[out_b].now_cost, rules
+    )
+    bank_after = node.state.bank + sale
+
+    counts = _club_counts(node.state.holdings, snapshot)
+    counts[players_by_id[out_a].team] = counts.get(players_by_id[out_a].team, 0) - 1
+    counts[players_by_id[out_b].team] = counts.get(players_by_id[out_b].team, 0) - 1
+    limit = snapshot.game_settings.squad_team_limit
+
+    cost_a = np.array([players_by_id[player_id].now_cost for player_id in in_ids_a])
+    cost_b = np.array([players_by_id[player_id].now_cost for player_id in in_ids_b])
+    affordable = (cost_a[:, None] + cost_b[None, :]) <= bank_after
+
+    club_a = [players_by_id[player_id].team for player_id in in_ids_a]
+    club_b = [players_by_id[player_id].team for player_id in in_ids_b]
+    clubs = sorted(set(club_a) | set(club_b))
+    index = {club: i for i, club in enumerate(clubs)}
+    base = np.array([counts.get(club, 0) for club in clubs])
+
+    add_a = np.zeros((len(in_ids_a), len(clubs)), dtype=np.int8)
+    add_a[np.arange(len(in_ids_a)), [index[club] for club in club_a]] = 1
+    add_b = np.zeros((len(in_ids_b), len(clubs)), dtype=np.int8)
+    add_b[np.arange(len(in_ids_b)), [index[club] for club in club_b]] = 1
+
+    totals = base[None, None, :] + add_a[:, None, :] + add_b[None, :, :]
+    club_ok = (totals <= limit).all(axis=2)
+
+    mask = affordable & club_ok
+    same_position = players_by_id[out_a].element_type == players_by_id[out_b].element_type
+    if same_position:
+        i, j = np.meshgrid(np.arange(len(in_ids_a)), np.arange(len(in_ids_b)), indexing="ij")
+        mask &= i < j
+    return mask
+
+
+def _club_mask_scenario(
+    rng: random.Random, n_clubs: int, limit: int, pool_per_club: int
+) -> tuple[BootstrapSnapshot, Node, TransferRules, int, int, list[int], list[int]]:
+    """A snapshot + node with a random, *valid* held-squad club distribution
+    (every club's held count in `[0, limit]`, matching the invariant
+    `_mask_k2`'s O(a + b + a·b) formulation relies on: no club can already be
+    over the limit) and candidate pools drawn from every club — the scenario
+    the club check must be exact over, including the boundary slots-free
+    counts of 0, 1, 2 and 3 that a `squad_team_limit` of 3 admits.
+    """
+    rules = TransferRules(
+        sell_on_fee=0.5, max_extra_free_transfers=4, transfers_cap=20, sell_at_purchase_price=False, squad_total_spend=1000
+    )
+    players: list[Player] = []
+    next_id = 1
+
+    def add_player(team: int, element_type: int = 1) -> int:
+        nonlocal next_id
+        pid = next_id
+        next_id += 1
+        players.append(Player(id=pid, web_name=f"P{pid}", team=team, element_type=element_type, now_cost=0))
+        return pid
+
+    holdings: dict[int, Holding] = {}
+    for club in range(1, n_clubs + 1):
+        for _ in range(rng.randint(0, limit)):
+            pid = add_player(club)
+            holdings[pid] = Holding(player=pid, purchase_price=0, bought_event=0)
+    while len(holdings) < 2:  # need two held players to serve as out_a/out_b
+        pid = add_player(rng.randint(1, n_clubs))
+        holdings[pid] = Holding(player=pid, purchase_price=0, bought_event=0)
+
+    out_a, out_b = rng.sample(sorted(holdings), 2)
+    same_position = rng.random() < 0.5
+    element_type_b = 1 if same_position else 2
+    for index, player in enumerate(players):
+        if player.id == out_a:
+            players[index] = player.model_copy(update={"element_type": 1})
+        elif player.id == out_b:
+            players[index] = player.model_copy(update={"element_type": element_type_b})
+
+    candidates = [add_player(club) for club in range(1, n_clubs + 1) for _ in range(pool_per_club)]
+    low = min(2, len(candidates))
+    in_ids_a = rng.sample(candidates, k=rng.randint(low, len(candidates)))
+    in_ids_b = in_ids_a if same_position else rng.sample(candidates, k=rng.randint(low, len(candidates)))
+
+    snapshot = BootstrapSnapshot(
+        events=[],
+        teams=[Club(id=club, name=f"Club {club}") for club in range(1, n_clubs + 1)],
+        element_types=[],
+        elements=players,
+        game_settings=GameSettings(squad_team_limit=limit),
+        raw={"game_config": {"scoring": {}}},
+        fetched_at=datetime.now(UTC),
+        season="test",
+    )
+    node = Node(
+        parent=None,
+        transfers=(),
+        event=1,
+        state=SquadState(holdings=holdings, bank=0, event=1, free_transfers=1),
+        score=0.0,
+        net=0.0,
+        hit_points=0,
+        xi=None,
+        total_transfers=0,
+        path_ids=(),
+    )
+    return snapshot, node, rules, out_a, out_b, in_ids_a, in_ids_b
+
+
+def test_mask_k2_club_check_matches_tensor_reference_at_slot_boundaries() -> None:
+    """Explicit construction hitting all four slots-free boundaries a
+    `squad_team_limit` of 3 admits (0, 1, 2, 3), for both a same-club
+    candidate pair and a cross-club pair, same-position and cross-position.
+    """
+    limit = 3
+    # Held: club 1 full (3, so 0 free after out_a/out_b removed elsewhere),
+    # club 2 has 2 (1 free), club 3 has 1 (2 free), club 4 has none held (3 free).
+    players = [Player(id=pid, web_name=f"P{pid}", team=club, element_type=1, now_cost=0) for pid, club in enumerate(
+        [1, 1, 1, 2, 2, 3], start=1
+    )]
+    # out_a/out_b: two more held players, from clubs 5 and 6, untouched by
+    # the boundary clubs above.
+    players.append(Player(id=7, web_name="Pout_a", team=5, element_type=1, now_cost=0))
+    players.append(Player(id=8, web_name="Pout_b", team=6, element_type=2, now_cost=0))
+    # Candidates spanning every boundary club, plus club 5/6 themselves (the
+    # outgoing players' own clubs, whose free count rises by one on removal).
+    for pid, club in zip(range(9, 15), [1, 2, 3, 4, 5, 6]):
+        players.append(Player(id=pid, web_name=f"P{pid}", team=club, element_type=1, now_cost=0))
+
+    holdings = {pid: Holding(player=pid, purchase_price=0, bought_event=0) for pid in range(1, 9)}
+    snapshot = BootstrapSnapshot(
+        events=[],
+        teams=[Club(id=club, name=f"Club {club}") for club in range(1, 7)],
+        element_types=[],
+        elements=players,
+        game_settings=GameSettings(squad_team_limit=limit),
+        raw={"game_config": {"scoring": {}}},
+        fetched_at=datetime.now(UTC),
+        season="test",
+    )
+    rules = TransferRules(
+        sell_on_fee=0.5, max_extra_free_transfers=4, transfers_cap=20, sell_at_purchase_price=False, squad_total_spend=1000
+    )
+    node = Node(
+        parent=None,
+        transfers=(),
+        event=1,
+        state=SquadState(holdings=holdings, bank=0, event=1, free_transfers=1),
+        score=0.0,
+        net=0.0,
+        hit_points=0,
+        xi=None,
+        total_transfers=0,
+        path_ids=(),
+    )
+
+    in_ids = list(range(9, 15))  # one candidate per club 1..6
+
+    for label, out_a, out_b, in_ids_a, in_ids_b in [
+        ("cross-position, distinct in-clubs", 7, 8, in_ids, in_ids),
+        ("cross-position, same in-club pair", 7, 8, [9, 9], [9, 9]),
+    ]:
+        expected = _mask_k2_tensor_reference(out_a, out_b, in_ids_a, in_ids_b, node, snapshot, rules)
+        actual = _mask_k2(out_a, out_b, in_ids_a, in_ids_b, node, snapshot, rules)
+        np.testing.assert_array_equal(actual, expected, err_msg=label)
+
+
+def test_mask_k2_club_check_matches_tensor_reference_randomised() -> None:
+    rng = random.Random("fu-mask-k2-club-check")
+    for trial in range(200):
+        n_clubs = rng.randint(2, 6)
+        limit = rng.choice([1, 2, 3])
+        snapshot, node, rules, out_a, out_b, in_ids_a, in_ids_b = _club_mask_scenario(
+            rng, n_clubs=n_clubs, limit=limit, pool_per_club=rng.randint(1, 3)
+        )
+        expected = _mask_k2_tensor_reference(out_a, out_b, in_ids_a, in_ids_b, node, snapshot, rules)
+        actual = _mask_k2(out_a, out_b, in_ids_a, in_ids_b, node, snapshot, rules)
+        np.testing.assert_array_equal(
+            actual, expected, err_msg=f"trial {trial}: n_clubs={n_clubs}, limit={limit}, out_a={out_a}, out_b={out_b}"
+        )

@@ -1533,7 +1533,7 @@ and `apply_transfers` spends about half its time re-checking them (measured reje
 rate: **0.105%**). FU-34 records both readings; the profile can price the change but
 cannot settle the contract.
 
-### 7.1e — FU-32 landed: measured against the ~19 s prediction (`task/fu-32`, 2026-08-27)
+### 7.1e — FU-32 and FU-33 landed: measured against the ~19 s and ~14 s predictions (`task/fu-32`, `task/fu-33`, 2026-08-27)
 
 FU-32 is implemented: `_materialize` (`optimizer.py`) no longer calls `best_xi`, and
 `Node.xi` is always `None` off the search — the field stays on the dataclass as the
@@ -1571,10 +1571,59 @@ difference is the live snapshot itself moving between §7.1c's capture and this 
 (`SnapshotService.load()` re-fetches live data each run, per the timestamp drift the
 correctness check above also hit), shifting the dominance pool by a handful of players.
 
-**FU-33 and FU-34 remain unimplemented.** §7.1d's combined "~60 s" projection was for
-FU-32 and FU-33 together; this branch lands only FU-32, so 71.9 s against 92.5 s (not
-~60 s) is the correct comparison. FU-33's mask reformulation and FU-34's materialisation
-restructure are unaffected by this change and stay filed as before.
+**FU-33 is also implemented**, on top of FU-32 (`task/fu-33`): `_mask_k2`'s club check
+no longer builds the `(len_a, len_b, n_clubs)` int8 tensor. `counts` (the held squad's
+per-club counts, minus the two outgoing players) is already `<=` the club limit for
+every club, because the held squad is valid before either sale — so the only club whose
+total can exceed the limit after adding an incoming pair `(x, y)` is `club(x)` or
+`club(y)` itself, never a third club. `free_a`/`free_b` (two 1-D "slots free" vectors)
+and one equality outer product (`club_a[:, None] == club_b[None, :]`) decide the same
+question the tensor did, in `O(a + b + a·b)` instead of `O(a·b·clubs)`.
+
+**Exactness, proven for FU-33 two ways.** First, a dedicated equivalence test
+(`tests/test_optimizer.py::test_mask_k2_club_check_matches_tensor_reference_*`) keeps
+the old tensor implementation as `_mask_k2_tensor_reference` and asserts the two masks
+are `np.array_equal` — an explicit-construction test hitting all four slots-free
+boundaries a `squad_team_limit` of 3 admits (0, 1, 2, 3 free), and a 200-trial randomised
+test over random club distributions, both same-position and cross-position pairs.
+Mutating the new formulation's `>= 1` boundary to `>= 0` was confirmed to fail both
+tests — the boundary test on 4/32 mismatched cells, the randomised test on its very
+first trial (`trial 0: n_clubs=5, limit=1`, 4/32 mismatched cells) — so the tests do
+discriminate a real bug, not just echo the implementation. Second, the same end-to-end
+proof as FU-32's: `fpl plan
+optimise squad.json` (default config, `--robustness off`) run before/after in plain,
+`--explain` and `--json` form — `--json` byte-identical, the other two differing only in
+the cache-mtime header — plus `pytest -q` (233 passed, the 231 from FU-32 plus the two
+new equivalence tests).
+
+**Runtime, FU-33 added on top of FU-32**, same method as the FU-32 row above:
+
+| | Expansions | Scored candidates | Runtime | Peak RSS | Best score |
+|---|---:|---:|---:|---:|---:|
+| §7.1c baseline (pre-FU-32) | 651 | 114,154,055 | 92.5 s | 90.5 MB | 70.066 |
+| FU-32 landed | 651 | 112,969,160 | 71.9 s | 90.1 MB | 70.066 |
+| FU-32 + FU-33 landed (best of 2: 62.8 s, 63.1 s) | 651 | 112,969,160 | **63.1 s** | 90.0 MB | 70.066 |
+
+**FU-33 alone saves ~8.8 s (71.9 s → 63.1 s), against §7.1d's ~14 s prediction for the
+club tensor — the two do not agree as closely as FU-32's did, and that gap is recorded
+rather than smoothed over.** Best score and expansions are unchanged, and scored
+candidates matches the FU-32 row exactly (same live-snapshot capture, no further drift),
+so the shortfall is not a correctness question. `[gap: why the mask fix underperforms
+its §7.1d attribution by ~5 s is not established — §7.1d's phase percentages were
+measured against the pre-FU-32 code, where the eager `best_xi` call sat in the same
+per-node loop as `_mask_k2`; something about the two phases' costs was not as additive
+as the profile's percentage-of-total framing implied, and this branch does not isolate
+what. Plausible but unverified: interpreter/allocator warm-state effects from removing
+one large call site shifting the cost of the ones around it.]` **Judged against the plan
+instead of the phase table, the combined figure holds up well:** §7.1d projected FU-32 +
+FU-33 together at "~60 s"; landed, they measure **63.1 s** — 3.1 s off a rough estimate
+that was never claimed to be exact, with the individual attributions trading places
+(FU-32 overshot its ~19 s by 1.6 s, FU-33 undershot its ~14 s by 5.2 s) rather than both
+missing in the same direction.
+
+**FU-34 remains unimplemented and unaffected by this change** — `_expand_node`'s
+390 : 1 materialisation discard ratio is orthogonal to the club mask, and stays filed as
+before.
 
 ### 7.2 — Memory is flat by construction, and that is a design property
 
