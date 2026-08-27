@@ -730,6 +730,56 @@ accuracy dial. `[gap: whether 4 is the right default is not settled by this tabl
 it would need the decision-margin threshold of §6.4, which is still blocked on
 `fpl plan evaluate`. Until then 4 is chosen on cost, not on convergence.]`
 
+**Re-measured against the live snapshot, 2026-08-27 (`task/beam-width`), now that
+`fpl plan optimise` and `domain/optimizer.py` exist.** Conditions: root GW2 (one
+gameweek finished), `squad.json`'s real squad, `component` model, `--max-hit 4`
+(default). `fpl plan optimise` has no `--beam` or `--max-cells` flag (FU-31), so this
+called `domain.optimizer.optimise()` directly with the inputs the CLI itself builds —
+a real end-to-end run of the committed search, not a prototype. Each width ran in its
+own subprocess, `RLIMIT_AS` at 3 GB, capped at 120 s wall clock:
+
+| `--beam` | Best score | Recommended first move | Runtime |
+|---:|---:|---|---:|
+| 1 | 69.924 | Gabriel→De Cuyper + Le Fée→Alcaraz | 16.1 s |
+| 2 | 70.066 | Gabriel→De Cuyper + Le Fée→Alcaraz | 36.0 s |
+| 4 | 70.066 | Gabriel→De Cuyper + Le Fée→Alcaraz | 92.5 s |
+| 8 | — | — (**>120 s, terminated**) | — |
+| 16 | — | — (**refused: `SearchTooExpensive`**) | — |
+
+`--beam 16` was refused before scoring started: it projects 4.28×10⁸ candidates
+against the default `--max-cells 400,000,000`. `--beam 8` was not refused but did not
+finish inside the 120 s cap this task imposed.
+
+- **The recommended first move does not change across the widths that could be
+  measured.** Score plateaus at 70.066 from `--beam 2` onward — identical at 2 and 4 —
+  and the first move is unchanged from `--beam 1`. This is the opposite of the
+  original finding above: at today's squad state and root gameweek, widths 1, 2 and 4
+  all agree, where the original table had the recommendation flip twice by width 8.
+- **Widths 8 and 16 are not answerable, and that absence is the finding.** `--beam 8`
+  exceeded the 120 s cap; `--beam 16` was refused outright by the default
+  `--max-cells` guard, and there is no CLI flag to raise it (FU-31) or to reach
+  `--beam 8`/`16` at all without calling the search function directly. **The question
+  §5.5 originally asked — does the ranking stabilise by width 8 or 16 — cannot be
+  answered today within the tool's own safety guard and the 120 s budget.** That is
+  not the same as it having stabilised; it means the honest answer above `--beam 4` is
+  "unmeasured," and the output must not imply otherwise.
+- **Should `--beam 8` become the default?** No, on this evidence. Nothing here shows
+  it changes the answer relative to `--beam 4` — if anything, the plateau argues
+  `--beam 2` might already suffice on this snapshot — and `--beam 8` itself doesn't
+  complete inside the 120 s cap the default configuration is expected to respect at
+  horizon 5 (§7.1c). Raising the default would make the *default* command exceed
+  today's own guard.
+- **This is a one-gameweek-old measurement and should not be read as settled.**
+  `squad.json`'s transfers were made against GW1 data, and xP spreads between
+  candidates should widen as results accumulate and the projection model has more
+  finished gameweeks to differentiate players on (optimizer-ux.md §6–§7). A plateau
+  this early is consistent with genuinely converged rankings, but equally consistent
+  with an early-season pool where few alternatives are yet meaningfully different —
+  this run cannot distinguish the two. **Repeat this table around GW6**, once several
+  gameweeks have separated the candidate pool, before drawing a default-beam
+  conclusion from it (see also §7.4's GW10 note on dominance pruning, the same
+  early-season caveat applied to a different budget).
+
 ### 5.6 — The guarantee, stated precisely
 
 Beam search cannot promise the globally optimal path. What it *can* promise here is
@@ -1125,9 +1175,11 @@ run; it just picks which way it fails.
 > **These rows were taken against a prototype of `domain/optimizer.py` and FU-26's
 > kernel that was never committed, and nothing in the repo can reproduce them.**
 > They are kept because the *expansion* and *scored-candidate* columns are structural
-> and still useful, and because §7.1a's measured kernel figures are worth reading
-> against them. Treat the Runtime, Peak RSS and Best score columns as a design
-> estimate until `domain/optimizer.py` exists. **§7.1a is the measured section.**
+> and still useful, and because §7.1a's measured kernel figures — and §7.1c's
+> end-to-end ones — are worth reading against them. Treat the Runtime, Peak RSS and
+> Best score columns below as a design estimate. **§7.1a measures the scoring kernel
+> alone; §7.1c re-measures Runtime, Peak RSS and Best score end to end against the
+> real, committed search — read that section's table as the current numbers.**
 
 Root GW2, `--max-hit 4`, `--first-moves 50`, k ≤ 2 at every level, §2's
 FU-23/FU-24/FU-26 prerequisites in place. Peak RSS is the process high-water mark
@@ -1258,9 +1310,10 @@ generation, dominance pruning (§5.2), feasibility masking, `apply_transfers`, h
 arithmetic and beam bucketing are all absent, and all of them scale with the same
 expansion count. The prototype column suggests scoring was roughly a quarter to a
 third of its total; if that ratio holds, the real figures land near or below the
-prototype's. **[Not measured: the ratio. It needs `domain/optimizer.py`, which does
-not exist — `git log --all` has no commit adding it. Re-record this table end to end
-when it does.]**
+prototype's. **Measured, 2026-08-27 (§7.1c): the ratio does not hold. Scoring is
+12–21% of real runtime, not a quarter to a third of it, and the shortfall tracks
+`--beam` (4.8× overhead at `--beam 1`, 8.5× at `--beam 4`) rather than horizon. The
+real figures land well above the prototype's, not near or below it — see §7.1c.**
 
 **Memory: the kernel is small, and never chunks.** Peak *grid* allocation is 355 KiB
 at the default pool and 1.4 MiB at a pool of 90, against process RSS of 49 MB
@@ -1286,6 +1339,96 @@ scoring costs 21 s could still miss a usable bound if those cost several times m
 What can be said on measured numbers is that **scoring is no longer the binding
 constraint at any row in the matrix** — which is precisely what §6.2 set out to
 achieve and what the previous revision could only assert.
+
+**Now answerable — §7.1c.** The real search costs several times the scoring floor,
+confirming the concern this paragraph raised rather than dissolving it: at
+`--beam 4`, non-scoring work outweighs scoring roughly 7.5-to-1, and it is severe
+enough that horizon 8 at `--beam 4` — a configuration that completed in 74.6 s under
+the old prototype — now exceeds the 120 s cap under the real search. §6.2's win on
+the kernel stands; it is just no longer the whole story.
+
+### 7.1c — Runtime and Peak RSS, measured end to end (`task/beam-width`, 2026-08-27)
+
+§7.1's Runtime and Peak RSS columns were a design estimate from a prototype that was
+never committed; §7.1a measured the scoring kernel alone. `domain/optimizer.py` and
+`fpl plan optimise` both now exist, so this re-runs §7.1's horizon/beam matrix end to
+end against the real, committed search — the last unverifiable thing this plan named.
+
+Conditions: live cached snapshot (612 players, fetched 2026-08-27T08:36Z), root GW2
+(`_next_open_event`, one gameweek finished), `squad.json`'s real 15-player squad,
+`component` model, `--max-hit 4`, `--first-moves 50`, decay and `ft_value` all at
+their defaults. `fpl plan optimise` does not expose `--beam` or `--max-cells`
+(FU-31), so each row calls `domain.optimizer.optimise()` directly with the same
+setup the CLI performs — snapshot load, ledger replay, `TransferRules`, model
+projection — which is a real end-to-end run of the shipped search, not a stand-in
+for one. Each row ran in its own subprocess, `RLIMIT_AS` set to 3 GB and a 120 s
+wall-clock cap (`SIGTERM`, then `SIGKILL`), matching §7.1's own guard. Best of 1, not
+best of 7×3 — a single 120 s-capped horizon-5 row already spends up to two minutes,
+and this matrix has two rows that used the entire cap without finishing.
+
+| Horizon | `--beam` | Node expansions | Scored candidates | Runtime | Peak RSS | Best score |
+|---:|---:|---:|---:|---:|---:|---:|
+| 3 | 4 | 251 | 44,093,093 | 35.7 s | 89.1 MB | 44.606 |
+| 5 | 1 | 201 | 35,727,605 | 16.1 s | 87.5 MB | 69.924 |
+| 5 | 2 | 351 | 61,869,755 | 36.0 s | 87.8 MB | 70.066 |
+| **5** | **4** *(default)* | 651 | 114,154,055 | **92.5 s** | **90.5 MB** | 70.066 |
+| 5 | 8 | — | — | **>120 s (terminated)** | — | — |
+| 8 | 1 | 351 | 62,392,598 | 28.2 s | 89.0 MB | 96.489 |
+| 8 | 2 | 651 | 114,676,898 | 66.8 s | 88.8 MB | 96.631 |
+| 8 | 4 | — | — | **>120 s (terminated)** | — | — |
+
+Node expansions match §7.3's formula exactly
+(`1 + first_moves + first_moves·beam·max(0, H−2)`), as they must — that arithmetic
+doesn't depend on the snapshot. Scored candidates, runtime and score are all new:
+different squad, different root gameweek's projection pool, the real search rather
+than a prototype — they are not expected to reproduce §7.1's numbers and don't.
+
+**The default configuration (`--beam 4`, horizon 5) now costs 92.5 s, not 39.0 s.**
+It still completes inside the 120 s cap, but with far less margin than §7.1's
+prototype implied. Horizon 8 fares worse: `--beam 2` alone costs 66.8 s (§7.1
+estimated 33.8 s for that row), and `--beam 4` at horizon 8 — 74.6 s under the old
+prototype — now **exceeds the 120 s cap outright** under the real search.
+
+**This closes §7.1a's open ratio.** §7.1a measured a 16.74 ms/node-event floor from
+`NodeScorer` alone and left open how much the rest of the search — candidate
+generation, dominance pruning, `apply_transfers`, hit arithmetic, beam bucketing —
+adds on top, estimating "a quarter to a third" by extrapolating the old prototype's
+shape. Measured against the real search:
+
+| Horizon | `--beam` | Expansions | Kernel floor (§7.1a) | Measured (this table) | Overhead ratio |
+|---:|---:|---:|---:|---:|---:|
+| 3 | 4 | 251 | 4.2 s | 35.7 s | **8.5×** |
+| 5 | 1 | 201 | 3.4 s | 16.1 s | **4.8×** |
+| 5 | 2 | 351 | 5.9 s | 36.0 s | **6.1×** |
+| 5 | 4 | 651 | 10.9 s | 92.5 s | **8.5×** |
+| 8 | 1 | 351 | 5.9 s | 28.2 s | **4.8×** |
+| 8 | 2 | 651 | 10.9 s | 66.8 s | **6.1×** |
+
+Scoring is **not** the majority of runtime — it is 12–21% of it, the inverse of what
+§7.1's prototype shape suggested. The ratio tracks `--beam`, not horizon (4.8× at
+`--beam 1`, 6.1× at `--beam 2`, 8.5× at `--beam 4`, identically at both horizons that
+share an expansion count), which points at something that scales with beam width
+outside the scoring kernel — dominance-bucket comparison and beam retention are the
+likely candidates, both of which do `O(beam)` or worse work per node that §7.1a's
+kernel-only figure never counted. **§7.1b's "not yet answerable" is now answered:
+the whole search's per-node-event cost is dominated by non-scoring work, not by
+`NodeScorer`, and that work grows with `--beam` faster than linearly.** `[gap: which
+specific stage — generation, dominance, or bucketing — drives the beam-scaling is not
+isolated by this measurement; it would need per-stage instrumentation
+domain/optimizer.py doesn't have.]`
+
+**Memory remains flat and small — 87.5–90.5 MB across the whole matrix**, consistent
+with §7.2's design claim, though higher than §7.1's prototype (52–57 MB): this
+includes the full CLI-equivalent setup (snapshot load, fixtures, model construction)
+that the prototype's harness excluded, not search-driven growth. Peak RSS varies by
+3 MB across a horizon×beam range that varies runtime by nearly 6×, the same
+flat-memory signature §7.2 predicts.
+
+§7.1's table above is retained as the historical estimate it always was; this table
+supersedes its Runtime, Peak RSS and Best-score columns with real, currently
+reproducible ones. Reproduction note: as with §5.5's re-measurement, this ran against
+`domain.optimizer.optimise()` directly rather than through `fpl plan optimise`,
+because the CLI doesn't expose `--beam`, `--first-moves` or `--max-cells` (FU-31).
 
 ### 7.2 — Memory is flat by construction, and that is a design property
 
@@ -1382,6 +1525,17 @@ Three things about that ceiling are deliberate:
 - The escape hatch the previous revision reserved — vectorising `xi_value` — **has
   been taken**, and there is no second one of comparable size held in reserve. The
   next lever is algorithmic (§4.4), not implementational.
+- **§5.5's beam-width re-measurement is also a GW2 measurement and should be read as
+  one.** The recommended first move held steady across `--beam 1, 2, 4` on
+  2026-08-27, where the original measurement had it flip by `--beam 8` — but xP
+  spreads are expected to widen as the model gets more finished gameweeks to
+  differentiate players on. Re-run §5.5's table around GW6, alongside the dominance
+  re-measurement above, before treating either plateau as converged rather than
+  early-season.
+- **`fpl plan optimise` still has no `--beam`, `--first-moves` or `--max-cells` flag**
+  (FU-31). §5.5 and §7.1c could only reach `--beam 8`/`16` and probe the cost guard by
+  calling `domain.optimizer.optimise()` directly; a user running the shipped CLI
+  cannot reproduce either measurement or move past the compiled-in defaults.
 
 ---
 
@@ -1461,9 +1615,13 @@ Beyond optimizer-ux.md §7, which the output already renders:
   reduction in the project's portability, taken deliberately in exchange for k ≤ 2 at
   every beam level, and it is the assumption most likely to be questioned by someone
   reading §4.3's earlier argument rather than its current one.
-- **The beam is not converged at `--beam 4`** (§5.5). The recommended first move
-  changes between widths on a score spread well inside the projection model's own
-  error. `--beam` is a cost knob presented as one, not an accuracy dial.
+- **The beam is not *proven* converged at `--beam 4`** (§5.5). The original
+  measurement had the recommended first move change between widths on a score spread
+  well inside the projection model's own error; a 2026-08-27 re-measurement found the
+  recommendation unchanged through `--beam 4` but could not reach `--beam 8` or `16`
+  within the tool's own 120 s cap and default `--max-cells` — so the honest state is
+  "unmeasured above 4," not "converged." `--beam` remains a cost knob presented as
+  one, not a proven accuracy dial.
 - **`--schedule` did not beat the free search on the snapshot it was measured
   against** (§7.1) — every fixed shape scored below the free k ≤ 2 run, including
   `0,0,3`. That is not evidence the roll-then-spend shape is worthless, and it must
