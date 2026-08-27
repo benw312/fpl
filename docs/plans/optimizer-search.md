@@ -1412,10 +1412,11 @@ outside the scoring kernel — dominance-bucket comparison and beam retention ar
 likely candidates, both of which do `O(beam)` or worse work per node that §7.1a's
 kernel-only figure never counted. **§7.1b's "not yet answerable" is now answered:
 the whole search's per-node-event cost is dominated by non-scoring work, not by
-`NodeScorer`, and that work grows with `--beam` faster than linearly.** `[gap: which
+`NodeScorer`, and that work grows with `--beam` faster than linearly.** ~~`[gap: which
 specific stage — generation, dominance, or bucketing — drives the beam-scaling is not
-isolated by this measurement; it would need per-stage instrumentation
-domain/optimizer.py doesn't have.]`
+isolated by this measurement.]`~~ **Closed by §7.1d:** it is none of those three — it
+is eager `_materialize`, at 53% of the default run and a 390 : 1 discard ratio, and
+the beam-scaling is `local_retain=beam` materialisations per out-combination.
 
 **Memory remains flat and small — 87.5–90.5 MB across the whole matrix**, consistent
 with §7.2's design claim, though higher than §7.1's prototype (52–57 MB): this
@@ -1429,6 +1430,108 @@ supersedes its Runtime, Peak RSS and Best-score columns with real, currently
 reproducible ones. Reproduction note: as with §5.5's re-measurement, this ran against
 `domain.optimizer.optimise()` directly rather than through `fpl plan optimise`,
 because the CLI doesn't expose `--beam`, `--first-moves` or `--max-cells` (FU-31).
+
+### 7.1d — Where the other 86% goes, and why 92.5 s is a defect rather than a budget
+
+§7.1c established that scoring is 12–21% of real runtime and left the remainder
+attributed only as "candidate generation, dominance pruning and beam bucketing". This
+section profiles it. **The conclusion is that the default run's 92.5 s is an
+implementation defect, not a property of the design**, and that further work on the
+scoring kernel has no headroom left in it.
+
+Method: wall-clock phase timers installed by monkeypatch around each stage of
+`_expand_node`, on the default configuration (horizon 5, `--beam 4`, root GW2,
+`squad.json`, `component`), 3 GB `RLIMIT_AS` retained. cProfile was used only to
+cross-check the *ranking*, never the magnitudes — its per-call overhead inflated the
+same run 7× (35.7 s → 252.8 s at horizon 3) and would have exaggerated precisely the
+many-small-calls hypothesis under test. Instrumented total 101.85 s against the 92.5 s
+of §7.1c, so the harness costs ~10%; percentages below are of the instrumented run and
+seconds are scaled to the 92.5 s baseline.
+
+| Phase | % of run | ~s of 92.5 s | Calls | µs/call |
+|---|---:|---:|---:|---:|
+| **`_materialize`** | **53.0** | **49.0** | 318,954 | 169.2 |
+| — `apply_transfers` | 26.8 | 24.8 | 318,954 | 85.7 |
+| — `best_xi` | 20.6 | 19.1 | 318,619 | 65.7 |
+| **`_mask_k2`** | **18.0** | **16.7** | 69,825 | 261.9 |
+| — club-limit 3-D tensor | 15.0 | 13.8 | (83% of the mask) | 181.7 |
+| — affordability half | 3.0 | 2.8 | | 24.0 |
+| **`score_children`** (the kernel) | **13.8** | **12.8** | 80,160 | 174.9 |
+| `_top_k_indices` | 4.4 | 4.1 | 79,680 | 56.0 |
+| `_candidates_for` | 0.8 | 0.7 | 133,665 | 6.0 |
+| `_dp_prune` | 0.8 | 0.7 | 204 | 3,902.6 |
+| `_mask_k1` | 0.4 | 0.4 | 9,975 | 43.2 |
+| `NodeScorer.__init__` | 0.1 | 0.1 | 668 | 165.8 |
+| `_expand_root` (all of it) | 0.2 | 0.2 | 1 | — |
+| unattributed loop overhead | ~7 | ~6.5 | — | — |
+
+**Scoring is 13.8%, so there is no headroom left in the kernel.** FU-26 took
+`xi_value` from 47.5 µs to 105 ns per child and §7.1b confirmed 362× on the real root
+expansion. That work is done and it succeeded; a further 2× on `score_children` would
+now buy 7% of the run. §7.4's "the next lever is algorithmic, not implementational"
+was written about the kernel and remains true *of the kernel* — but it should not be
+read as saying the search itself is out of implementational headroom, because the
+three findings below are exactly that.
+
+**Masking costs more than the scoring it masks.** `_mask_k2` is 262 µs per call
+against `score_children`'s 175 µs. 83% of it is a club-limit tensor of
+`(48, 48, 20)` int8 — 46,080 cells built and reduced with `.all(axis=2)` to yield a
+2,304-cell boolean mask (FU-33).
+
+**Materialisation is the beam-scaling term §7.1c saw from the outside.** 318,568
+children are built and 816 survive `_dp_prune` + `[:beam]` — a **390 : 1 discard
+ratio**, at 53% of runtime. Holding horizon at 3 and varying width isolates it:
+
+| Phase | `--beam 1` | `--beam 4` |
+|---|---:|---:|
+| `_materialize` | 25.8% | **53.0%** |
+| `_mask_k2` | 30.7% | 18.1% |
+| `score_children` | 23.6% | 13.8% |
+
+Only `_materialize` rises with width; the other two *fall*, because they track node
+count and it tracks `beam` × out-combinations. That is the whole of §7.1c's
+"4.8× → 8.5× overhead ratio tracks `--beam`, not horizon", and it closes that
+section's `[gap: which specific stage drives the beam-scaling]`.
+
+**`_expand_root` is the counter-example that proves it is a defect.** It performs the
+widest enumeration in the search and costs **0.2% of runtime**, because it ranks cheap
+tuples across all out-combinations first and materialises only the selection
+(`optimizer.py:531-568`). `_expand_node` does the same computation in the opposite
+order. The pattern that fixes this is already in the file.
+
+**What it projects to, and the one decision it needs.** Filed as FU-32 (`best_xi`
+deferral — `node.xi` has a single display-time reader at `cli.py:423`), FU-33 (club
+mask reformulated to two 1-D vectors plus an equality outer product, O(a + b + a·b)),
+and FU-34 (materialisation restructure). FU-32 and FU-33 are **exact — no output
+changes at all** — and together are 35.6% of the run:
+
+| | Default (h5, `--beam 4`) | Horizon 8, `--beam 4` |
+|---|---:|---:|
+| Today | **92.5 s** | **>120 s (terminated)** |
+| With FU-32 + FU-33 (exact only) | **~60 s** | **~115 s** |
+| With FU-34 as well | **~35 s** | **~65 s** |
+
+The horizon-8 figures extrapolate from expansion count and width: h8 `--beam 4` has
+1,251 expansions against h5 `--beam 4`'s 651 at equal width, giving ~178 s today —
+consistent with it exceeding the cap. Note that runtime is *not* a function of
+expansions alone, which this profile also explains: h8 `--beam 2` and h5 `--beam 4`
+both have 651 expansions but cost 66.8 s and 92.5 s respectively, because
+materialisations per node go as `beam` × out-combinations.
+
+**Horizon 8 therefore stays in this document.** §7.1c recorded it exceeding the 120 s
+cap, and on today's implementation it does. But it is reachable at ~115 s on the two
+exact fixes alone and comfortably at ~65 s with FU-34 — so the honest statement is
+that horizon 8 is out of reach of the current implementation, not of the design, and
+removing it from the plan would record the defect as though it were a limit.
+
+**FU-34 is not a free win and is filed unresolved.** Deferring materialisation means
+`_dp_prune` needs bank, free transfers and holdings for candidates that have not been
+through `apply_transfers` — either duplicating state arithmetic §5.3 assigns to
+`apply_transfers` alone, or merely moving the single authoritative check onto the 816
+survivors, given `_mask_k1`/`_mask_k2` already enforce affordability and the club limit
+and `apply_transfers` spends about half its time re-checking them (measured rejection
+rate: **0.105%**). FU-34 records both readings; the profile can price the change but
+cannot settle the contract.
 
 ### 7.2 — Memory is flat by construction, and that is a design property
 
@@ -1524,7 +1627,10 @@ Three things about that ceiling are deliberate:
   should be read as one.
 - The escape hatch the previous revision reserved — vectorising `xi_value` — **has
   been taken**, and there is no second one of comparable size held in reserve. The
-  next lever is algorithmic (§4.4), not implementational.
+  next lever is algorithmic (§4.4), not implementational. **Qualified by §7.1d:** true
+  of the *scoring kernel*, which is now 13.8% of the run and has no headroom left in
+  it — but not of the search as a whole, where FU-32, FU-33 and FU-34 are between
+  them worth an estimated 92.5 s → ~35 s without any algorithmic change.
 - **§5.5's beam-width re-measurement is also a GW2 measurement and should be read as
   one.** The recommended first move held steady across `--beam 1, 2, 4` on
   2026-08-27, where the original measurement had it flip by `--beam 8` — but xP

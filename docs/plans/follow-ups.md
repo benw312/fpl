@@ -1097,3 +1097,159 @@ branch.
 tables through `fpl plan optimise` itself, and reacting to a `SearchTooExpensive`
 refusal without editing source.
 
+---
+
+## FU-32 — `_materialize` computes `best_xi` for every candidate; it is read ~15 times
+
+**Deferred from:** `task/perf-findings`, profiling the non-scoring path after §7.1c
+found scoring to be only 13.8% of the default run.
+
+`_materialize` (`optimizer.py:449`) calls `best_xi` for every child it builds. On the
+default configuration (horizon 5, `--beam 4`, root GW2) that is **318,619 calls
+costing ~19 s — 20.6% of the 92.5 s run**, measured at 65.7 µs each (§7.1d).
+
+**`node.xi` has exactly one reader in the repository:** `cli.py:423`, inside
+`_path_row`, at display time. It is read for the nodes on displayed paths only —
+roughly 15 of them (`--paths 3` × horizon 5), plus the hold row. Everything else the
+search does reads `state`, `score`, `net`, `hit_points`, `total_transfers` and
+`path_ids`; `_beats`, `_dp_prune`, `sort_key` and `NodeScorer` never touch `xi`.
+
+**The design already licenses this.** `Node`'s own docstring: *"`xi`/`captain` are a
+cache of a deterministic argmax (§6.2), reproducible from `state.player_ids` and the
+projection table — never a source of truth."* Populating that cache eagerly for
+318,619 candidates to serve ~15 reads is the defect; the docstring describes the fix.
+
+**Exact — no output changes.** `best_xi` is a deterministic argmax over
+`state.player_ids` and the event's projections, both of which survive on the Node.
+Computing it lazily at display time, or eagerly for survivors only, produces
+identical values. No approximation, no ordering change, no effect on which path wins.
+
+**Not fixed here.** This branch filed findings; implementation is a separate concern.
+Independent of FU-33 and FU-34 — it can land on its own.
+
+**Unblocks:** ~19 s (20.6%) off the default run for no behavioural change. See
+optimizer-search.md §7.1d for the phase table this came from.
+
+---
+
+## FU-33 — `_mask_k2` builds a 3-D club tensor 20× the size of the mask it produces
+
+**Deferred from:** `task/perf-findings`, same profile as FU-32.
+
+`_mask_k2` (`optimizer.py:321-327`) enforces the club limit by materialising
+
+```
+totals = base[None, None, :] + add_a[:, None, :] + add_b[None, :, :]
+club_ok = (totals <= limit).all(axis=2)
+```
+
+— an `(len_a, len_b, n_clubs)` int8 tensor, then reducing it along the club axis. At
+the measured pool (189 survivors; 41/49/57/42 per position) a representative
+out-combination has slots of 48 and 48 against 20 clubs: **46,080 int8 cells built to
+produce a 2,304-cell boolean mask, a 20× blow-up.**
+
+Measured on the default configuration: `_mask_k2` is **18.0% of runtime (~16.7 s)**,
+of which the club tensor is **83% — ~15% of the whole run, ~14 s** (the affordability
+half is 24.0 µs against the tensor's 181.7 µs). At **262 µs per call the mask costs
+more than the `NodeScorer.score_children` call it masks (175 µs)**, which is the
+clearest single sign that the non-scoring path, not the kernel, is where the run went.
+
+**It reduces to O(a + b + a·b) with no tensor.** `squad_team_limit` is 3 and at most
+two players come in, so a pair `(x, y)` is club-infeasible iff:
+
+- `count[club(x)] + 1 > limit`, or
+- `count[club(y)] + 1 > limit`, or
+- `club(x) == club(y)` and `count[club(x)] + 2 > limit`.
+
+That is two 1-D boolean vectors over the candidate lists plus one equality outer
+product — no club axis, no 3-D array, no `.all()` reduction. **Exact**, not an
+approximation: it is the same predicate, evaluated without enumerating clubs that
+cannot be violated (most clubs sit at 0–1 against a limit of 3 and can never break
+by adding ≤ 2).
+
+**Check `_mask_k1` at the same time.** It is only 0.4% of runtime so it is not worth a
+branch of its own, but it builds `club_ok` by the same per-candidate list
+comprehension and should get the same treatment while the file is open.
+
+**Not fixed here.** Findings-only branch. Independent of FU-32 and FU-34.
+
+**Unblocks:** ~14 s (15%) off the default run for no behavioural change.
+
+---
+
+## FU-34 — `_expand_node` materialises 390 candidates for every 1 that survives
+
+**Deferred from:** `task/perf-findings`, same profile as FU-32. **This is the largest
+single finding and the only one of the three that needs a design decision.**
+
+`_expand_node` retains `local_retain=beam` candidates *per out-combination* and
+materialises all of them (`optimizer.py:636-644`); `_expand_level` then dp-prunes the
+lot and keeps `beam` **in total** (`optimizer.py:700-702`). With ~120 out-combinations
+per node that is ~480 materialisations per node expansion to retain 4.
+
+Measured on the default configuration (horizon 5, `--beam 4`, root GW2):
+
+| | Measured |
+|---|---:|
+| Children materialised | **318,568** |
+| Children surviving `_dp_prune` + `[:beam]` | **816** |
+| Discard ratio | **390 : 1** |
+| `_materialize` share of runtime | **53.0% (~49 s of 92.5 s)** |
+| — `apply_transfers` | 26.8% (~25 s), 85.7 µs × 318,954 |
+| — `best_xi` (FU-32) | 20.6% (~19 s), 65.7 µs × 318,619 |
+| Candidates rejected by `apply_transfers` | 335 (**0.105%**) |
+
+**This is the term that scales with `--beam`**, which is what §7.1c observed from the
+outside without being able to name. Holding horizon at 3 and varying width: at
+`--beam 1` `_materialize` is 25.8% of runtime, at `--beam 4` it is 53.0% — while
+`_mask_k2` *falls* from 30.7% to 18.1% and the kernel from 23.6% to 13.8%, because
+those track node count and only `_materialize` tracks width.
+
+**`_expand_root` already does it the right way.** It accumulates cheap
+`(ranking_score, out_ids, in_ids, root_event_delta)` tuples across every
+out-combination (`optimizer.py:531-534`), sorts globally, selects `first_moves`, and
+**only then** materialises (`optimizer.py:552-568`). That is why the widest
+enumeration in the whole search costs **0.2% of runtime**. `_expand_node` performs the
+same computation in the opposite order. The fix is to apply the pattern already in the
+file, not to invent one.
+
+**The open question, which is why this is filed rather than fixed.** Deferring
+materialisation means `_dp_prune` needs `bank`, `free_transfers` and the holdings set
+for candidates that have not been through `apply_transfers`. Two readings, and the
+choice belongs to whoever owns the design:
+
+- **It adds duplication.** Deriving bank/free-transfers/holdings outside
+  `apply_transfers` puts squad-state arithmetic in a second place. optimizer-search.md
+  §5.3 is explicit that *"the generator does arithmetic; `apply_transfers` is the
+  authority"*, and §6.2 records that a second expression of the objective is exactly
+  the drift risk the design works to avoid. The same argument applies to state.
+- **It only moves where the single authoritative check happens.** `_mask_k1`/`_mask_k2`
+  already enforce affordability and the club limit *before* scoring — that is their
+  entire purpose — and `apply_transfers` then spends roughly half its time in
+  `validate_squad_structure` re-checking those same two constraints per candidate
+  (cProfile: 27.3 s of `apply_transfers`'s 57.0 s cumulative at horizon 3, `--beam 4`).
+  The measured rejection rate is **0.105%**, i.e. the mask is already almost exactly
+  right. On this reading the authoritative check does not disappear, it runs on the 816
+  survivors instead of the 318,568 candidates — and CLAUDE.md's requirement is that
+  *every optimiser recommendation* pass the same validator, which survivors do.
+
+`[gap: not resolved by this measurement. It needs a decision on whether
+`apply_transfers` is the authority on *candidate generation* or on *recommendations*.
+The profile can say what it costs; it cannot say what the contract should be.]`
+
+**A cheaper partial variant exists and is also not free.** Materialising the top
+`N = beam × small factor` by score before pruning would cut most of the cost without
+touching the state-arithmetic boundary — but it is an **approximation**: a node
+outside the top N by score can still enter the final beam if enough higher-scored
+nodes are removed as dominated. Small risk at a generous margin, but it changes the
+answer in principle, where the two readings above do not. Record it as a fallback,
+not as the default plan.
+
+**Not fixed here.** Findings-only branch, and this one should not be implemented
+before the question above is answered.
+
+**Unblocks:** the largest share of the default run — ~49 s, of which FU-32 already
+claims ~19 s independently. With FU-32 and FU-33 landed and this one restructured,
+optimizer-search.md §7.1d projects the default run at **~35 s against today's 92.5 s**,
+and horizon 8 at `--beam 4` back inside the 120 s budget.
+
