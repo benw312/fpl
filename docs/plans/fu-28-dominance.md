@@ -1,6 +1,9 @@
 # FU-28 — dominance pruning is unsound: reproduction, options, recommendation
 
-**Status:** design only. No code in `src/` changes on this branch.
+**Status:** **implemented** — `task/fu-28-dominance`, 2026-08-27 (`e69bb3d`,
+`b9706c6`). §§1–7 are the design as written on `task/fu-28-plan` and are left
+unedited; §8 settles the one question §7 left open, and §9 records what landed against
+what was predicted. Where they disagree, §§8–9 win.
 **Answers:** `docs/plans/follow-ups.md` FU-28; `optimizer-search.md` §5.2's
 2026-08-26 correction and §6.3.
 **Measured against:** `main` at `8ba4ccf` (post FU-33), 2026-08-27.
@@ -551,8 +554,99 @@ so the four exclusion reasons remain exhaustive.
 - `[gap: §7.3's "≈ 115 s at the measured 3.5 M/s" gloss on `--max-cells` is wrong —
   measured throughput is 1.81 M/s at the current pool and 5.66 M/s at D's. Cells are a
   poor proxy for seconds. Not fixed here.]`
-- `[gap: FU-35's note that `_dominance_pool` does not filter `can_select` is untouched
-  by this change and neither confirmed nor refuted by it.]`
+- ~~`[gap: FU-35's note that `_dominance_pool` does not filter `can_select` is
+  untouched by this change and neither confirmed nor refuted by it.]`~~ **Closed
+  2026-08-27, before implementation, as variant (c) — see §8.**
 - Whether the live best score ever changes under the fix is unknown beyond this one
   squad and snapshot, where it does not (70.066 before and after). The case for the fix
   is the unbounded error, not an improvement on today's recommendation.
+
+## 8 — §7's `can_select` gap, closed: variant (c)
+
+§7's third bullet left open whether the dominator count should include players
+`_dominance_pool` admits but `validate_squad_structure` rejects. It has to be settled
+before implementation, because it decides whether §3.4's exactness argument is true or
+merely nearly true. **Decided: count only dominators the validator would accept** —
+`can_select and not removed`. Pool *admission* is unchanged and stays on
+`can_transact`; FU-35 owns that.
+
+**Why the question is not cosmetic.** §3.4's exchange argument needs a dominator that
+can *legally replace* the excluded player. `_dominance_pool` admits on `can_transact
+and not removed` (`optimizer.py:184`) while `validate_squad_structure` rejects
+`not can_select or removed` (`rules.py:57`), and **42 of the 614 players** on the
+cached snapshot sit in the gap. Counting one of those towards `m` reintroduces exactly
+the defect this document exists to fix, one level up: the player is excluded, and the
+substitute the exclusion promises cannot legally be bought.
+
+**Measured exposure**, horizon 5, root GW2:
+
+| Counting rule | Excluded |
+|---|---:|
+| all transactable dominators (Option D as §3.4 writes it) | 241 |
+| only validator-usable dominators (variant (c)) | 240 |
+
+One player differs — **276 Lo-Tutala, 2 dominators, only 1 usable, `m` = 2** — and he
+is himself `can_select=False`, so nothing legitimate is lost on this snapshot. That is
+luck, not construction, and it is the same "true today, not true by design" shape FU-35
+already records for 299 Burstow under the old rule.
+
+**Why not simply fix admission instead (the obvious alternative).** Filtering
+admission on `can_select` would make both predicates agree and the argument trivially
+true. It is rejected here because it is FU-35's change, not FU-28's: it takes the pool
+from 189 to 185 on the pre-FU-28 code, moves the search's output on its own, and
+requires answering FU-35's open question of which flag is authoritative — which FU-35
+records as unanswered. Bundling it would put two concerns and an undecided question on
+one branch, and would make FU-28's before/after unreadable.
+
+**What this costs:** one extra pool player on the cached snapshot, and one comment in
+`_dominance_pool` explaining why two predicates that look like they should agree do
+not. The comment is load-bearing — without it this reads as an inconsistency and gets
+tidied into agreement, which would silently re-open the defect.
+
+**Falsifiable, and demonstrated.** `tests/test_optimizer.py::
+test_dominance_counts_only_dominators_the_validator_would_accept` fails under Option D
+as §3.4 writes it and passes under variant (c) — confirmed by mutation, removing the
+`_validator_usable` check and watching that test alone fail. The fixture is synthetic
+because it has to be: the cached snapshot's only affected player is unselectable
+himself.
+
+## 9 — Landed
+
+`task/fu-28-dominance`, 2026-08-27. `e69bb3d` (the counting change, three regressions,
+the strengthened property test, and the removal of the `DOMINANCE PRUNING IS UNSOUND`
+banner from both the console header and `--json`), `b9706c6` (`DEFAULT_MAX_CELLS`
+400M → 800M).
+
+Predicted against measured, on the live cached snapshot at GW2:
+
+| | Predicted (§3) | Landed (variant (c)) |
+|---|---:|---:|
+| pool | 373 | **374** |
+| exclusions | 241 | **240** |
+| runtime, horizon 5 / beam 4 | 90.4 s | **90.8 s** |
+| `projected_cells` | 511,454,785 | **513,191,190** |
+| peak RSS | 73.2 MB | **73.7 MB** |
+| best score | 70.066 | **70.066** |
+
+The single-player differences are variant (c) and nothing else, exactly as §8 predicts.
+`D ⊆ B` still holds (374 ⊆ 408).
+
+**One reported number needs restating rather than ticking off.** §2.4 counts "14
+exclusions naming a dominator the squad already holds", and that was the right
+diagnostic for a rule that named exactly one dominator: naming a held one meant no
+substitute existed. Under the counting rule an exclusion names `m` dominators, so the
+metric no longer means what it did — 15 exclusions name *a* held dominator, which is
+harmless. The defect-free measurements are:
+
+- exclusions naming fewer than `m` dominators: **0**
+- exclusions where **every** named dominator is held — no buyable substitute: **0**
+  (this is the defect; it was 14)
+- every exclusion leaves at least one buyable dominator: **yes**
+
+Of §2.4's 14 named players, 2 are now in the pool and 12 remain excluded — but each of
+the 12 now names 3 dominators of which only 1 is held, leaving 2 buyable substitutes.
+They are excluded legitimately, which is the whole point.
+
+**§7's other gaps remain open**: FU-34 was not re-measured on top of this change, and
+`--max-cells` is still expressed in cells but justified in seconds with no constant
+converting the two. Both are filed — FU-34 and the new FU-39.

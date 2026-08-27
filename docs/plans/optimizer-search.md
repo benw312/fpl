@@ -370,10 +370,15 @@ from excluded `player_id` to a reason string, populated per §5.2/§5.3 so the
 optimizer-ux.md §9 requires exclusions to be attributable. The primary rule is
 **exact**, so it is attributable by construction:
 
-> Within one `(position, club)` bucket, player A dominates player B if
-> `now_cost(A) ≤ now_cost(B)` and `xP(A, e) ≥ xP(B, e)` for **every** event e in the
-> horizon. B is excluded, with the reason `dominated by <A>: costs £Xm less (or the
-> same) and projects at least as many points in every gameweek of the horizon`.
+> Within one `(position, club)` bucket, player A dominates player B if A is
+> **selectable** (`can_select and not removed`, what `validate_squad_structure`
+> requires), `now_cost(A) ≤ now_cost(B)`, and `xP(A, e) ≥ xP(B, e)` for **every**
+> event e in the horizon. B is excluded once **`m = min(squad_team_limit,
+> position.squad_select)`** such dominators exist, with the reason
+> `dominated by <A, B, C>: m selectable players in the same club and position each
+> cost no more (or the same) and project at least as many points in every gameweek of
+> the horizon, and a legal squad can hold at most m of them — so one is always free to
+> take this player's place`.
 
 Bucketing by `(position, club)` rather than by position alone is what makes it
 sound. A dominator from a different club could be unusable when that club is at the
@@ -384,13 +389,41 @@ what makes it exact: a squad holds a player over a contiguous span of gameweeks,
 player who is better only *on aggregate* may still be worse over the span actually
 used.
 
+**Counting to `m` is what makes it exact, and it is not optional (FU-28).** The
+interchangeability argument above proves *1-for-1* substitution only: it holds when
+the squad wants **one** player from the bucket. `m` is the most a legal squad can hold
+from one bucket at once, so an optimum containing an excluded B leaves at most `m − 1`
+of B's dominators in use and always has one free to substitute. Excluding on the
+*first* dominator — what this section specified until 2026-08-27 — is unsound with
+unbounded error; the correction below records the counterexamples and
+`docs/plans/fu-28-dominance.md` the whole investigation.
+
+**Selectability is why the dominance predicate differs from pool admission.** The
+substitute has to be one the validator will accept, so an unselectable player never
+counts towards `m`. Admission to the pool is a separate question and stays on
+`can_transact and not removed` — FU-35 owns it. The two predicates differ inside
+`_dominance_pool` deliberately.
+
 **Measured on the live snapshot, 5-event horizon:**
 
 | Rule | Buy pool | Reduction |
 |---|---:|---:|
 | transactable, not held | 556 | — |
-| exact `(position, club)` Pareto frontier | **177** | **3.1×** |
+| ~~exact `(position, club)` Pareto frontier~~ (unsound, superseded by FU-28) | ~~177~~ | ~~3.1×~~ |
 | position-global Pareto frontier (unsound — ignores the club limit) | 18 | 31× |
+
+**Re-measured after FU-28** (`b9706c6`, cached snapshot 2026-08-27T13:33Z, 614
+players — a later capture than the 556-player one above, so read the ratio, not the
+difference):
+
+| Rule | Buy pool | Reduction |
+|---|---:|---:|
+| transactable, not held | 614 | — |
+| first-dominator exclusion (the unsound rule) | 189 | 3.2× |
+| **exclusion at `m` selectable dominators** | **374** | **1.6×** |
+| top-`m` Pareto layers (Option B — also exact, strictly wider) | 408 | 1.5× |
+
+Exactness costs 185 pool players and 28 s of the default run's wall clock (§7.1g).
 
 **The relation is non-strict, so the tie-break is load-bearing.** `≤` on cost and
 `≥` on every event make mutual domination possible: two players in one bucket at the
@@ -478,30 +511,45 @@ second term — it can be arbitrarily far below id8's value, since dominance nev
 compared them. Nothing in §5.2's construction bounds this gap; it is exactly as large
 as the price/xP distribution within one club happens to make it.
 
-**Whether this needs a code change, and what kind, is open — recorded here rather
-than fixed in passing:**
+**Second correction (2026-08-27, `task/fu-28-dominance`): the k = 2 scoping above is
+itself too narrow — the same defect fires on a *single* transfer.** When B's only
+dominator is a player the squad **already holds**, `_candidates_for`'s already-held
+filter removes the dominator from the buy pool while dominance has already removed B,
+so neither is reachable and no substitute exists. This needs no `_mask_k2`
+involvement and no k = 2 move. It fired **14 times** on the live snapshot at GW2 with
+`squad.json`. Reproduced as
+`tests/test_optimizer.py::test_dominance_never_excludes_against_a_held_dominator`
+(8.000 against a true 9.000).
 
-- **Option A — restrict `_mask_k2`** so both in-slots of a same-position pair can
-  never be drawn from the same club. Cheapest to implement, exact by construction
-  (same-bucket double-picks are removed rather than mis-pruned), but a real capability
-  loss: "stack two defenders from one club for a favourable run" is standard FPL play
-  (the wider all-different-club k = 2 case is unaffected), and this would silently
-  stop enumerating it rather than reporting the gap the way §5.3 requires for
-  `k_rules > k_enum`.
-- **Option B — widen the pool per bucket** from a single Pareto frontier to the top
-  `m` Pareto *layers*, where `m = min(squad_team_limit, position.squad_select)` is the
-  most a squad could ever simultaneously hold from one bucket. Restores exactness for
-  every k ≤ 2 pick shape at the cost of a larger (though still bounded — `m` is 2 or 3
-  on the live snapshot, not `k_enum`) candidate pool, and is more construction than a
-  one-line fix.
-- **Do nothing, but report it**, matching how `k_rules > k_enum` is handled in §5.3:
-  state in the output that same-club double-picks within one position are pruned
-  against a dominator that may itself be the other half of the pick, rather than
-  claiming an exactness the algorithm does not have.
+That makes three claims in the paragraphs above wrong, not one: the exactness claim,
+its scoping to k = 2, and "`tests/test_optimizer.py`'s dominance test is scoped to
+k = 1 (where the exactness argument is airtight)". k = 1 is airtight only in the
+bucket-in-isolation setting that property test constructs, where the squad holds
+nothing.
 
-No option is implemented by this correction. `tests/test_optimizer.py`'s dominance
-test is scoped to k = 1 (where the exactness argument is airtight) and documents this
-gap in its own docstring rather than asserting a k = 2 property that does not hold.
+**Resolved (2026-08-27, `e69bb3d` + `b9706c6`), by counting rather than by any of the
+three options first recorded here.** The options were measured in
+`docs/plans/fu-28-dominance.md` §3 before choosing:
+
+- **Option A — restrict `_mask_k2`** so a same-position pair can never share a club.
+  Recorded here as "exact by construction". **It is not** — measured. It cannot touch
+  the held-dominator shape at all, and on the k = 2 counterexample it makes the answer
+  *worse* (gap 1.0 → 6.0): removing a move shape does not recover the value the
+  pruning discarded. It also costs a real capability — stacking one club's defence for
+  a fixture swing — silently. Rejected.
+- **Option B — top-`m` Pareto layers.** Exact, for every k rather than only k ≤ 2 as
+  recorded here. Rejected only because Option D is exact on the same argument while
+  pruning strictly harder (374 survivors against 408) and costing 8 s less.
+- **Do nothing, but report it.** This was what shipped between 2026-08-26 and
+  2026-08-27. It bounds nothing — the error has no floor to quote — so the banner
+  could only say "arbitrarily wrong". Superseded.
+- **Option D (chosen) — exclude only once `m` selectable dominators exist**, `m` as
+  defined in the rule at the head of this section. Exact for every k, so `--schedule`
+  (§5.7) inherits it without further argument.
+
+`tests/test_optimizer.py`'s property test now asserts exactness for a joint pick of up
+to `m` under a shared budget, not for a single pick, and the two counterexamples above
+are end-to-end regressions against an oracle that enumerates the unpruned player set.
 
 ### 5.3 — Move generation within a gameweek: two caps, not one
 
@@ -1129,11 +1177,40 @@ be reproducible from `holdings` plus the projection table at any time.
 ### 6.3 — Candidate-set attributability (§9)
 
 Answered by §5.2. Every exclusion carries one of four reasons — `dominated` (exact,
-naming the dominator), `unaffordable` (quoting bank and shortfall), `club limit`
+naming the dominators), `unaffordable` (quoting bank and shortfall), `club limit`
 (naming the three held players), `already held` — and the pruned set is reachable
 from the node, so `fpl players show` and the "why not X" surface can answer without
 re-running anything. **No top-*k* cut is applied to candidates at any point**, and
 since §5.4's two-stage cut was withdrawn, none is applied to scored *moves* either.
+
+**What makes `dominated` exact is a count, not a single comparison** — and this
+paragraph is the correction of a claim that stood false in this section from
+2026-08-26 to 2026-08-27 (FU-28). A player is excluded only once
+`m = min(squad_team_limit, position.squad_select)` *selectable* players in their
+`(position, club)` bucket dominate them — `m` being the most a legal squad could ever
+hold from that bucket simultaneously. An optimal squad holding an excluded player
+therefore always leaves at least one dominator free to substitute, whether the other
+bucket members were bought in the same move or were already in the squad. This is
+exact for **every** k, not only for `k_enum = 2`, so `--schedule` (§5.7) inherits it
+without a further argument.
+
+Two details carry the guarantee and are easy to lose:
+
+- **Selectable, not merely transactable.** A dominator the validator would reject
+  (`not can_select or removed`, `rules.py:57`) cannot legally replace anyone, so it
+  never counts towards `m`. Counting one would reproduce the same defect one level up:
+  the player excluded, and nothing legal to put in their place. Pool *admission* is a
+  separate predicate and stays on `can_transact` — FU-35 owns that, and §5.2 says why
+  the two differ.
+- **The named dominators are what makes it answerable.** The reason names all `m` of
+  them, so "why not X" can be checked rather than taken on trust; on the live snapshot
+  at GW2 every exclusion leaves at least one dominator the squad can actually buy.
+
+The earlier rule excluded on the **first** dominator found, which is unsound with
+unbounded error in two reachable shapes — a same-position k = 2 pair drawn from one
+bucket, and, on a *single* transfer, a player whose dominator the squad already holds.
+FU-28 records the defect and `docs/plans/fu-28-dominance.md` the reproduction, the
+measurement of four options and the reasoning for this one.
 
 What remains is not a cut but a **cap**: `k_enum` (§5.3) bounds how many transfers a
 single gameweek's move may contain. That is a different kind of exclusion from the
@@ -1764,6 +1841,52 @@ occupy, so it changes output and must not be bundled into FU-34), FU-36 (§8 tes
 pass because the fixture cannot produce the condition they exist to guard), FU-37 (§8's
 two `--max-cells` guard tests do not exist).
 
+### 7.1g — FU-28 landed: what exactness costs (`task/fu-28-dominance`, 2026-08-27)
+
+§5.2's dominance rule now excludes a player only once `m` selectable dominators exist
+(`e69bb3d`), which is what makes it exact and what §6.3's guarantee needs. It is not
+free: the pool roughly doubles and every k = 2 grid grows with its square.
+
+Same method as §7.1c–e — `domain.optimizer.optimise()` driven directly (the CLI still
+exposes no `--beam`, FU-31), `squad.json`, root GW2, `component`, horizon 5,
+`--beam 4`, `--first-moves 50`, `--max-hit 4`, decay and `ft_value` default, own
+subprocess, `RLIMIT_AS` 3 GB, 120 s cap. **One change of method, and it matters:** the
+snapshot and fixtures are loaded from the on-disk cache rather than through
+`SnapshotService`, so every row sees byte-identical input. §7.1c/§7.1e's live re-fetch
+drifted the pool between runs — §7.1e records that drift moving `projected_cells` by
+1.2M — and a comparison of pool rules cannot afford it. The baseline row below
+reproduces §7.1e's published figure under this method (62.3 s against 63.1 s,
+`projected_cells` and best score *identical*), which is what licenses the comparison.
+
+| | Pool | `projected_cells` | Runtime | Peak RSS | Best score |
+|---|---:|---:|---:|---:|---:|
+| §7.1e (FU-32 + FU-33), re-run from cache | 189 | 112,969,160 | 62.3 s | 68.8 MB | 70.066 |
+| **FU-28 landed** | **374** | **513,191,190** | **90.8 s** | **73.7 MB** | **70.066** |
+
+**+28.5 s, and the answer does not change.** Best score, winning path and first move
+are all identical on this squad and snapshot — which is the honest reading of the
+change: FU-28 buys a guarantee, not a better recommendation. The defect was unbounded
+error, not error observed here. On this snapshot the pruning happened not to bind.
+
+**Cells are a much worse proxy for seconds than §7.3 assumes.** 4.5× the cells cost
+1.45× the runtime, because per-node fixed costs amortise over larger grids: measured
+throughput is **1.81 M projected cells/s at 189 survivors and 5.66 M/s at 374**. §7.3's
+gloss on the ceiling — "≈ 115 s at the measured 3.5 M/s" — was inherited from the
+prototype and is wrong in both directions; `[gap: not re-derived here. The right
+replacement is probably a per-node cost plus a per-cell cost, but two points do not fit
+two parameters with any confidence, and this branch did not measure more.]`
+
+**`--max-cells` default raised 400M → 800M (`b9706c6`)**, or the guard refuses the
+default configuration outright. 800M clears the measured 513M with room for the pool
+growth §5.2 predicts through the season, and the run it admits still fits the 120 s
+cap. Filed as **FU-39**: the default has no test at either value.
+
+**FU-34 is now worth more, not less.** Its ~29 s estimate was measured against the
+63.1 s run; the materialisation it removes scales with candidates retained per
+out-combination, which this change increased. `[gap: FU-34 was not re-measured on top
+of FU-28 — the ~29 s figure is against the old pool and should not be carried over
+without re-measuring.]`
+
 ### 7.2 — Memory is flat by construction, and that is a design property
 
 Peak RSS varies between 52 MB and 57 MB across a 6× range of runtime and a 6× range
@@ -1820,15 +1943,19 @@ the wrong runs in both directions — refusing affordable ones and admitting the
 that takes the machine down — and a guard that is only approximately right is one
 users learn to raise reflexively.
 
-> **`--max-cells`, default 400,000,000** (≈ 115 s at the measured 3.5 M/s). A run
+> **`--max-cells`, default 800,000,000** (raised from 400,000,000 by FU-28, §7.1g —
+> exact dominance takes the default run's projection to ~513M and the old ceiling
+> refused it). ~~≈ 115 s at the measured 3.5 M/s~~ — that rate is a prototype figure
+> and does not hold: §7.1g measures 1.81 M/s and 5.66 M/s on the same machine at two
+> pool sizes, so no single rate converts this ceiling into seconds. A run
 > whose `projected_cells` exceeds it is **refused before the first grid is
-> allocated**, with the projection, the ceiling, the implied runtime and the flags
-> that reduce it:
+> allocated**, with the projection, the ceiling and the flags that reduce it (the
+> shipped message quotes no runtime, for the reason above):
 >
 > ```
-> Refusing to start: this search projects 2.1e9 scored candidates
->   (9,801 node expansions, ~10 min, ~55 MB) against --max-cells 400,000,000.
-> Reduce --horizon 8, --beam 8 or --first-moves 200, or raise --max-cells.
+> Refusing to start: this search projects 2.100e+09 scored candidates (9,801 node
+> expansions) against --max-cells 800000000. Reduce --horizon, --beam or
+> --first-moves, or raise --max-cells.
 > ```
 
 Three things about that ceiling are deliberate:
