@@ -1144,7 +1144,7 @@ optimizer-search.md §7.1d for the phase table this came from.
 
 ## FU-33 — `_mask_k2` builds a 3-D club tensor 20× the size of the mask it produces
 
-**Status: closed** — `task/fu-33` (2026-08-27). `_mask_k2` (`optimizer.py`) no longer
+**Status: closed** — `e14fa42` (2026-08-27). `_mask_k2` (`optimizer.py`) no longer
 builds the `(len_a, len_b, n_clubs)` tensor; `free_a`/`free_b` (two 1-D slots-free
 vectors) plus one equality outer product (`club_a[:, None] == club_b[None, :]`) decide
 the same predicate this entry specifies below. `_mask_k1` was left as filed — it was
