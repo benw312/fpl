@@ -49,7 +49,15 @@ DEFAULT_FT_VALUE = 1.5
 DEFAULT_MAX_HIT = 4
 DEFAULT_BEAM = 4
 DEFAULT_FIRST_MOVES = 50
-DEFAULT_MAX_CELLS = 400_000_000
+# Raised from 400M with FU-28 (docs/plans/fu-28-dominance.md §3.5): exact
+# dominance takes the live pool from 189 to 374, and the default
+# configuration's projection with it from ~113M cells to ~513M. 800M clears
+# that with room for the pool growth §5.2 predicts as players differentiate
+# through the season, and the run it admits measures 90.8 s — inside §7.1c's
+# 120 s cap. [gap: this value has no test at 400M and none at 800M; a
+# threshold fixture needs projected_cells inside the window and the synthetic
+# snapshots are orders of magnitude short. Filed as FU-39.]
+DEFAULT_MAX_CELLS = 800_000_000
 
 # §7.2: the size at which one out-combination's candidate grid is chunked
 # rather than built whole. Nothing in the live snapshot's measured pool
