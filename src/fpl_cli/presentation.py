@@ -233,7 +233,6 @@ def optimise_header(
     bank: int,
     free_transfers: int,
     unvalidated: bool,
-    dominance_unsound: bool,
     scope_gap_lines: Sequence[str],
 ) -> Group:
     lines: list[Text] = []
@@ -269,15 +268,6 @@ def optimise_header(
                 if last_finished_event is not None
                 else f"! UNVALIDATED — {model_name} has never been scored against realised points.",
                 style="bold yellow",
-            )
-        )
-    if dominance_unsound:
-        lines.append(
-            Text(
-                "! DOMINANCE PRUNING IS UNSOUND (FU-28) — a same-position transfer pair drawn from one\n"
-                "  club can be excluded with unbounded error. §6.3's attributability guarantee does not\n"
-                "  hold today; see docs/plans/follow-ups.md#fu-28.",
-                style="bold red",
             )
         )
     for line in scope_gap_lines:

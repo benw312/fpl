@@ -394,10 +394,14 @@ def test_generator_children_are_all_accepted_by_apply_transfers(bootstrap_snapsh
 
 
 def _bucket_snapshot(players: list[Player]) -> BootstrapSnapshot:
+    # `element_types` carries a real DEF position so `m` comes out of the
+    # snapshot exactly as `_dominance_pool` derives it — min(club limit 3,
+    # squad_select 5) = 3 — rather than through the unknown-position
+    # fallback.
     return BootstrapSnapshot(
         events=[],
         teams=[Club(id=1, name="Club 1")],
-        element_types=[],
+        element_types=[Position(id=2, singular_name_short="DEF", squad_select=5, squad_min_play=3, squad_max_play=5)],
         elements=players,
         game_settings=GameSettings(),
         fetched_at=datetime.now(UTC),
@@ -406,23 +410,23 @@ def _bucket_snapshot(players: list[Player]) -> BootstrapSnapshot:
 
 
 def test_dominance_excludes_only_players_a_survivor_can_always_replace() -> None:
-    """optimizer-search.md §5.2: for every budget, the best single pick from
-    the bucket's survivors must equal the best single pick from the whole
-    bucket. If it doesn't, some excluded player was necessary — a false
-    exclusion.
+    """optimizer-search.md §5.2: for every budget, the best pick of **up to
+    `m`** players from the bucket's survivors must equal the best pick of up
+    to `m` from the whole bucket, where `m = min(squad_team_limit,
+    position.squad_select)` is the most a legal squad can hold from one
+    `(position, club)` bucket. If it doesn't, some excluded player was
+    necessary — a false exclusion.
 
-    Scoped to picking **one** player from the bucket (`_candidates_for`'s own
-    usage: one incoming slot at a time). §5.2's own argument for exactness is
-    pairwise substitution ("interchangeable under every constraint"), which
-    only proves 1-for-1 replacement. [gap: `_mask_k2` can draw *two* in-slots
-    from the same `(position, club)` bucket in one k=2 move (its `i < j`
-    dedup exists for exactly this case); whether dominance survives a
-    *simultaneous* two-pick from one bucket under a tight aggregate budget is
-    not proven by §5.2 and is not asserted here — a same-bucket pair where
-    one dominates the other on a tied price is the case that could break it.]
+    Scoped to `m`, not to one (FU-28). The earlier version asserted this for
+    a **single** pick only, matching §5.2's pairwise-substitution argument,
+    and recorded the simultaneous multi-pick as an untested gap. That gap was
+    real: it is the defect `test_dominance_survives_a_same_bucket_double_buy`
+    and `test_dominance_never_excludes_against_a_held_dominator` reproduce
+    end to end. This is the bucket-level test that would have caught it.
     """
     rng = random.Random("fu-optimizer-dominance-is-exact")
     events = [2, 3]
+    excluded_seen = 0
 
     for trial in range(8):
         count = rng.randint(6, 9)
@@ -435,27 +439,370 @@ def test_dominance_excludes_only_players_a_survivor_can_always_replace() -> None
             for event in events
         }
         snapshot = _bucket_snapshot(players)
+        m = min(snapshot.game_settings.squad_team_limit, snapshot.positions[2].squad_select)
+        assert m == 3
 
         survivor_ids, reasons = _dominance_pool(snapshot, projections_by_event, events)
         assert set(survivor_ids) | set(reasons) == {player.id for player in players}
+        excluded_seen += len(reasons)
 
-        def best_single_pick(candidates: list[int], budget: int, event: int) -> float:
-            affordable = [pid for pid in candidates if snapshot.players_by_id[pid].now_cost <= budget]
-            if not affordable:
-                return float("-inf")
-            return max(projections_by_event[event][pid].xp_total for pid in affordable)
+        def best_pick(candidates: list[int], size: int, budget: int, event: int) -> float:
+            """Best total xP over any `size` distinct candidates costing
+            `budget` or less in total — the shape a squad actually buys."""
+            best = float("-inf")
+            for combo in itertools.combinations(candidates, size):
+                if sum(snapshot.players_by_id[pid].now_cost for pid in combo) > budget:
+                    continue
+                best = max(best, sum(projections_by_event[event][pid].xp_total for pid in combo))
+            return best
 
         all_ids = [player.id for player in players]
-        budgets = sorted({player.now_cost for player in players})
+        costs = sorted(player.now_cost for player in players)
         for event in events:
-            for budget in budgets:
-                full = best_single_pick(all_ids, budget, event)
-                survivors_only = best_single_pick(survivor_ids, budget, event)
-                assert survivors_only == pytest.approx(full, abs=1e-9), (
-                    f"trial {trial}, event {event}, budget={budget}: "
-                    f"survivors achieve {survivors_only} but the full bucket achieves {full} — "
-                    "an excluded player was necessary"
-                )
+            for size in range(1, m + 1):
+                # Budgets that bind: from "only the cheapest `size` fit" up to
+                # "the dearest `size` fit", in 5-unit steps (the price grid).
+                low = sum(costs[:size])
+                high = sum(costs[-size:])
+                for budget in range(low, high + 1, 5):
+                    full = best_pick(all_ids, size, budget, event)
+                    survivors_only = best_pick(survivor_ids, size, budget, event)
+                    assert survivors_only == pytest.approx(full, abs=1e-9), (
+                        f"trial {trial}, event {event}, size={size}, budget={budget}: "
+                        f"survivors achieve {survivors_only} but the full bucket achieves {full} — "
+                        "an excluded player was necessary"
+                    )
+
+    # Sizing check (FU-36's lesson): if nothing is ever excluded, every
+    # assertion above is a tautology over identical sets.
+    assert excluded_seen, "no player was excluded in any trial — the property was never exercised"
+
+
+@pytest.mark.parametrize(
+    ("squad_select", "club_limit"),
+    [
+        pytest.param(2, 3, id="squad_select-is-tighter"),
+        pytest.param(5, 2, id="club-limit-is-tighter"),
+    ],
+)
+def test_dominance_m_is_the_tighter_of_club_limit_and_squad_select(squad_select: int, club_limit: int) -> None:
+    """fu-28-dominance.md §3.4: `m` is `min(squad_team_limit,
+    position.squad_select)`, not either bound alone.
+
+    A bucket is one club, so the club limit always bounds how many of it a
+    squad can hold; `squad_select` bounds it too, and either can be the
+    tighter one. Both parametrisations put `m` at 2, so player 3 — with
+    exactly two usable dominators — must be excluded. Taking the looser bound
+    in either direction would keep 3 in the pool: sound but needlessly wide,
+    and the whole cost of Option D is pool size.
+    """
+    players = [
+        Player(id=1, web_name="P1", team=9, element_type=2, now_cost=45),
+        Player(id=2, web_name="P2", team=9, element_type=2, now_cost=45),
+        Player(id=3, web_name="P3", team=9, element_type=2, now_cost=45),
+    ]
+    snapshot = BootstrapSnapshot(
+        events=[],
+        teams=[Club(id=9, name="Club 9")],
+        element_types=[
+            Position(
+                id=2,
+                singular_name_short="DEF",
+                squad_select=squad_select,
+                squad_min_play=1,
+                squad_max_play=squad_select,
+            )
+        ],
+        elements=players,
+        game_settings=GameSettings(squad_team_limit=club_limit),
+        fetched_at=datetime.now(UTC),
+        season="test",
+    )
+    projections_by_event = {2: {1: _projection(1, 2, 10.0), 2: _projection(2, 2, 9.0), 3: _projection(3, 2, 8.0)}}
+
+    # Sizing check: the two bounds must actually disagree, or `min` is not
+    # under test and either mutation would pass.
+    assert squad_select != club_limit
+    assert min(squad_select, club_limit) == 2
+
+    survivors, reasons = _dominance_pool(snapshot, projections_by_event, [2])
+    assert survivors == [1, 2], f"expected 1 and 2 to survive at m = 2; got {survivors}"
+    assert set(reasons) == {3}
+    assert "2 selectable players" in reasons[3]
+
+
+# --- FU-28: a bucket the optimum wants twice ---------------------------------
+#
+# docs/plans/fu-28-dominance.md §2 and §5. The three fixtures below are the
+# counterexamples that motivated Option D, kept as end-to-end regressions:
+# each drives the real `optimise()` and compares it against an independent
+# exhaustive enumeration over the *unpruned* player set.
+
+
+_FU28_POSITIONS = [
+    Position(id=1, singular_name_short="GKP", squad_select=1, squad_min_play=1, squad_max_play=1),
+    Position(id=2, singular_name_short="DEF", squad_select=2, squad_min_play=2, squad_max_play=2),
+    Position(id=4, singular_name_short="FWD", squad_select=1, squad_min_play=1, squad_max_play=1),
+]
+
+
+def _fu28_snapshot(layout: list[tuple[int, int, int, int, bool]]) -> BootstrapSnapshot:
+    """A 4-player squad whose XI is GKP + FWD + **exactly two** DEF.
+
+    `squad_squadplay=4` with GKP and FWD capped at one starter each leaves
+    exactly two DEF slots, so a same-bucket defensive pair lands in the XI
+    and its value shows up undiluted in `xi_value`. Layout entries are
+    `(id, element_type, club, now_cost, can_select)`.
+    """
+    players = [
+        Player(id=pid, web_name=f"P{pid}", team=club, element_type=position, now_cost=cost, can_select=can_select)
+        for pid, position, club, cost, can_select in layout
+    ]
+    return BootstrapSnapshot(
+        events=[
+            Gameweek(
+                id=event_id,
+                name=f"GW{event_id}",
+                deadline_time=datetime(2025, 8, 8 + 7 * event_id, 17, 30, tzinfo=UTC),
+                is_current=event_id == 1,
+                is_next=event_id == 2,
+                is_previous=False,
+                finished=False,
+            )
+            for event_id in (1, 2)
+        ],
+        teams=[Club(id=index, name=f"Club {index}") for index in range(1, 10)],
+        element_types=_FU28_POSITIONS,
+        elements=players,
+        game_settings=GameSettings(squad_squadsize=4, squad_squadplay=4, squad_team_limit=3, squad_total_spend=300),
+        raw={"game_config": {"scoring": {}}},
+        fetched_at=datetime.now(UTC),
+        season="test",
+    )
+
+
+def _fu28_state(snapshot: BootstrapSnapshot, held: tuple[int, ...]) -> SquadState:
+    """`free_transfers=1` accrues to 2 at GW2, so a k = 2 move takes no hit —
+    the hit arithmetic cannot confound the value comparison."""
+    holdings = {
+        pid: Holding(player=pid, purchase_price=snapshot.players_by_id[pid].now_cost, bought_event=0) for pid in held
+    }
+    return SquadState(holdings=holdings, bank=10, event=1, free_transfers=1)
+
+
+def _fu28_projections(xp: dict[int, float]) -> dict[int, dict[int, Projection]]:
+    return {2: {pid: _projection(pid, 2, value) for pid, value in xp.items()}}
+
+
+def _fu28_optimise(
+    state: SquadState,
+    snapshot: BootstrapSnapshot,
+    projections_by_event: dict[int, dict[int, Projection]],
+    rules: TransferRules,
+):
+    """`horizon=1` and `first_moves=500` are load-bearing: together they make
+    the root expansion exhaustive over the pruned pool, so the candidate pool
+    is the *only* thing that can differ from the oracle below — never the
+    beam or the `first_moves` cut."""
+    projections = {(pid, event): p for event, table in projections_by_event.items() for pid, p in table.items()}
+    return optimise(
+        state,
+        snapshot,
+        projections,
+        rules,
+        from_event=2,
+        horizon=1,
+        decay=0.84,
+        ft_value=1.5,
+        max_hit=4,
+        beam=4,
+        first_moves=500,
+        max_cells=10**9,
+        now=NOW,
+    )
+
+
+def _fu28_oracle(
+    state: SquadState,
+    snapshot: BootstrapSnapshot,
+    projections_by_event: dict[int, dict[int, Projection]],
+    rules: TransferRules,
+) -> tuple[float, tuple[OptTransfer, ...]]:
+    """The best score over every legal k <= 2 move drawn from the **full**
+    player set, scored through `apply_transfers` and `xi_value`.
+
+    Deliberately not a call into `optimizer.py`'s candidate generator —
+    `_same_position_swaps` enumerates from the snapshot, so the dominance
+    pool has no say in what this considers. `apply_transfers` is what rejects
+    an unselectable buy, so the oracle never proposes a squad the validator
+    would refuse.
+    """
+    from fpl_cli.domain.squad import xi_value
+
+    hold_objective = xi_value(state.player_ids, projections_by_event[2], snapshot)
+    best, best_move = float("-inf"), ()
+    for transfers in _same_position_swaps(snapshot, state.player_ids, k_max=2):
+        result = apply_transfers(state, list(transfers), 2, snapshot, rules, now=NOW)
+        if not result.validation.valid:
+            continue
+        score = (
+            xi_value(result.state.player_ids, projections_by_event[2], snapshot)
+            - hold_objective
+            - result.hit_points
+            + 1.5 * min(result.state.free_transfers, rules.free_transfer_cap)
+        )
+        if score > best:
+            best, best_move = score, transfers
+    return best, best_move
+
+
+def _fu28_m(snapshot: BootstrapSnapshot, element_type: int) -> int:
+    return min(snapshot.game_settings.squad_team_limit, snapshot.positions[element_type].squad_select)
+
+
+def test_dominance_never_excludes_against_a_held_dominator() -> None:
+    """fu-28-dominance.md §2.2: a **k = 1** failure — the shape that fires on
+    live data, 14 times on the cached snapshot at GW2.
+
+    `_dominance_pool` ranges over every transactable player with no reference
+    to the node's holdings, and `_candidates_for` then filters held players
+    out of the pool. So a player excluded against a dominator the squad
+    *already owns* is unreachable on a single transfer, with no substitute
+    available. Before Option D the buyable DEF pool here was `[8]` and the
+    search scored 8.0 against a true 9.0.
+
+    This contradicts FU-28's "scoped to k = 1 (provably exact)" and the
+    earlier docstring on
+    `test_dominance_excludes_only_players_a_survivor_can_always_replace`:
+    k = 1 is exact only in the bucket-in-isolation setting that test builds,
+    where the squad holds nothing.
+    """
+    snapshot = _fu28_snapshot(
+        [
+            (1, 1, 1, 40, True),  # GKP, held
+            (2, 4, 2, 40, True),  # FWD, held — 20.0 xP, so the captain never moves
+            (6, 2, 9, 45, True),  # DEF club 9, HELD — the dominator
+            (3, 2, 3, 40, True),  # DEF, held, sold
+            (7, 2, 9, 45, True),  # DEF club 9 — dominated by held 6
+            (8, 2, 9, 40, True),  # DEF club 9 — survivor, cheaper and worse
+        ]
+    )
+    projections_by_event = _fu28_projections({1: 1.0, 2: 20.0, 6: 10.0, 3: 0.5, 7: 8.0, 8: 7.0})
+    rules = TransferRules.from_snapshot(snapshot)
+    state = _fu28_state(snapshot, (1, 2, 6, 3))
+
+    survivors, _ = _dominance_pool(snapshot, projections_by_event, [2])
+    buyable = [
+        pid for pid in survivors if snapshot.players_by_id[pid].element_type == 2 and pid not in state.holdings
+    ]
+    # Sizing check: 7's only dominator is held, so counting to `m` = 2 must
+    # keep 7 buyable. Before Option D this list was `[8]`.
+    assert buyable == [7, 8], f"buyable DEF pool is {buyable}; 7 was excluded against a dominator that cannot be bought"
+
+    result = _fu28_optimise(state, snapshot, projections_by_event, rules)
+    expected, expected_move = _fu28_oracle(state, snapshot, projections_by_event, rules)
+    assert [(t.out_id, t.in_id) for t in expected_move] == [(3, 7)]
+    assert result.paths[0].score == pytest.approx(expected, abs=1e-9)
+    assert [(t.out_id, t.in_id) for t in result.paths[0].node.transfers] == [(3, 7)]
+
+
+def test_dominance_survives_a_same_bucket_double_buy() -> None:
+    """fu-28-dominance.md §2.1: FU-28's own k = 2 shape, minimised.
+
+    Both in-slots of a same-position k = 2 move can be drawn from one
+    `(position, club)` bucket — `_mask_k2`'s `i < j` dedup exists for exactly
+    that. Selling 3 and 4 frees £9.0m; `6+7` costs exactly that and scores
+    18.0, `6+8` costs £8.5m and scores 17.0. Before Option D, 7 was stripped
+    against 6 before the search ran, so `6+8` was the best pair reachable.
+
+    8 does not rescue it: 8 and 7 are mutually non-dominated (8 is cheaper
+    *and* worse), so 7's exclusion says nothing about how 7 relates to 8.
+    """
+    snapshot = _fu28_snapshot(
+        [
+            (1, 1, 1, 40, True),  # GKP, held
+            (2, 4, 2, 40, True),  # FWD, held — fixed captain
+            (3, 2, 3, 40, True),  # DEF, held, sold
+            (4, 2, 4, 40, True),  # DEF, held, sold
+            (6, 2, 9, 45, True),  # DEF club 9 — the dominator
+            (7, 2, 9, 45, True),  # DEF club 9 — dominated by 6 at equal cost
+            (8, 2, 9, 40, True),  # DEF club 9 — survivor
+        ]
+    )
+    projections_by_event = _fu28_projections({1: 1.0, 2: 20.0, 3: 0.5, 4: 0.5, 6: 10.0, 7: 8.0, 8: 7.0})
+    rules = TransferRules.from_snapshot(snapshot)
+    state = _fu28_state(snapshot, (1, 2, 3, 4))
+
+    survivors, _ = _dominance_pool(snapshot, projections_by_event, [2])
+    # Sizing check: 7 has exactly one dominator (6) against `m` = 2, so it
+    # must survive. Before Option D this read `7 in reasons`.
+    assert 7 in survivors, "7 was excluded on a single dominator, against m = 2"
+    # Sizing check: the winning pair must be *exactly* affordable, so the
+    # budget genuinely binds and the fixture is not proving something about
+    # an unconstrained choice.
+    assert snapshot.players_by_id[6].now_cost + snapshot.players_by_id[7].now_cost == state.bank + sum(
+        snapshot.players_by_id[pid].now_cost for pid in (3, 4)
+    )
+
+    result = _fu28_optimise(state, snapshot, projections_by_event, rules)
+    expected, expected_move = _fu28_oracle(state, snapshot, projections_by_event, rules)
+    assert sorted((t.out_id, t.in_id) for t in expected_move) == [(3, 6), (4, 7)]
+    assert result.paths[0].score == pytest.approx(expected, abs=1e-9)
+    assert sorted((t.out_id, t.in_id) for t in result.paths[0].node.transfers) == [(3, 6), (4, 7)]
+
+
+def test_dominance_counts_only_dominators_the_validator_would_accept() -> None:
+    """fu-28-dominance.md §3.4, variant (c): the exchange argument that makes
+    Option D exact needs a dominator that can actually *replace* the excluded
+    player — so an unselectable one must not count towards `m`.
+
+    `_dominance_pool` admits on `can_transact and not removed` (FU-35 owns
+    that predicate), so an unselectable player enters the pool and can
+    dominate. Here 8's two dominators are 6 (usable) and 7
+    (`can_select=False`, which `validate_squad_structure` rejects). Counting
+    both reaches `m` = 2 and strips 8; counting only usable dominators stops
+    at 1 and keeps it — and 8 is exactly what the optimum wants, since 7
+    cannot legally be bought at all.
+
+    This case does not occur on the cached snapshot: the one player it
+    affects there (276 Lo-Tutala, 2 dominators, 1 usable) is himself
+    `can_select=False`, so nothing legitimate is lost. It is synthetic
+    because it has to be, not because it is hypothetical.
+    """
+    snapshot = _fu28_snapshot(
+        [
+            (1, 1, 1, 40, True),  # GKP, held
+            (2, 4, 2, 40, True),  # FWD, held — fixed captain
+            (6, 2, 9, 45, True),  # DEF club 9, HELD — usable dominator
+            (3, 2, 3, 40, True),  # DEF, held, sold
+            (7, 2, 9, 45, False),  # DEF club 9 — dominator the validator rejects
+            (8, 2, 9, 45, True),  # DEF club 9 — dominated by 6 and 7; only 6 counts
+            (9, 2, 9, 40, True),  # DEF club 9 — survivor, cheaper and worse
+        ]
+    )
+    projections_by_event = _fu28_projections({1: 1.0, 2: 20.0, 6: 10.0, 3: 0.5, 7: 9.0, 8: 8.0, 9: 7.0})
+    rules = TransferRules.from_snapshot(snapshot)
+    state = _fu28_state(snapshot, (1, 2, 6, 3))
+
+    survivors, _ = _dominance_pool(snapshot, projections_by_event, [2])
+    # Sizing checks: the fixture only distinguishes the two counting rules if
+    # 7 is (a) admitted to the pool — admission is still `can_transact`, this
+    # branch does not touch it — (b) genuinely a dominator of 8, and (c)
+    # unusable. Drop any one and counting all dominators agrees with counting
+    # usable ones.
+    assert _fu28_m(snapshot, 2) == 2
+    assert 7 in survivors, "7 must be admitted to the pool, or FU-35's admission predicate has changed here"
+    assert not snapshot.players_by_id[7].can_select
+    assert snapshot.players_by_id[7].now_cost <= snapshot.players_by_id[8].now_cost
+    assert projections_by_event[2][7].xp_total > projections_by_event[2][8].xp_total
+    # The flip: 8 reaches `m` = 2 dominators only if the unusable one counts.
+    assert 8 in survivors, "8 was excluded against a dominator the validator would reject"
+
+    result = _fu28_optimise(state, snapshot, projections_by_event, rules)
+    expected, expected_move = _fu28_oracle(state, snapshot, projections_by_event, rules)
+    assert [(t.out_id, t.in_id) for t in expected_move] == [(3, 8)]
+    assert result.paths[0].score == pytest.approx(expected, abs=1e-9)
+    assert [(t.out_id, t.in_id) for t in result.paths[0].node.transfers] == [(3, 8)]
 
 
 # --- Memory is flat by construction ------------------------------------------
