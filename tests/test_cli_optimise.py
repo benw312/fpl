@@ -114,7 +114,11 @@ def test_optimise_plan_recommends_the_hand_computed_best_swap(
     assert "5.0" in out  # hold's GW2 gross points
     assert "robustness:" in out
     assert "UNVALIDATED" in out
-    assert "FU-28" in out
+    # FU-28 is closed: dominance pruning is exact, so the header must no
+    # longer carry the banner admitting it isn't. Inverted rather than
+    # deleted — the banner's absence is part of what the fix delivers.
+    assert "FU-28" not in out
+    assert "DOMINANCE PRUNING IS UNSOUND" not in out
 
 
 def test_optimise_plan_explain_shows_raw_vs_realised(
@@ -216,7 +220,10 @@ def test_optimise_plan_json_output_is_valid_json(
     payload = json.loads(out)
     assert payload["from_event"] == 2
     assert payload["unvalidated"] is True
-    assert payload["dominance_pruning_unsound"] is True
+    # FU-28 is closed, so the machine-readable admission goes with the console
+    # banner. Inverted rather than deleted: a consumer keying off this field
+    # must see it disappear, not see it silently stay true.
+    assert "dominance_pruning_unsound" not in payload
     assert payload["recommendation"]["description"]
     assert any(row["net"] == 0.0 for row in payload["paths"])  # HOLD row
 

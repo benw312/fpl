@@ -49,7 +49,15 @@ DEFAULT_FT_VALUE = 1.5
 DEFAULT_MAX_HIT = 4
 DEFAULT_BEAM = 4
 DEFAULT_FIRST_MOVES = 50
-DEFAULT_MAX_CELLS = 400_000_000
+# Raised from 400M with FU-28 (docs/plans/fu-28-dominance.md §3.5): exact
+# dominance takes the live pool from 189 to 374, and the default
+# configuration's projection with it from ~113M cells to ~513M. 800M clears
+# that with room for the pool growth §5.2 predicts as players differentiate
+# through the season, and the run it admits measures 90.8 s — inside §7.1c's
+# 120 s cap. [gap: this value has no test at 400M and none at 800M; a
+# threshold fixture needs projected_cells inside the window and the synthetic
+# snapshots are orders of magnitude short. Filed as FU-39.]
+DEFAULT_MAX_CELLS = 800_000_000
 
 # §7.2: the size at which one out-combination's candidate grid is chunked
 # rather than built whole. Nothing in the live snapshot's measured pool
@@ -169,35 +177,85 @@ class _Pool:
     by_position: dict[int, tuple[int, ...]]
 
 
+def _validator_usable(player: Player) -> bool:
+    """Whether `rules.validate_squad_structure` would accept this player in a
+    squad — it rejects on `not can_select or removed` (`rules.py:57`), and
+    this mirrors that test.
+
+    Deliberately **not** the same predicate as pool admission below; see
+    `_dominance_pool`'s note on the two.
+    """
+    return player.can_select and not player.removed
+
+
 def _dominance_pool(
     snapshot: BootstrapSnapshot,
     projections_by_event: dict[int, dict[int, Projection]],
     events: Sequence[int],
 ) -> tuple[list[int], dict[int, str]]:
-    """The exact `(position, club)` Pareto frontier over every transactable player.
+    """The exact `(position, club)` dominance pool over every transactable player.
 
-    Non-strict: A dominates B if `now_cost(A) <= now_cost(B)` and
-    `xP(A, e) >= xP(B, e)` for every event. Ties (equal cost, equal xP at
-    every event) are broken by player ID ascending, matching `best_xi`'s
-    tie-break — so of two mutually-dominating players only one is excluded.
+    A dominates B if `now_cost(A) <= now_cost(B)` and `xP(A, e) >= xP(B, e)`
+    for every event. The relation is non-strict, so ties (equal cost, equal
+    xP at every event) are broken by player ID ascending, matching
+    `best_xi`'s tie-break — which makes it a strict partial order, so the
+    count below cannot loop and two mutually-dominating players cannot both
+    be discarded.
+
+    **B is excluded only once `m` distinct dominators exist**, where
+    `m = min(squad_team_limit, position.squad_select)` is the most players a
+    legal squad can hold from one `(position, club)` bucket at once
+    (docs/plans/fu-28-dominance.md §3.4). Excluding on the *first* dominator
+    — what this did before FU-28 — is unsound: if the optimum wants B
+    together with every one of B's dominators, none is free to substitute for
+    it, and B is lost with no floor under the value that costs. That shape is
+    reachable in two ways, one of which needs only a single transfer (a
+    dominator the squad already holds, which `_candidates_for` then filters
+    out as unbuyable).
+
+    **Two predicates, deliberately different, and they must not be tidied
+    into agreement here:**
+
+    - *Admission* — `can_transact and not removed`. Unchanged. Which players
+      may enter the pool at all is FU-35's question: it records that
+      `can_select` belongs in this predicate too, that fixing it moves the
+      search's output on its own, and that it needs its own before/after.
+      **FU-35 owns this line, not FU-28.**
+    - *Domination* — additionally `_validator_usable`. The exchange argument
+      that makes the count exact needs a dominator that can legally *replace*
+      the excluded player: an unselectable one cannot, because
+      `validate_squad_structure` rejects any squad containing it. Counting a
+      dominator the validator would refuse reintroduces the same defect one
+      level up — B excluded, and nothing legal to put in its place.
     """
     transactable = [player for player in snapshot.elements if player.can_transact and not player.removed]
     buckets: dict[tuple[int, int], list[Player]] = {}
     for player in transactable:
         buckets.setdefault((player.element_type, player.team), []).append(player)
 
+    limit = snapshot.game_settings.squad_team_limit
+    positions = snapshot.positions
+
     survivors: list[int] = []
     reasons: dict[int, str] = {}
-    for bucket in buckets.values():
+    for (element_type, _club), bucket in buckets.items():
+        # A bucket is one club, so the club limit always bounds how many of
+        # it a squad can hold; `squad_select` bounds it too where the
+        # position is known. Falling back to the club limit alone only ever
+        # *raises* `m`, which prunes less — the safe direction.
+        position = positions.get(element_type)
+        max_from_bucket = min(limit, position.squad_select) if position is not None else limit
         bucket_sorted = sorted(bucket, key=lambda player: player.id)
         xp = {
             player.id: [projections_by_event[event][player.id].xp_total for event in events]
             for player in bucket_sorted
         }
         for candidate in bucket_sorted:
-            dominator: Player | None = None
+            dominators: list[Player] = []
             for other in bucket_sorted:
                 if other.id == candidate.id:
+                    continue
+                if not _validator_usable(other):
                     continue
                 if other.now_cost > candidate.now_cost:
                     continue
@@ -207,15 +265,18 @@ def _dominance_pool(
                     o > c for o, c in zip(xp[other.id], xp[candidate.id])
                 )
                 if strictly_better or other.id < candidate.id:
-                    dominator = other
-                    break
-            if dominator is None:
+                    dominators.append(other)
+                    if len(dominators) >= max_from_bucket:
+                        break
+            if len(dominators) < max_from_bucket:
                 survivors.append(candidate.id)
             else:
-                shortfall = (candidate.now_cost - dominator.now_cost) / 10
+                named = ", ".join(str(player.id) for player in dominators)
                 reasons[candidate.id] = (
-                    f"dominated by {dominator.id}: costs £{shortfall:.1f}m less (or the same) and "
-                    "projects at least as many points in every gameweek of the horizon"
+                    f"dominated by {named}: {max_from_bucket} selectable players in the same club and "
+                    "position each cost no more (or the same) and project at least as many points in "
+                    f"every gameweek of the horizon, and a legal squad can hold at most {max_from_bucket} "
+                    "of them — so one is always free to take this player's place"
                 )
     return sorted(survivors), reasons
 

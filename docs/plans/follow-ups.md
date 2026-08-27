@@ -936,15 +936,41 @@ divergence between a faster `xi_value` and `best_xi` fails there.
 
 ---
 
-## FU-28 — Dominance pruning is not exact for a same-bucket k = 2 double-pick
+## FU-28 — Dominance pruning is not exact for a same-bucket k = 2 double-pick — **CLOSED**
 
 **Deferred from:** §8's dominance property test (`tests/test_optimizer.py`,
 2026-08-26, `task/optimizer`).
 
-**Answered by `docs/plans/fu-28-dominance.md`** (`task/fu-28-plan`, 2026-08-27): both
-counterexamples reproduced against `8ba4ccf`, the three options below measured on the
-default configuration, a fourth found, and a recommendation made. Two claims in the
-entry below are **wrong** and the plan document supersedes them — read it first.
+**Closed 2026-08-27 by `task/fu-28-dominance`** (`e69bb3d` the fix, `b9706c6` the
+`--max-cells` raise it needs). Designed in `docs/plans/fu-28-dominance.md`; the landed
+behaviour is documented in optimizer-search.md §5.2, §6.3 and §7.1g.
+
+**The fix: exclude a player only once `m = min(squad_team_limit,
+position.squad_select)` *selectable* dominators exist**, rather than on the first
+dominator found. `m` is the most a legal squad can hold from one `(position, club)`
+bucket at once, so an optimum containing an excluded player always leaves one
+dominator free to substitute. Exact for every k, so FU-29's `--schedule` at k = 3
+inherits it. Measured on the live snapshot at GW2: pool 189 → 374, exclusions 425 →
+240, **best score unchanged at 70.066**, runtime 62.3 s → 90.8 s.
+
+**Two things the entry below got wrong, both corrected before closing:**
+
+1. **The title's "k = 2" is too narrow.** The same defect fires on a *single*
+   transfer, when the excluded player's dominator is already in the squad —
+   `_candidates_for` filters the dominator out as unbuyable while dominance has
+   already removed the dominated player. It fired 14 times on the live snapshot.
+2. **"Restrict `_mask_k2`" does not restore exactness.** It was recorded as "cheap,
+   restores exactness". Measured, it does neither useful thing: it cannot reach the
+   k = 1 shape, and on the k = 2 counterexample it makes the answer *worse*.
+
+**Scope deliberately left alone:** pool *admission* still runs on `can_transact and
+not removed`, so FU-35 is untouched and still open. Only the *dominance* predicate
+gained `can_select` — the exchange argument needs a substitute the validator will
+accept, and counting one it would reject reproduces the same defect one level up. The
+two predicates now differ inside `_dominance_pool` on purpose, with a comment saying
+so; do not reconcile them except through FU-35.
+
+The original entry follows, for the record.
 
 optimizer-search.md §5.2 claims exact `(position, club)` dominance: a dominated
 player can always be swapped for its dominator at no cost in legality or value. The
@@ -978,11 +1004,12 @@ bucket simultaneously, which is exactly the same-position, same-club shape
   k_enum` is named in §5.3, rather than continuing to claim an exactness the
   algorithm does not have.
 
-**A fourth option, found while measuring the three above:** exclude a player only once
-**`m` distinct players dominate them**, rather than on the first dominator found. Exact
-for every k by the same exchange argument as the Pareto-layer option, prunes strictly
-harder (373 vs 405 survivors on the live snapshot), 8.6 s cheaper, and a smaller diff.
-**This is the recommendation** — `fu-28-dominance.md` §3.4 and §4.
+**A fourth option, found while measuring the three above, and the one implemented:**
+exclude a player only once **`m` distinct players dominate them**, rather than on the
+first dominator found. Exact for every k by the same exchange argument as the
+Pareto-layer option, prunes strictly harder (374 vs 408 survivors on the live snapshot
+once the selectability qualifier is applied), 8 s cheaper, and a smaller diff.
+`fu-28-dominance.md` §3.4 and §4.
 
 **~~Unblocks:~~ nothing currently blocks on this — `tests/test_optimizer.py`'s
 dominance test is scoped to k = 1 (provably exact)** — **also wrong.** k = 1 is exact
@@ -991,8 +1018,9 @@ nothing. In the search, an excluded player whose dominator is **already held** i
 unreachable on a *single* transfer: `_dominance_pool` never consults the node's
 holdings, and `_candidates_for` then filters the dominator out as already held. That
 shape is reproduced in `fu-28-dominance.md` §2.2 and fires 14 times on the live
-snapshot at GW2. The property test documents the k = 2 gap in its own docstring but
-asserts a k = 1 property that does not hold in the search.
+snapshot at GW2. The property test documented the k = 2 gap in its own docstring but
+asserted a k = 1 property that does not hold in the search; it now asserts exactness
+for a joint pick of up to `m`, which is the property that does.
 
 ---
 
@@ -1480,3 +1508,93 @@ is to refuse work. Nothing currently ties it to what the search actually scores.
 **Unblocks:** nothing, but `SearchTooExpensive` is the only thing standing between a
 mistyped `--horizon` and a machine (§7.2's defect cost one), and it is untested.
 
+
+---
+
+## FU-39 — `DEFAULT_MAX_CELLS` has no test at either value, and the next change to it is already scheduled
+
+**Deferred from:** `task/fu-28-dominance` (`b9706c6`), which raised it from 400M to
+800M because exact dominance took the default configuration's `projected_cells` to
+~513M and the guard refused the run.
+
+FU-37 added the two `--max-cells` guard tests optimizer-search.md §8 specifies, and
+they are good tests — but they pass `max_cells` explicitly (`0` and `10**9`), as does
+every other `optimise()` call in the suite. **Nothing reads `DEFAULT_MAX_CELLS`.**
+`grep` finds it in exactly two places, both in `optimizer.py`: its definition and the
+parameter default. So the number that actually stands between a default `fpl plan
+optimise` and a refusal is unasserted, and was equally unasserted at 400M — this
+entry records a pre-existing gap that FU-28 made load-bearing, not one it introduced.
+Before FU-28 the default had ~3.5× headroom; now it has ~1.6×.
+
+**Why it is awkward to close, which is why it is filed rather than fixed.** A test
+that exercises the threshold needs a fixture whose `projected_cells` lands between the
+admitted and refused sides of 800M. The synthetic snapshots are orders of magnitude
+short of that (`_tiny_snapshot` is a 6-a-side squad), and building one that isn't
+would mean a fixture large enough to be slow — which is the thing §8's other tests
+carefully avoid. Options, none costed:
+
+- Assert only that omitting `max_cells` is *bounded* rather than unbounded —
+  `inspect.signature(optimise).parameters["max_cells"].default == DEFAULT_MAX_CELLS`.
+  Cheap, non-vacuous, and catches the plausible regression (someone defaulting it to
+  `None` or `10**12`). Does not test the value.
+- Assert the value against a recorded projection for the live default configuration,
+  as a golden number with a comment. Tests the thing that matters, but pins a test to
+  a cached snapshot, which no other test in this suite does.
+- Leave it, and treat §7.1g's measurement as the check. Honest, but the check then
+  only happens when someone remembers to re-measure.
+
+**The headroom, measured, because the value matters and not only the missing test.**
+Default configuration (horizon 5, `--beam 4`, `--first-moves 50`), cached snapshot
+2026-08-27T22:18Z, 616 players, root GW2, `squad.json`:
+
+| | `projected_cells` | Ceiling | Headroom | Ratio |
+|---|---:|---:|---:|---:|
+| before FU-28 | 112,969,160 | 400,000,000 | 287,030,840 | **3.54×** |
+| after FU-28 | **515,771,890** | 800,000,000 | **284,228,110** | **1.55×** |
+
+`--max-hit` makes no difference to this: at GW2 one free transfer accrues to two, so
+`k_max` is 2 whether the flag is set to 4 or left uncapped, and the CLI default
+projects the same 515,771,890. The absolute headroom is almost unchanged (287.0M →
+284.2M) while the *ratio* has more than halved. A ceiling with 1.55× headroom is a
+different kind of object from one with 3.5×: it will be reached by ordinary drift, not
+only by a mistyped flag. §5.2 predicts the pool grows as players differentiate through
+the season, and each pool player costs roughly quadratically at k = 2.
+
+**Do it before FU-29, and expect to move the number again.** `--schedule` at k = 3
+enumerates a third incoming slot, and the pool the third slot draws from is the one
+FU-28 doubled. Measured on the same snapshot, counting the same `i < j < k` dedup the
+generator uses but **without** the budget and club masks — so a strict upper bound on
+what the guard would count:
+
+| k | unmasked cells per node |
+|---:|---:|
+| 1 | 1,525 |
+| 2 | 914,566 |
+| 3 | **286,265,852** |
+
+**One k = 3 node expansion is 36% of the entire 800M ceiling**, against 0.11% for
+k = 2. §7.3 says the guard "also bounds `--schedule`" and that this is why §5.7 can
+state its ceiling of 3 as a consequence rather than a rule — that reasoning still
+holds, but the margin it holds by is now much thinner, and `--schedule 0,0,3` will
+have to be costed against this ceiling rather than assumed to clear it. Deciding how
+the ceiling is tested is better done before it moves again than during.
+
+**Reproducibility note.** §7.1g and FU-28's commit messages cite a 2026-08-27T13:33Z
+capture with 614 players; the figures above are from a 22:18Z capture with 616. The
+difference is two players, both excluded under either rule (exclusions 425 → 427 under
+the old rule, 240 → 241 under the new one), and it is snapshot drift, not a rule
+difference — confirmed by running both rules against the same capture. The 13:33Z
+capture no longer exists: `SnapshotService.load()` saves on every successful live
+fetch, so the verification runs for this branch overwrote it, and `~/.fpl-cli/archive`
+holds nothing between 2026-08-27T00:30 and now. `[gap: any measurement in these plans
+taken against "the cached snapshot" is reproducible only until the next `fpl` command
+runs. Nothing pins a capture for measurement purposes. Not this entry's concern, but
+it is the reason two figures that should match do not.]`
+
+**Also unresolved, from the same measurement (§7.1g):** the ceiling is expressed in
+cells but justified in seconds, and the conversion between them is not a constant.
+Measured throughput was 1.81 M projected cells/s at a 189-player pool and 5.66 M/s at
+374, because per-node fixed costs amortise over larger grids. §7.3's "≈ 115 s at the
+measured 3.5 M/s" gloss has been struck, but nothing replaces it. `[gap: two points do
+not fit a per-node-plus-per-cell model with any confidence; that needs a sweep this
+branch did not run.]`

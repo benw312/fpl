@@ -633,7 +633,6 @@ def optimise_plan(
             "horizon_clamped": horizon_clamped,
             "from_event": from_event,
             "unvalidated": True,
-            "dominance_pruning_unsound": True,
             "dominance_exclusions": len(result.dominance_exclusions),
             "scope_gaps": [
                 {"event": gap.event, "free_transfers": gap.free_transfers, "k_rules": gap.k_rules, "k_enum": gap.k_enum}
@@ -676,7 +675,6 @@ def optimise_plan(
             bank=state_at_from_event.bank,
             free_transfers=state_at_from_event.free_transfers,
             unvalidated=True,
-            dominance_unsound=True,
             scope_gap_lines=scope_gap_lines,
         )
     )
