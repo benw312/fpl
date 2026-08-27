@@ -9,7 +9,7 @@ from the plans in this directory, so it must not shift. A closed entry carries a
 code, not just what the commit claimed. Its body is left as written, so where the
 fix diverged from the entry the Status line says how.
 
-**Last reconciled against `main`:** 2026-08-26 (`387ff0c`).
+**Last reconciled against `main`:** 2026-08-27 (`725698c`).
 
 ---
 
@@ -1060,4 +1060,40 @@ concern, this one was CLI wiring for `optimise`.
 
 **Unblocks:** the `optimise --output` → `simulate` round-trip actually testing what
 `optimizer-ux.md` §1 and CLAUDE.md claim it tests, for any `--model` choice.
+
+---
+
+## FU-31 — `fpl plan optimise` doesn't expose `--beam`, `--first-moves` or `--max-cells`
+
+**Deferred from:** `task/beam-width`, while re-measuring optimizer-search.md §5.5 and
+§7.1 against the live snapshot.
+
+`domain.optimizer.optimise()` takes `beam`, `first_moves` and `max_cells` keyword
+arguments (`optimizer.py:785-787`, defaults `DEFAULT_BEAM = 4`, `DEFAULT_FIRST_MOVES
+= 50`, `DEFAULT_MAX_CELLS = 400_000_000`), but `optimise_plan` (`cli.py:454-465`)
+does not thread any of them through — there is no way to run `fpl plan optimise` at a
+non-default beam width, or to raise the cost ceiling, from the command line at all.
+
+**Found while measuring, not while building.** optimizer-search.md §5.5 documents
+`--beam 2, 4, 8` as if it were a CLI flag; it never was one. Re-measuring §5.5 and
+§7.1's Runtime/Peak RSS columns against the live snapshot for real (rather than
+against the never-committed prototype) required calling `domain.optimizer.optimise()`
+directly, with the CLI's own setup copied by hand into a benchmark script, because
+there was no flag to reach `--beam 8` or `16`, or to get past the default
+`--max-cells` guard, any other way.
+
+**Worth doing independently of the measurement.** Anyone who hits the
+`SearchTooExpensive` refusal §7.3 designed — "Reduce `--horizon`, `--beam` or
+`--first-moves`, or raise `--max-cells`" — cannot act on that message today; the
+flags it names don't exist on the command they're printed from. That is a
+correctness gap in the UX, not just a benchmarking inconvenience.
+
+**Not fixed here.** This is a CLI-wiring task once someone picks the flag names and
+defaults-display convention the rest of `optimise_plan`'s options use; it does not
+touch the search itself. One concern, deferred rather than folded into a measurement
+branch.
+
+**Unblocks:** a user (or a future re-measurement) reproducing §5.5's and §7.1c's
+tables through `fpl plan optimise` itself, and reacting to a `SearchTooExpensive`
+refusal without editing source.
 
