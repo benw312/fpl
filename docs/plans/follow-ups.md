@@ -1875,3 +1875,61 @@ rather than the archived file's mtime — the case ad-hoc and copied captures ma
 reachable rather than theoretical. And an unreadable capture is now moved aside intact
 instead of being cleared, which is the difference between an operator finding a
 confusing directory and an operator finding nothing at all.
+
+---
+
+## FU-42 — `--archive-dir` isolates the capture, not the caches
+
+**Status: open.** Filed from `task/archive-dir`, which added
+`fpl sync --archive-dir PATH` and removed a dead `FPL_CACHE_DIR` export from
+`.envrc`.
+
+**What prompted it.** Verification syncs were filing into the production
+archive: on 2026-08-28 three captures landed in `~/.fpl-cli/archive/` from test
+runs alone (`2026-08-28/`, and ad-hoc `2026-08-28T091907Z/` and
+`2026-08-28T094050Z/`). A canonical slot is claimed once and never overwritten
+(FU-41), so a test run that claims one costs that day's real capture — the
+irreplaceable thing, since a day's snapshot cannot be fetched again.
+
+**What was established about `FPL_CACHE_DIR`, because the premise was wrong.**
+It was believed the caches honoured `FPL_CACHE_DIR` while the archive alone did
+not. They do not. **Nothing in the codebase has ever read it.** Every path is
+hardcoded under `~/.fpl-cli`: `storage/cache.py` (`bootstrap-static.json`),
+`api/snapshots.py` (`fixtures.json`, `events/`, `archive/`). The only
+environment variable the CLI consults is `FPL_SNAPSHOT`, in `cli.py`. The
+export entered in `3fde912` *Add direnv config for venv activation* set to
+`$HOME/.fpl-cli` — the same value as the hardcoded default — so it never had an
+observable effect, which is why the discrepancy went unnoticed for as long as
+it did.
+
+Checked before deleting it: the only file under `~` that mentions
+`FPL_CACHE_DIR` is `projects/fpl/.envrc` itself. `~/.bashrc` and `~/.profile`
+have no FPL references, there is no `~/.bash_profile`, `~/.zshrc` or
+`~/.bash_aliases`, and the user crontab has no active entries.
+`~/.config/systemd/user/fpl-sync.service` sets no `Environment=` and its
+`ExecStart` is a bare `fpl sync`, so the timer never saw the variable in any
+case — direnv does not apply to systemd.
+
+**Why the variable was removed rather than wired up.** Half-wiring it — the
+archive following it while the caches did not — produces partial isolation that
+looks total, which is worse than none: a user pointing it at a scratch location
+would get a scratch archive and production caches, and nothing would say so.
+Wiring up the whole cache root was the coherent alternative and was declined for
+this branch as a separate question (below). What remains is one explicit flag,
+and a test that fails if the variable is ever half-wired.
+
+**The gap.** `[gap: --archive-dir protects the capture and nothing else. A sync
+with the flag still refetches and rewrites `~/.fpl-cli/bootstrap-static.json`
+and `~/.fpl-cli/fixtures.json` in place. Per FU-40, `_build_schedule`
+(`domain/projections.py`) turns the fixtures list into opponent *and* venue for
+every projected cell, so a rewritten fixtures file moves every cell of an
+in-flight measurement. A test sync with `--archive-dir` is therefore safe for
+the archive — the irreplaceable part — and still disruptive to a measurement in
+progress.
+
+Whether dev runs want a full scratch cache root (a `FPL_CACHE_DIR` that
+genuinely resolves all four paths, or a `--cache-dir` alongside `--archive-dir`)
+is a separate question and is deliberately not answered here. Note only that it
+is the same trade-off in a larger frame: whatever is chosen must move all four
+paths together or none, because the failure mode being avoided is a partial
+guarantee nobody can see.]`

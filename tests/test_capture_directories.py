@@ -868,6 +868,12 @@ def _sync_with(
     monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot, archived: snapshots.ArchivedCapture
 ) -> None:
     class Stub:
+        def __init__(self, archive_dir: Path | None = None) -> None:
+            # `sync` now constructs the service with `--archive-dir`; these
+            # tests are about what it prints, so the value is accepted and
+            # ignored. Its routing is covered in `test_archive_dir.py`.
+            self.archive_dir = archive_dir
+
         def refresh(self) -> BootstrapSnapshot:
             return bootstrap_snapshot
 
