@@ -58,8 +58,18 @@ it can be re-measured later against the same inputs:
 fpl plan optimise squad.json --snapshot ~/fpl-pinned/gw2-pre-deadline.json --json
 ```
 
-A missing or unparseable file is an error naming the path — there is no
-fallback to cache or live. See [docs/plans/snapshot-pinning.md](docs/plans/snapshot-pinning.md),
+`--snapshot` takes either shape:
+
+- **A capture directory** (`~/.fpl-cli/archive/YYYY-MM-DD/`, written by `fpl
+  sync`) holding `bootstrap-static.json`, `fixtures.json` and a
+  `manifest.json`. Both files are pinned, and each is checked against the
+  manifest's sha256 before use.
+- **A bare bootstrap-static file**, as before: the snapshot is pinned and
+  fixtures still come from the cache, which `provenance` reports as `cache`.
+
+A missing or unparseable path, a directory with no manifest, or a file that
+does not match its recorded digest is an error naming it — there is no fallback
+to cache or live. See [docs/plans/snapshot-pinning.md](docs/plans/snapshot-pinning.md),
 including §5 on what a pinned run still does not pin.
 
 ## Agent Plan

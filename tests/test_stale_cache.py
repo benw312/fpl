@@ -49,10 +49,10 @@ class StubService:
             raise self._refresh_fixtures_error
         return self._refresh_fixtures_result
 
-    def archive(self, snapshot: BootstrapSnapshot) -> Path:
+    def archive(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture]) -> Path:
         if self._archive_error is not None:
             raise self._archive_error
-        return Path("/tmp/archive/bootstrap-2026-01-01.json")
+        return Path("/tmp/archive/2026-01-01")
 
     def close(self) -> None:
         self.closed = True
