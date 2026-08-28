@@ -68,9 +68,13 @@ def test_load_snapshot_returns_stale_result_without_raising(
     result = SnapshotResult(snapshot=bootstrap_snapshot, stale=True, reason="timed out")
     monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(load_result=result))
 
-    snapshot = cli.load_snapshot()
+    loaded = cli.load_snapshot()
 
-    assert snapshot is bootstrap_snapshot
+    assert loaded.snapshot is bootstrap_snapshot
+    # A stale result is a cache read, and says so (FU-40).
+    assert loaded.provenance.source == "cache"
+    assert loaded.provenance.captured_at == bootstrap_snapshot.fetched_at
+    assert loaded.provenance.path is None
 
 
 def test_load_snapshot_raises_typer_exit_on_error(monkeypatch: pytest.MonkeyPatch) -> None:

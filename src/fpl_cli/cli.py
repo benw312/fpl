@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -13,8 +14,11 @@ from rich import print
 from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.api.snapshots import (
     DEFAULT_ARCHIVE_DIR,
+    FixturesResult,
     PinnedSnapshotError,
     PinnedSnapshotService,
+    SnapshotProvenance,
+    SnapshotResult,
     SnapshotService,
 )
 from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
@@ -111,6 +115,35 @@ def snapshot_service(pinned: Path | None) -> SnapshotService | PinnedSnapshotSer
     return SnapshotService()
 
 
+@dataclass(frozen=True)
+class LoadedSnapshot:
+    """A snapshot together with where it came from.
+
+    The provenance is carried alongside rather than derived at the point of
+    use, because by then the distinction is gone: a cached snapshot and a live
+    one are the same object, and only the load knew which it was.
+    """
+
+    snapshot: BootstrapSnapshot
+    provenance: SnapshotProvenance
+
+
+def _snapshot_provenance(pinned: Path | None, result: SnapshotResult) -> SnapshotProvenance:
+    if pinned is not None:
+        return SnapshotProvenance(source="pinned", captured_at=result.snapshot.fetched_at, path=pinned)
+    return SnapshotProvenance(
+        source="cache" if result.stale else "live", captured_at=result.snapshot.fetched_at
+    )
+
+
+def _fixtures_provenance(result: FixturesResult) -> SnapshotProvenance:
+    """`stale` is how `FixturesResult` says "this came off disk", for both the
+    live-fetch fallback and a pinned run, which has no live path at all."""
+    return SnapshotProvenance(
+        source="cache" if result.stale else "live", captured_at=result.fetched_at
+    )
+
+
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
 players_app = typer.Typer(help="Browse FPL players.")
 squad_app = typer.Typer(help="Create and validate local squad plans.")
@@ -120,7 +153,7 @@ app.add_typer(squad_app, name="squad")
 app.add_typer(plan_app, name="plan")
 
 
-def load_snapshot(pinned: Path | None = None) -> BootstrapSnapshot:
+def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
     service = snapshot_service(pinned)
     try:
         result = service.load()
@@ -139,11 +172,14 @@ def load_snapshot(pinned: Path | None = None) -> BootstrapSnapshot:
         # stderr, not stdout: `--json` output has to stay parseable.
         error_console.print(f"Pinned to {pinned} (captured {result.snapshot.fetched_at.isoformat()}).")
     if result.stale:
-        print(
-            f"[yellow]Using cached snapshot from {result.snapshot.fetched_at.isoformat()} "
-            f"— live fetch failed: {result.reason}[/yellow]"
+        # stderr, for the same reason as the pinned notice above: on stdout
+        # this line lands in front of `--json` output and makes it unparseable,
+        # in exactly the case a consumer most needs to read the provenance.
+        error_console.print(
+            f"Using cached snapshot from {result.snapshot.fetched_at.isoformat()} "
+            f"— live fetch failed: {result.reason}"
         )
-    return result.snapshot
+    return LoadedSnapshot(snapshot=result.snapshot, provenance=_snapshot_provenance(pinned, result))
 
 
 @app.command()
@@ -174,7 +210,7 @@ def list_players(
     snapshot_path: SnapshotOption = None,
 ) -> None:
     """List players from the latest available snapshot."""
-    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path))
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     positions = {item.singular_name_short.upper(): item.id for item in snapshot.element_types}
     clubs = {item.name.lower(): item.id for item in snapshot.teams}
     players = snapshot.elements
@@ -209,7 +245,7 @@ def create_squad(
         console.print(f"[red]{output} already exists. Use --force to overwrite.[/red]")
         raise typer.Exit(1)
 
-    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path))
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     builder = SquadBuilder(snapshot)
     try:
         slots = builder.run()
@@ -237,7 +273,7 @@ def create_squad(
 @squad_app.command("validate")
 def validate_squad(path: Path, snapshot_path: SnapshotOption = None) -> None:
     """Validate a JSON squad plan or transfer ledger against the current FPL rules."""
-    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path))
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     try:
         result = validate_squad_file(path, snapshot)
     except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -265,7 +301,7 @@ def _project_single_event(model: ProjectionModel, player_ids: list[int], event: 
 def simulate_plan(squad_path: Path, transfers_path: Path, snapshot_path: SnapshotOption = None) -> None:
     """Simulate transfers from a squad ledger against a transfers plan file."""
     pinned = resolve_snapshot_path(snapshot_path)
-    snapshot = load_snapshot(pinned)
+    snapshot = load_snapshot(pinned).snapshot
 
     try:
         ledger = Ledger.from_file(squad_path, snapshot)
@@ -540,7 +576,8 @@ def optimise_plan(
         raise typer.Exit(1)
 
     pinned = resolve_snapshot_path(snapshot_path)
-    snapshot = load_snapshot(pinned)
+    loaded = load_snapshot(pinned)
+    snapshot = loaded.snapshot
     now = datetime.now(UTC)
 
     try:
@@ -694,6 +731,13 @@ def optimise_plan(
             "horizon_clamped": horizon_clamped,
             "from_event": from_event,
             "unvalidated": True,
+            # FU-40: a figure taken from this payload names the capture it came
+            # from, so quoting it in a plan or a commit message does not depend
+            # on the cache still holding what it held at the time.
+            "provenance": {
+                "snapshot": loaded.provenance.as_json(),
+                "fixtures": _fixtures_provenance(fixtures_result).as_json(),
+            },
             "dominance_exclusions": len(result.dominance_exclusions),
             "scope_gaps": [
                 {"event": gap.event, "free_transfers": gap.free_transfers, "k_rules": gap.k_rules, "k_enum": gap.k_enum}
@@ -716,7 +760,10 @@ def optimise_plan(
             transfers_by_event = {node.event: list(node.transfers) for node in winner_chain}
             write_transfers_plan(output, transfers_by_event)
             payload["output"] = str(output)
-        print(json.dumps(payload, indent=2))
+        # Not `rich.print`: it word-wraps at the console width and folds an
+        # over-long token, so a payload carrying an absolute path — which
+        # `provenance` now always may — comes out as invalid JSON.
+        sys.stdout.write(json.dumps(payload, indent=2) + "\n")
         return
 
     console.print(
@@ -896,7 +943,7 @@ def evaluate_plan(
     flat points_per_game baseline against a finished gameweek's actual points.
     """
     pinned = resolve_snapshot_path(snapshot_path)
-    current_snapshot = load_snapshot(pinned)
+    current_snapshot = load_snapshot(pinned).snapshot
     gameweek = next((gw for gw in current_snapshot.events if gw.id == event), None)
     if gameweek is None:
         error_console.print(f"No gameweek {event} in the current snapshot.")

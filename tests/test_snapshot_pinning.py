@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -137,6 +139,11 @@ def _optimise(squad_path: Path, *, snapshot_path: Path | None, json_output: bool
         json_output=json_output,
         snapshot_path=snapshot_path,
     )
+
+
+def _mtime_iso(path: Path) -> str:
+    """What `SnapshotProvenance.captured_at` must be for a file read off disk."""
+    return datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
 
 
 def _fingerprint(path: Path) -> tuple[bytes, int]:
@@ -444,3 +451,181 @@ def test_the_flag_overrides_the_env_var(
     out = capsys.readouterr().out
     assert "FromFlag" in out
     assert "FromEnv" not in out
+
+
+# --- provenance: what makes a recorded figure citable -----------------------
+
+
+def _optimise_payload(
+    squad_path: Path, *, snapshot_path: Path | None, capsys: pytest.CaptureFixture[str]
+) -> dict[str, Any]:
+    _optimise(squad_path, snapshot_path=snapshot_path)
+    return json.loads(capsys.readouterr().out)
+
+
+def test_json_provenance_names_the_pinned_capture_and_its_mtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fpl_home: Path,
+    bootstrap_payload: dict[str, Any],
+) -> None:
+    """The capture's mtime, not the moment of the run.
+
+    A timestamp taken from the clock would be honest about when the figure was
+    produced and useless for finding what produced it — and would differ
+    between two runs of the same pinned command.
+    """
+    def refuse(self: object, path: str, **kwargs: object) -> object:
+        raise NetworkTouched(path)
+
+    monkeypatch.setattr("fpl_cli.transport.FplTransport.get_json", refuse)
+    capture = _write_capture(tmp_path / "capture.json", bootstrap_payload)
+    fixtures_cache = _write_fixtures_cache(fpl_home)
+    squad_path = _write_squad_ledger(tmp_path / "squad.json")
+
+    provenance = _optimise_payload(squad_path, snapshot_path=capture, capsys=capsys)["provenance"]
+
+    assert provenance["snapshot"]["source"] == "pinned"
+    assert provenance["snapshot"]["path"] == str(capture)
+    assert provenance["snapshot"]["captured_at"] == _mtime_iso(capture)
+    # A pinned run reads fixtures off disk too, and must not claim otherwise
+    # (snapshot-pinning.md §5).
+    assert provenance["fixtures"]["source"] == "cache"
+    assert provenance["fixtures"]["captured_at"] == _mtime_iso(fixtures_cache)
+
+
+def test_json_provenance_says_live_for_an_unpinned_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fpl_home: Path,
+    bootstrap_payload: dict[str, Any],
+) -> None:
+    """Unpinned, the same field reads `live` and carries no path.
+
+    Without this the pinned assertions above would hold equally of a field
+    hardcoded to "pinned".
+    """
+    live_bootstrap = _capture_payload(bootstrap_payload, star_name="Live")
+
+    def serve(self: object, path: str, **kwargs: object) -> object:
+        return [{"id": 1, "event": 2, "team_h": 1, "team_a": 2}] if "fixtures" in path else live_bootstrap
+
+    monkeypatch.setattr("fpl_cli.transport.FplTransport.get_json", serve)
+    squad_path = _write_squad_ledger(tmp_path / "squad.json")
+
+    provenance = _optimise_payload(squad_path, snapshot_path=None, capsys=capsys)["provenance"]
+
+    assert provenance["snapshot"]["source"] == "live"
+    assert "path" not in provenance["snapshot"]
+    assert provenance["fixtures"]["source"] == "live"
+
+
+def test_json_provenance_says_cache_when_the_live_fetch_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fpl_home: Path,
+    bootstrap_payload: dict[str, Any],
+) -> None:
+    """The stale-cache fallback is a third source, and is not `live`."""
+    def refuse(self: object, path: str, **kwargs: object) -> object:
+        raise snapshots.FplError("the API is down")
+
+    monkeypatch.setattr("fpl_cli.transport.FplTransport.get_json", refuse)
+    bootstrap_cache = fpl_home / "bootstrap-static.json"
+    bootstrap_cache.write_text(json.dumps(_capture_payload(bootstrap_payload, star_name="Cached")), encoding="utf-8")
+    fixtures_cache = _write_fixtures_cache(fpl_home)
+    squad_path = _write_squad_ledger(tmp_path / "squad.json")
+
+    provenance = _optimise_payload(squad_path, snapshot_path=None, capsys=capsys)["provenance"]
+
+    assert provenance["snapshot"]["source"] == "cache"
+    assert provenance["snapshot"]["captured_at"] == _mtime_iso(bootstrap_cache)
+    assert "path" not in provenance["snapshot"]
+    assert provenance["fixtures"]["source"] == "cache"
+    assert provenance["fixtures"]["captured_at"] == _mtime_iso(fixtures_cache)
+
+
+def test_provenance_distinguishes_two_captures_of_the_same_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fpl_home: Path,
+    bootstrap_payload: dict[str, Any],
+) -> None:
+    """The whole point, stated as a test: two figures from two captures are
+    told apart by the payload that carries them, not by which was quoted
+    first (FU-40)."""
+    def refuse(self: object, path: str, **kwargs: object) -> object:
+        raise NetworkTouched(path)
+
+    monkeypatch.setattr("fpl_cli.transport.FplTransport.get_json", refuse)
+    _write_fixtures_cache(fpl_home)
+    squad_path = _write_squad_ledger(tmp_path / "squad.json")
+    first = _write_capture(tmp_path / "before.json", bootstrap_payload, star_name="Before")
+    second = _write_capture(tmp_path / "after.json", bootstrap_payload, star_name="After")
+    os.utime(second, (1_800_000_000, 1_800_000_000))
+
+    before = _optimise_payload(squad_path, snapshot_path=first, capsys=capsys)
+    after = _optimise_payload(squad_path, snapshot_path=second, capsys=capsys)
+
+    assert before["recommendation"]["description"] == after["recommendation"]["description"].replace(
+        "After", "Before"
+    )
+    assert before["provenance"]["snapshot"] != after["provenance"]["snapshot"]
+    assert after["provenance"]["snapshot"]["captured_at"] == _mtime_iso(second)
+
+
+def test_json_output_survives_a_capture_path_longer_than_the_console(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fpl_home: Path,
+    bootstrap_payload: dict[str, Any],
+) -> None:
+    """Provenance puts an absolute path in the payload, and Rich's word wrap
+    folds an over-long token rather than letting the line run — which turns
+    `--json` into something no consumer can parse, in the one field that says
+    where the figure came from."""
+    def refuse(self: object, path: str, **kwargs: object) -> object:
+        raise NetworkTouched(path)
+
+    monkeypatch.setattr("fpl_cli.transport.FplTransport.get_json", refuse)
+    long_name = "gw2-pre-deadline-" + "x" * 120 + ".json"
+    capture = _write_capture(tmp_path / long_name, bootstrap_payload)
+    _write_fixtures_cache(fpl_home)
+    squad_path = _write_squad_ledger(tmp_path / "squad.json")
+
+    _optimise(squad_path, snapshot_path=capture)
+    out = capsys.readouterr().out
+
+    assert json.loads(out)["provenance"]["snapshot"]["path"] == str(capture)
+    assert str(capture) in out  # unbroken, not folded across two lines
+
+
+def test_a_stale_cache_warning_does_not_corrupt_json_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    fpl_home: Path,
+    bootstrap_payload: dict[str, Any],
+) -> None:
+    """The warning is worth printing and belongs on stderr: on stdout it lands
+    in front of the payload, in exactly the run whose provenance says
+    `cache`."""
+    def refuse(self: object, path: str, **kwargs: object) -> object:
+        raise snapshots.FplError("the API is down")
+
+    monkeypatch.setattr("fpl_cli.transport.FplTransport.get_json", refuse)
+    bootstrap_cache = fpl_home / "bootstrap-static.json"
+    bootstrap_cache.write_text(json.dumps(_capture_payload(bootstrap_payload, star_name="Cached")), encoding="utf-8")
+    _write_fixtures_cache(fpl_home)
+    squad_path = _write_squad_ledger(tmp_path / "squad.json")
+
+    _optimise(squad_path, snapshot_path=None)
+    captured = capsys.readouterr()
+
+    assert json.loads(captured.out)["provenance"]["snapshot"]["source"] == "cache"
+    assert "Using cached snapshot" in captured.err

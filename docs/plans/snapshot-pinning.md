@@ -73,6 +73,24 @@ than of the run, which is what lets two pinned runs produce identical `--json`.
 capture it came from, which is what makes a plan measurement citable — the
 missing half of the fix. Quoting a figure without it is what FU-40 forbids.
 
+`captured_at` is the snapshot's `fetched_at`: the file's mtime for a pinned
+capture and for a cache read, the moment of the fetch for a live one. Taking it
+from the clock instead would be honest about when a figure was produced and
+useless for finding what produced it — and would differ between two runs of the
+same pinned command.
+
+Two stdout defects had to go with it, because `--json` that cannot be parsed
+carries no provenance at all:
+
+- The stale-cache warning went to stdout via `rich.print`, so a stale run
+  printed a non-JSON line in front of the payload — in exactly the run whose
+  provenance says `cache`. It now goes to `error_console`, like the pinned-run
+  notice.
+- The payload itself went through `rich.print`, which word-wraps at the console
+  width and *folds* an over-long token. An absolute path — which `provenance`
+  now always may carry — came out split across two lines, i.e. invalid JSON. It
+  is written with `sys.stdout.write` instead.
+
 ## 5. What a pinned run still does not pin
 
 `[gap: the capture format is bootstrap-static only — it is what the FPL API
@@ -88,11 +106,6 @@ cache holds, bypassing `SnapshotService`'s `finished and data_checked` gate
 (Decision 6) — under pinning there is no live fetch to prefer, so the gate has
 nothing to choose between. A cache written before that gate existed would be
 served as if final.]`
-
-`[gap: `cli.load_snapshot`'s stale-cache warning goes to stdout via `rich.print`,
-so a stale unpinned `--json` run emits a line that is not JSON. Pre-existing,
-untouched here; the new pinned-run notice goes to `error_console` (stderr)
-instead, so it cannot corrupt `--json`.]`
 
 ## 6. Explicitly not changed
 

@@ -24,6 +24,32 @@ class SnapshotResult:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class SnapshotProvenance:
+    """Where the data behind a run's numbers actually came from.
+
+    Recorded in `--json` so a figure quoted in a plan or a commit message
+    carries the capture it was measured against, instead of "the cached
+    snapshot" — which names a file, not a version of it (FU-40).
+
+    `source` is `pinned`, `cache` or `live`. `path` is set only for `pinned`:
+    the cache's location is fixed and implied, whereas a capture's is the whole
+    point. `captured_at` is the snapshot's `fetched_at`, which for a pinned
+    capture and for a cache read is the file's mtime and for a live fetch is
+    the moment of the fetch.
+    """
+
+    source: str
+    captured_at: datetime
+    path: Path | None = None
+
+    def as_json(self) -> dict[str, str]:
+        payload = {"source": self.source, "captured_at": self.captured_at.isoformat()}
+        if self.path is not None:
+            payload["path"] = str(self.path)
+        return payload
+
+
 class PinnedSnapshotError(FplError):
     """A pinned run could not read an input it was told to use.
 
