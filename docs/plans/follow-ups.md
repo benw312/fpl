@@ -1658,25 +1658,48 @@ branch did not run.]`
 
 ---
 
-## FU-40 — A measurement quoted in a plan or a commit message must name the capture it came from
+## FU-40 — A measurement quoted in a plan or a commit message must name both captures it came from
 
 **Standing requirement, not deferred work.** `--snapshot` and the `provenance` block
 exist as of `task/snapshot-pinning`; what remains is the discipline of using them,
 which no test can enforce.
 
-**The rule.** Any figure quoted in `docs/plans/` or in a commit message must name the
-pinned snapshot it was measured against — the path, and the `captured_at` the run
-reported. "Measured against the cached snapshot" names a file, not a version of it,
-and `~/.fpl-cli/bootstrap-static.json` is rewritten by every successful live fetch,
-including the ones a verification run makes.
+**The rule.** Any figure quoted in `docs/plans/` or in a commit message must name
+**both** captures it was measured against: the pinned bootstrap-static capture, and the
+fixtures cache. Path and `captured_at` for each. "Measured against the cached snapshot"
+names a file, not a version of it, and both files are rewritten in ordinary use.
 
 ```bash
 fpl plan optimise squad.json --snapshot ~/fpl-pinned/gw2-pre-deadline.json --json
 ```
 
-The payload's `provenance.snapshot` is the citation; copy it next to the number.
-`source` reading `cache` or `live` is the signal that a figure is **not** citable and
-the measurement should be re-taken pinned.
+The payload's whole `provenance` block is the citation — both lines of it — and copying
+only `provenance.snapshot` is the failure this entry exists to prevent:
+
+```
+snapshot ~/fpl-pinned/gw2-pre-deadline.json  (captured 2026-08-28T07:26:38Z)
+fixtures ~/.fpl-cli/fixtures.json            (captured 2026-08-28T00:32:59Z)
+```
+
+`provenance.snapshot.source` reading `cache` or `live` is the signal that a figure is
+**not** citable and the measurement should be re-taken pinned.
+
+**Why the fixtures line is not optional.** `--snapshot` pins bootstrap-static and
+nothing else. Fixtures come from `~/.fpl-cli/fixtures.json`, which
+`SnapshotService.load_fixtures` rewrites on every successful live fetch
+(`api/snapshots.py:155`) and `sync` rewrites outright (`:161`) — so any non-pinned
+`plan simulate`, `plan optimise` or `plan evaluate` moves it, exactly as unpinned runs
+used to move the bootstrap cache. **A figure measured against a pinned capture can
+therefore still drift, and two pinned runs against the same capture on different days
+need not agree.** The pin makes that drift visible rather than impossible:
+`provenance.fixtures.captured_at` is the fixtures cache's mtime, so a re-measurement
+that disagrees can be attributed instead of argued about.
+
+The exposure is not confined to blanks and doubles. `_build_schedule`
+(`domain/projections.py:218`) turns the fixtures list into opponent *and venue* per team
+per event, and `ComponentProjection` feeds both into `rates(team, opponent, home)` for
+every projected cell — so a changed fixtures file moves every component of every
+projection, not only the fixture counts.
 
 **Why, in this file's own history.** FU-39's reproducibility note records the failure:
 §7.1g and three of FU-28's commit messages cite a 2026-08-27T13:33Z capture with 614
@@ -1687,10 +1710,15 @@ capture no longer existed to check. Its `[gap: nothing pins a capture for measur
 purposes]` is what `--snapshot` closes; this entry is the other half, which tooling
 cannot close.
 
-**What is still not pinned, and must be stated when it matters.** The capture format is
-bootstrap-static only. A pinned run reads fixtures and event-live from their ordinary
-caches, read-only, and `provenance.fixtures` reports that as `cache` with the cache's
-mtime. A figure sensitive to blanks or doubles therefore depends on a file `--snapshot`
-does not pin. `[gap: pinning those wants either a bundle capture format or a second
+**What is still not pinned.** The capture format is bootstrap-static only. A pinned run
+reads fixtures and event-live from their ordinary caches, read-only, and `provenance`
+reports them as `cache` with each file's mtime — which is why the rule above requires
+the fixtures line rather than treating it as a detail. `plan evaluate` inherits the same
+exposure through `~/.fpl-cli/events/{gw}-live.json`; it has no `--json` output, so a
+figure taken from it has to carry that path and mtime by hand.
+
+`[gap: pinning fixtures and event-live wants either a bundle capture format or a second
 flag; snapshot-pinning.md §5 records the choice as open, and neither was in scope for
-that branch.]`
+`task/snapshot-pinning`. Until one lands, this entry's rule is the only thing standing
+between a fixtures rewrite and a silently invalidated figure — and unlike the
+bootstrap-static half, no tooling enforces it.]`
