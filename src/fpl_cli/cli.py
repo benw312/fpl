@@ -15,6 +15,7 @@ from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.api.snapshots import (
     DEFAULT_ARCHIVE_DIR,
     FixturesResult,
+    LiveEventResult,
     PinnedSnapshotError,
     PinnedSnapshotService,
     SnapshotProvenance,
@@ -1017,6 +1018,41 @@ def optimise_plan(
 plan_app.command("optimize", hidden=True)(optimise_plan)
 
 
+def _report_live_provenance(result: LiveEventResult) -> None:
+    """Say whether the actuals being scored against were final.
+
+    FU-40's rule applied to the third input: a figure quoted from a run should
+    carry what it was measured against. `plan evaluate` has no `--json` to
+    report provenance through (FU-41 records the gap, FU-43 asks for the flag),
+    so this goes on the console — where it is arguably more use, since the
+    number it qualifies is printed there too.
+
+    The settled line is deliberately printed rather than left implicit. "No
+    warning appeared" is indistinguishable from "the check was skipped", and
+    the whole point of recording finality is that the reader can tell.
+    """
+    provenance = result.provenance
+    event = result.event
+    if provenance.settled:
+        console.print(
+            f"[dim]GW{event} actuals: final (finished, data checked), from "
+            f"{provenance.source}.[/dim]"
+        )
+        return
+    detail = (
+        f"finished={provenance.finished}, data_checked={provenance.data_checked}"
+        if provenance.finished is not None
+        else provenance.detail or "finality not recorded"
+    )
+    console.print(
+        f"[yellow]! GW{event} actuals are NOT final ({detail}).[/yellow]\n"
+        f"[yellow]  FPL awards bonus points and applies stat corrections after the final "
+        f"whistle, so these scores will still change. This is an indication, not a "
+        f"backtest — do not quote it as one.[/yellow]",
+        soft_wrap=True,
+    )
+
+
 @plan_app.command("evaluate")
 def evaluate_plan(
     event: int = typer.Option(..., "--event", help="Gameweek to evaluate against actual results."),
@@ -1061,6 +1097,8 @@ def evaluate_plan(
             f"[yellow]No archived snapshot predates GW{event}'s deadline — using the current "
             "snapshot. This result is optimistic, not a backtest.[/yellow]"
         )
+
+    _report_live_provenance(live_result)
 
     fixtures = fixtures_result.fixtures
     actuals = actuals_from_live_event(live_result.live)

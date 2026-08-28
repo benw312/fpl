@@ -77,6 +77,31 @@ does not match its recorded digest is an error naming it — there is no fallbac
 to cache or live. See [docs/plans/snapshot-pinning.md](docs/plans/snapshot-pinning.md),
 including §5 on what a pinned run still does not pin.
 
+### Final and provisional actuals
+
+`fpl plan evaluate` scores projections against a gameweek's actual points. FPL
+awards bonus points and applies stat corrections *after* the final whistle, so a
+payload fetched at full time is materially wrong, not merely early — and wrong
+in a biased direction, since bonus lands on the highest scorers.
+
+The event-live cache therefore records the gameweek's `finished` and
+`data_checked` as they stood when it was fetched, and a payload that does not
+record itself as settled is never served as final:
+
+- An **unpinned** run refetches it, and rewrites the file in the recording
+  format. Caches written before this existed heal on first use.
+- A **pinned** run cannot fetch, so it refuses and names the remedy — run the
+  same command once without `--snapshot`, then pin again.
+- An **in-flight** gameweek is still evaluated against live data, because that
+  is the freshest data there is, but the run says loudly that the figure is an
+  indication and not a backtest.
+
+`plan evaluate` prints the settled-ness of its actuals above the tables in both
+cases, so a figure taken from it can be quoted with what it was measured
+against. A pinned run is *not* gated on the pinned capture's view of the
+gameweek: a capture worth pinning is a pre-deadline one, and the actuals are
+meant to come from after that deadline.
+
 ### Keeping a test sync out of the archive
 
 ```bash
