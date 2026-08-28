@@ -93,13 +93,25 @@ carries no provenance at all:
 
 ## 5. What a pinned run still does not pin
 
-`[gap: the capture format is bootstrap-static only — it is what the FPL API
-serves at that URL and what `~/fpl-pinned/gw2-pre-deadline.json` contains.
-Fixtures and event-live have no pinned equivalent, so a pinned run reads them
-from their ordinary caches, read-only. That honours both stated properties (no
-fetch, no cache write) but means a pinned run is reproducible only for as long
-as those caches are also unchanged. Pinning them wants either a bundle format
-or a second flag; neither is in this design. Filed as part of FU-40.]`
+**Fixtures: closed by FU-41.** The bundle format this section asked for is a
+capture *directory* — `fpl sync` writes `archive/YYYY-MM-DD/` holding
+`bootstrap-static.json`, `fixtures.json` and a `manifest.json` recording the
+fetch time, the current gameweek and its deadline, and a sha256 per file.
+`--snapshot` takes either shape: a directory pins both files, each verified
+against the manifest; a bare bootstrap-static file behaves exactly as described
+below, because the four archives written before FU-41 are bare files and one of
+them is the only pre-deadline capture for GW2.
+
+A bare-file pin therefore still reads fixtures from `~/.fpl-cli/fixtures.json`,
+read-only, and `provenance.fixtures.source` reports `cache` so a figure taken
+from one is visibly the weaker citation. That is a property of the old captures,
+not of the design.
+
+`[gap: event-live is still unpinned. `plan evaluate` reads
+`~/.fpl-cli/events/{gw}-live.json` through the cache under a pinned run, the
+manifest does not cover it, and `plan evaluate` has no `--json` to report its
+provenance through. A third file in the capture would close it; nothing in
+FU-41 needed it, so nothing in FU-41 did it. Recorded in FU-41.]`
 
 `[gap: `PinnedSnapshotService.load_event_live` serves whatever the event-live
 cache holds, bypassing `SnapshotService`'s `finished and data_checked` gate

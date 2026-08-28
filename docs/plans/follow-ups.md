@@ -1722,3 +1722,78 @@ flag; snapshot-pinning.md §5 records the choice as open, and neither was in sco
 `task/snapshot-pinning`. Until one lands, this entry's rule is the only thing standing
 between a fixtures rewrite and a silently invalidated figure — and unlike the
 bootstrap-static half, no tooling enforces it.]`
+
+---
+
+## FU-41 — A capture is a directory, not a file
+
+**Status: landed** — `task/fu-41-capture-directories`. `fpl sync` writes
+`~/.fpl-cli/archive/YYYY-MM-DD/` holding `bootstrap-static.json`, `fixtures.json` and
+`manifest.json`; `--snapshot` accepts that directory or a bare bootstrap-static file.
+
+**Deferred from:** [snapshot-pinning.md](snapshot-pinning.md) §5, which recorded the
+gap and proposed "either a bundle format or a second flag". A directory is the bundle,
+and needs no second flag.
+
+**Why this was urgent rather than tidy.** FU-40 established that `_build_schedule`
+(`domain/projections.py:218`) turns the fixtures list into opponent *and venue* per team
+per event, and that `ComponentProjection` feeds both into `rates(team, opponent, home)`
+for **every projected cell**. `--snapshot` pinned bootstrap-static alone, and
+`~/.fpl-cli/fixtures.json` is rewritten by every successful live fetch — so a
+`plan evaluate` run for GW2 against a rewritten fixtures file **is not measuring what it
+reports**, and says nothing to indicate it. That is not a reproducibility inconvenience;
+it is a wrong number presented as a backtest. Pinning bootstrap-static and leaving
+fixtures loose closed the half of the hole that was easier to see.
+
+**What the manifest records, and why the deadline field is the point of it.**
+
+```json
+{
+  "version": 1,
+  "captured_at": "2026-08-28T09:01:35.768027+00:00",
+  "current_event": {"id": 1, "deadline_time": "2026-08-21T17:30:00+00:00", "deadline_passed": true},
+  "files": {"bootstrap-static.json": {"sha256": "..."}, "fixtures.json": {"sha256": "..."}}
+}
+```
+
+`fpl-sync.timer` is `OnCalendar=daily` with `Persistent=true` and
+`RandomizedDelaySec=1h`, so a missed firing runs on catch-up rather than being skipped.
+The four pre-FU-41 archives show what that does to a filename: `bootstrap-2026-08-25.json`
+was written at **15:12** and `bootstrap-2026-08-26.json` at **22:32**, against 00:30 and
+00:32 for the other two. **A capture's name says nothing about whether it precedes the
+deadline it appears to**, and a leak-free evaluation depends on exactly that. It is now
+recorded at capture time, from the fetch, so a backtest can check rather than assume.
+
+`captured_at` is the fetch time rather than the clock at write time, and rather than a
+file mtime — `cp -r` resets mtimes, and mtime is what `select_archived_snapshot` had to
+date archives by because it was all they recorded. Capture directories are now dated by
+their manifest; the four bare files are still dated by mtime, because that remains all
+they have.
+
+**The sha256s make the capture falsifiable rather than merely labelled.** A file that
+does not match its recorded digest is a hard error naming the file, not a warning: a
+capture exists to be trusted, and a measurement taken from a modified one is not
+reproducible whatever the manifest claims. Verification happens per file on read, so the
+error names the file the run actually depended on and a command that never reads
+fixtures is not failed by a fixtures file it never touches.
+
+**What is still not pinned.** `[gap: event-live. `plan evaluate` reads
+`~/.fpl-cli/events/{gw}-live.json` through the cache even under a pinned run; the
+manifest does not cover it and `plan evaluate` has no `--json` through which to report
+its provenance. A third file in the capture and an `--json` on `plan evaluate` would
+close it. Neither was needed for `--snapshot`, so neither was built — but note that the
+argument above, that an evaluation against loose inputs is a wrong number rather than an
+irreproducible one, applies to event-live exactly as it applied to fixtures.]`
+
+`[gap: `current_event` records the gameweek the API marks `is_current`, whose deadline
+has almost always passed — that is what makes it current. It is the right field for the
+leak check `select_archived_snapshot` performs, but it is not the field that tells you a
+capture named `gw2-pre-deadline` precedes GW2's deadline: for that capture `is_current`
+is GW1. A reader wanting the latter derives it from `events` in the capture's own
+bootstrap-static.json, which is present. Recording `next_event` too would make it
+direct; it was not in the agreed design.]`
+
+`[gap: `plan evaluate` still builds its projection snapshot with
+`fetched_at=` the archived file's mtime (`cli.py`), not the manifest's `captured_at`,
+so a copied capture evaluates under the wrong date even though selection now uses the
+manifest. One line, but in a command this branch otherwise did not touch.]`
