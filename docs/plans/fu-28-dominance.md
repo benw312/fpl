@@ -623,10 +623,28 @@ Predicted against measured, on the live cached snapshot at GW2:
 |---|---:|---:|
 | pool | 373 | **374** |
 | exclusions | 241 | **240** |
-| runtime, horizon 5 / beam 4 | 90.4 s | **90.8 s** |
+| runtime, horizon 5 / beam 4 | 90.4 s | ~~**90.8 s**~~ |
 | `projected_cells` | 511,454,785 | **513,191,190** |
 | peak RSS | 73.2 MB | **73.7 MB** |
 | best score | 70.066 | **70.066** |
+
+**The runtime figure is superseded (FU-41).** ~~90.8 s~~ is not a baseline anything can
+be compared against, for three reasons at once: it was measured by driving
+`domain.optimizer.optimise()` directly rather than through the CLI; under
+`--max-hit 4 --beam 4 --first-moves 50` rather than the CLI's defaults; and against a
+2026-08-27T13:33Z capture with **614** players that no longer exists — `SnapshotService`
+overwrote it, and FU-39's reproducibility note records its loss. Every other figure in
+the row is reproducible from `projected_cells` and stands; only the seconds do not.
+
+**Replacement baseline:** **93.05 s** (median of 5; min 92.91, max 93.37, spread 0.5%),
+`fpl plan optimise squad.json` at CLI defaults, pinned to
+`~/fpl-pinned/gw2-pre-deadline.json` (616 players, captured
+2026-08-28T07:26:38.797492+00:00), 3 GB `RLIMIT_AS`, 120 s cap, all five runs
+byte-identical. The flag differences were checked rather than assumed: `--robustness
+off` measured 94.01 s and `--robustness off --max-hit 4` 93.21 s, so neither accounts
+for the ~2 s gap — at GW2 one free transfer accrues to two, and `k_max` is 2 either
+way. A directory capture of the same inputs (FU-41) reproduces it exactly: net
+96.02285, 238 exclusions, three runs byte-identical at 93.20-93.91 s.
 
 The single-player differences are variant (c) and nothing else, exactly as §8 predicts.
 `D ⊆ B` still holds (374 ⊆ 408).

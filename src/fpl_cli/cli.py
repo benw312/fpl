@@ -22,8 +22,10 @@ from fpl_cli.api.snapshots import (
     SnapshotService,
 )
 from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
+from fpl_cli.storage import capture
 from fpl_cli.domain.evaluation import (
     actuals_from_live_event,
+    archived_capture_time,
     evaluate_model,
     flat_points_per_game_projections,
     select_archived_snapshot,
@@ -121,27 +123,53 @@ class LoadedSnapshot:
 
     The provenance is carried alongside rather than derived at the point of
     use, because by then the distinction is gone: a cached snapshot and a live
-    one are the same object, and only the load knew which it was.
+    one are the same object, and only the load knew which it was. `capture` is
+    the manifest block for a directory pin and `None` for every other run — the
+    absence is reported, not omitted, so a consumer can tell "this run had no
+    manifest" from "this consumer forgot to look".
     """
 
     snapshot: BootstrapSnapshot
     provenance: SnapshotProvenance
+    capture: dict | None = None
 
 
-def _snapshot_provenance(pinned: Path | None, result: SnapshotResult) -> SnapshotProvenance:
+def _snapshot_provenance(
+    pinned: Path | None, result: SnapshotResult, *, manifest: dict | None
+) -> SnapshotProvenance:
+    """`path` names the file the snapshot was read from, not the capture that
+    contains it — `provenance.capture.path` already names that, and FU-40's
+    rule is satisfied by a path a reader can hash, per file, as `fixtures`
+    already reports."""
     if pinned is not None:
-        return SnapshotProvenance(source="pinned", captured_at=result.snapshot.fetched_at, path=pinned)
+        path = pinned / capture.BOOTSTRAP_FILENAME if manifest is not None else pinned
+        return SnapshotProvenance(source="pinned", captured_at=result.snapshot.fetched_at, path=path)
     return SnapshotProvenance(
         source="cache" if result.stale else "live", captured_at=result.snapshot.fetched_at
     )
 
 
 def _fixtures_provenance(result: FixturesResult) -> SnapshotProvenance:
-    """`stale` is how `FixturesResult` says "this came off disk", for both the
-    live-fetch fallback and a pinned run, which has no live path at all."""
-    return SnapshotProvenance(
-        source="cache" if result.stale else "live", captured_at=result.fetched_at
-    )
+    """The result says where it came from; this only reshapes it.
+
+    It used to infer the source from `stale`, which cannot express a pinned
+    capture's fixtures — off disk, but neither stale nor cache. The path is
+    reported too: FU-40's rule requires a figure to name the fixtures capture,
+    and until FU-41 the payload did not supply it.
+    """
+    return SnapshotProvenance(source=result.source, captured_at=result.fetched_at, path=result.path)
+
+
+def _capture_block(pinned: Path | None, manifest: dict | None) -> dict | None:
+    """The manifest's own record: when the capture was fetched, and which
+    gameweek was live at the time (FU-41)."""
+    if manifest is None:
+        return None
+    return {
+        "path": str(pinned),
+        "captured_at": manifest.get("captured_at"),
+        "current_event": manifest.get("current_event"),
+    }
 
 
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
@@ -157,6 +185,7 @@ def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
     service = snapshot_service(pinned)
     try:
         result = service.load()
+        manifest = service.manifest() if isinstance(service, PinnedSnapshotService) else None
     except PinnedSnapshotError as exc:
         # Named separately, and first: the generic message below would say the
         # cache was unavailable, when the whole point is that a pinned run
@@ -170,7 +199,10 @@ def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
         service.close()
     if pinned is not None:
         # stderr, not stdout: `--json` output has to stay parseable.
-        error_console.print(f"Pinned to {pinned} (captured {result.snapshot.fetched_at.isoformat()}).")
+        shape = "capture" if manifest is not None else "snapshot file"
+        error_console.print(
+            f"Pinned to {shape} {pinned} (captured {result.snapshot.fetched_at.isoformat()})."
+        )
     if result.stale:
         # stderr, for the same reason as the pinned notice above: on stdout
         # this line lands in front of `--json` output and makes it unparseable,
@@ -179,7 +211,11 @@ def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
             f"Using cached snapshot from {result.snapshot.fetched_at.isoformat()} "
             f"— live fetch failed: {result.reason}"
         )
-    return LoadedSnapshot(snapshot=result.snapshot, provenance=_snapshot_provenance(pinned, result))
+    return LoadedSnapshot(
+        snapshot=result.snapshot,
+        provenance=_snapshot_provenance(pinned, result, manifest=manifest),
+        capture=_capture_block(pinned, manifest),
+    )
 
 
 @app.command()
@@ -189,7 +225,7 @@ def sync() -> None:
     try:
         snapshot = service.refresh()
         fixtures = service.refresh_fixtures()
-        archive_path = service.archive(snapshot)
+        archived = service.archive(snapshot, fixtures)
     except FplError as exc:
         error_console.print(str(exc))
         raise typer.Exit(1) from exc
@@ -197,7 +233,22 @@ def sync() -> None:
         service.close()
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
     console.print(f"[green]Synced {len(fixtures)} fixtures.[/green]")
-    console.print(f"[green]Archived to {archive_path}.[/green]")
+    console.print(f"[green]Archived to {archived.path}/ as {archived.role}.[/green]")
+    if archived.quarantined is not None:
+        assert archived.problem is not None
+        if archived.problem.kind == capture.PROBLEM_UNRECOGNISED_VERSION:
+            headline = (
+                "was written by a newer build of this tool, not corrupted. Nothing has been "
+                "deleted; check whether you are running an old checkout before touching it."
+            )
+        else:
+            headline = "does not verify against its own manifest. Nothing has been deleted."
+        console.print(
+            f"[yellow]! The capture holding that slot {headline}[/yellow]\n"
+            f"[yellow]  moved aside: {archived.quarantined}[/yellow]\n"
+            f"[yellow]  reason: {archived.problem.detail}[/yellow]",
+            soft_wrap=True,
+        )
 
 
 @players_app.command("list")
@@ -737,6 +788,7 @@ def optimise_plan(
             "provenance": {
                 "snapshot": loaded.provenance.as_json(),
                 "fixtures": _fixtures_provenance(fixtures_result).as_json(),
+                "capture": loaded.capture,
             },
             "dominance_exclusions": len(result.dominance_exclusions),
             "scope_gaps": [
@@ -966,8 +1018,11 @@ def evaluate_plan(
     )
     if archive_path is not None:
         payload = json.loads(archive_path.read_text(encoding="utf-8"))
+        # The capture's manifest, not the file's mtime (FU-41): an ad-hoc
+        # capture is written hours after the data was fetched, and copying an
+        # archive rewrites every mtime in it without moving the fetch.
         projection_snapshot = BootstrapSnapshot.from_payload(
-            payload, fetched_at=datetime.fromtimestamp(archive_path.stat().st_mtime, UTC)
+            payload, fetched_at=archived_capture_time(archive_path)
         )
     else:
         projection_snapshot = current_snapshot

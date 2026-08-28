@@ -7,7 +7,7 @@ import typer
 
 from fpl_cli import cli
 from fpl_cli.api.models import BootstrapSnapshot, Fixture
-from fpl_cli.api.snapshots import SnapshotResult
+from fpl_cli.api.snapshots import ArchivedCapture, SnapshotResult
 from fpl_cli.transport import RequestTimeout
 
 
@@ -49,10 +49,10 @@ class StubService:
             raise self._refresh_fixtures_error
         return self._refresh_fixtures_result
 
-    def archive(self, snapshot: BootstrapSnapshot) -> Path:
+    def archive(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture]) -> ArchivedCapture:
         if self._archive_error is not None:
             raise self._archive_error
-        return Path("/tmp/archive/bootstrap-2026-01-01.json")
+        return ArchivedCapture(path=Path("/tmp/archive/2026-01-01"), role="canonical")
 
     def close(self) -> None:
         self.closed = True

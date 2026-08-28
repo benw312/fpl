@@ -1722,3 +1722,156 @@ flag; snapshot-pinning.md §5 records the choice as open, and neither was in sco
 `task/snapshot-pinning`. Until one lands, this entry's rule is the only thing standing
 between a fixtures rewrite and a silently invalidated figure — and unlike the
 bootstrap-static half, no tooling enforces it.]`
+
+---
+
+## FU-41 — A capture is a directory, not a file
+
+**Status: landed** — `task/fu-41-capture-directories`. `fpl sync` writes
+`~/.fpl-cli/archive/YYYY-MM-DD/` holding `bootstrap-static.json`, `fixtures.json` and
+`manifest.json`; `--snapshot` accepts that directory or a bare bootstrap-static file.
+Manifest version 2 adds `role` and `next_event`.
+
+**Deferred from:** [snapshot-pinning.md](snapshot-pinning.md) §5, which recorded the
+gap and proposed "either a bundle format or a second flag". A directory is the bundle,
+and needs no second flag.
+
+**Why this was urgent rather than tidy.** FU-40 established that `_build_schedule`
+(`domain/projections.py:218`) turns the fixtures list into opponent *and venue* per team
+per event, and that `ComponentProjection` feeds both into `rates(team, opponent, home)`
+for **every projected cell**. `--snapshot` pinned bootstrap-static alone, and
+`~/.fpl-cli/fixtures.json` is rewritten by every successful live fetch — so a
+`plan evaluate` run for GW2 against a rewritten fixtures file **is not measuring what it
+reports**, and says nothing to indicate it. That is not a reproducibility inconvenience;
+it is a wrong number presented as a backtest. Pinning bootstrap-static and leaving
+fixtures loose closed the half of the hole that was easier to see.
+
+**What the manifest records, and why the deadline field is the point of it.**
+
+```json
+{
+  "version": 1,
+  "captured_at": "2026-08-28T09:01:35.768027+00:00",
+  "current_event": {"id": 1, "deadline_time": "2026-08-21T17:30:00+00:00", "deadline_passed": true},
+  "files": {"bootstrap-static.json": {"sha256": "..."}, "fixtures.json": {"sha256": "..."}}
+}
+```
+
+`fpl-sync.timer` is `Persistent=true`, so a missed firing runs on catch-up rather
+than being skipped. The four pre-FU-41 archives show what that does to a filename:
+`bootstrap-2026-08-25.json` was written at **15:12** and `bootstrap-2026-08-26.json` at
+**22:32**, against 00:30 and 00:32 for the other two. **A capture's name says nothing
+about whether it precedes the deadline it appears to**, and a leak-free evaluation
+depends on exactly that. It is now recorded at capture time, from the fetch, so a
+backtest can check rather than assume.
+
+Both gameweeks are recorded, because one field cannot answer both questions.
+`current_event` is the `is_current` gameweek, whose deadline has almost always passed —
+that is what makes it current — and it is the right field for the leak check
+`select_archived_snapshot` performs. `next_event` is the gameweek a capture is a
+*candidate* for: `gw2-pre-deadline.json` is named for GW2 while its `is_current` is GW1,
+whose deadline passed a week earlier. Each is phrased as the fact its own consumer
+needs — `deadline_passed` for the leak check, `captured_before_deadline` for the
+candidate check — so neither question requires opening `bootstrap-static.json`.
+
+**Roles: one canonical slot per UK date.** The first valid capture of a day claims the
+slot; anything later that day is written ad-hoc under a path keyed by the instant, and
+`role` records which it is. Nothing inspects timer state, which is what makes the
+offline case come out right by itself: a sync that finds the slot empty claims it,
+whether that is the timer at 01:00 or someone at their desk at noon.
+
+**A capture claims a slot only when the slot is empty, and an existing capture is never
+deleted or overwritten for any reason.** The first cut of this got it wrong in a way
+worth recording, because it was nearly invisible: `is_valid_capture` treated an
+unrecognised manifest version as invalid, and the refuse-to-replace guard protected only
+*valid* captures — so an older build reading a newer capture would conclude it was
+rubbish and clear it. That is not a two-concurrent-builds problem. `git bisect` reaches
+it inside this branch's own history: at `256e7af` the manifest version was 1, an
+unrecognised version raised, and `write_capture` did `mkdir(exist_ok=True)` and wrote
+straight into the slot — it did not even need the delete. A day's snapshot cannot be
+fetched again, and "this build cannot read it" is indistinguishable from inside from
+"this is rubbish".
+
+So occupancy blocks the claim, not validity. Anything unusable found in a slot is
+*renamed aside* to `YYYY-MM-DD.unreadable-<timestamp>/`, with every byte preserved, and
+the incoming capture files ad-hoc anyway — promoting yourself into a slot you have just
+vacated is how nobody ever looks at what was in it. `sync` names both paths and
+distinguishes the two cases, because they call for opposite reactions: an unrecognised
+manifest version probably means a *newer* build wrote it and the operator should check
+what they are running, whereas a capture that fails its own digests is rubbish. Both are
+kept either way.
+
+Captures are staged in a sibling `.incoming-*` directory and `os.replace`d into place, so
+a crashed write leaves staging rubbish rather than a partial capture squatting on a slot.
+Quarantine and ad-hoc paths both key on a timestamp truncated to the second and both
+de-duplicate with a `-2` suffix — a collision at either would destroy the thing being
+preserved, or crash the sync that was trying to preserve it.
+
+Legacy bare files compete on equal terms and are neither migrated nor deleted, which is
+also why a manifest with **no** `role` reads as ad-hoc: a version 1 capture was never
+asked to claim a slot and must not claim one retrospectively. Confirmed on the real
+archive: `bootstrap-2026-08-28.json` (00:32) holds today, the v1 directory written at
+09:01 and the ad-hoc capture at 09:19 both read as ad-hoc, and
+`select_archived_snapshot` picks the bare file.
+
+`plan evaluate`'s scan considers canonical captures only. Ad-hoc captures stay on disk
+and readable through `--snapshot`; they are simply not something automatic selection
+should silently prefer over the day's canonical one.
+
+**Slots are keyed by UK date, not UTC.** The first implementation used
+`captured_at.date()`, which is the UTC date. A 23:30 UTC capture in summer is 00:30 the
+next day in London, so it was filed under the slot the *following* night's capture is
+entitled to. `captured_at` itself stays UTC.
+
+**The timer fires at 01:00 UK, not 00:00 UTC.** FPL moved the daily price change to
+00:00 UK for 2026/27, from 01:30 GMT / 02:30 BST. `OnCalendar=daily` with
+`RandomizedDelaySec=1h` on a UTC host means 00:00–01:00 UTC: safely 01:00–02:00 UK under
+BST, but 00:00–01:00 UK once the clocks go back on 2026-10-25 — straddling the
+price-change boundary and silently mixing pre- and post-change captures in the price
+history. Now `OnCalendar=*-*-* 01:00:00 Europe/London` with `RandomizedDelaySec=5m`,
+which tracks the change instead of drifting across it: `systemd-analyze` confirms
+00:00 UTC while BST is in force and 01:00 UTC from 2026-10-26. Timezone suffixes in
+calendar specs need systemd ≥ 250; this host runs 255.
+
+`captured_at` is the fetch time rather than the clock at write time, and rather than a
+file mtime — `cp -r` resets mtimes, and mtime is what `select_archived_snapshot` had to
+date archives by because it was all they recorded. Capture directories are now dated by
+their manifest; the four bare files are still dated by mtime, because that remains all
+they have.
+
+**The sha256s make the capture falsifiable rather than merely labelled.** A file that
+does not match its recorded digest is a hard error naming the file, not a warning: a
+capture exists to be trusted, and a measurement taken from a modified one is not
+reproducible whatever the manifest claims. Verification happens per file on read, so the
+error names the file the run actually depended on and a command that never reads
+fixtures is not failed by a fixtures file it never touches.
+
+**What is still not pinned.** `[gap: event-live. `plan evaluate` reads
+`~/.fpl-cli/events/{gw}-live.json` through the cache even under a pinned run; the
+manifest does not cover it and `plan evaluate` has no `--json` through which to report
+its provenance. A third file in the capture and an `--json` on `plan evaluate` would
+close it. Neither was needed for `--snapshot`, so neither was built — but note that the
+argument above, that an evaluation against loose inputs is a wrong number rather than an
+irreproducible one, applies to event-live exactly as it applied to fixtures.]`
+
+`[gap: `fpl-sync.service` and `fpl-sync.timer` live in `~/.config/systemd/user/` and
+are not in version control, so the reasoning above is the only record of why the
+calendar spec is what it is. A `deploy/` directory holding both units would make the
+change reviewable and reproducible; this branch documented it instead, which is weaker.]`
+
+`[gap: an ad-hoc capture is never promoted. If a day's canonical capture is later found
+to be corrupt, the ad-hoc captures from the same day are on disk and pinnable but will
+not be selected automatically, and nothing offers to repair the slot. Deliberate — a
+repair path that rewrites history silently is worse than one that makes you look.]`
+
+`[gap: quarantined captures accumulate. Nothing prunes `*.unreadable-*` and nothing
+offers to restore one to its slot once the operator has decided it is fine — the restore
+is a `mv`, deliberately, because a tool that puts captures back is a tool that can put
+the wrong one back.]`
+
+**Three gaps recorded here are now closed.** The third was the destructive one: `next_event` records the deadline a capture is
+a candidate for, and `plan evaluate` dates its projection snapshot from the manifest
+rather than the archived file's mtime — the case ad-hoc and copied captures make
+reachable rather than theoretical. And an unreadable capture is now moved aside intact
+instead of being cleared, which is the difference between an operator finding a
+confusing directory and an operator finding nothing at all.
