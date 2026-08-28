@@ -14,16 +14,18 @@ Developed and run on Linux.
 All paths under `src/fpl_cli/`:
 `api/` — official.py, models.py, snapshots.py
 `domain/` — rules.py, squad.py, transfers.py, projections.py, strength.py,
-evaluation.py
+evaluation.py, optimizer.py
 `storage/` — cache.py, capture.py
-Top level — cli.py, transport.py, builder.py, presentation.py (a flat module;
-the README Agent Plan specifies a `presentation/` package — unresolved, see
-FU-18)
+Top level — cli.py, transport.py, builder.py, presentation.py (one file by
+decision, not by drift — see FU-18, which sets 600 lines as the threshold to
+split it into a package)
 
-Not yet written: domain/optimizer.py.
+This block is checked against the tree by
+`tests/test_claude_md_structure.py`: add a module here in the same commit that
+adds the file, or the suite fails naming it (FU-19).
 See `docs/plans/` for written plans and `docs/plans/follow-ups.md` for
-filed follow-ups. The repo is the source of truth — check before assuming
-a module is missing.
+filed follow-ups. The repo is still the source of truth — this block is now
+checked, the prose around it is not.
 
 
 ## Rules

@@ -28,6 +28,9 @@ console = Console()
 error_console = Console(stderr=True, markup=False, highlight=False, style="red", soft_wrap=True)
 
 
+# --- fpl players list -------------------------------------------------------
+
+
 def player_table(players: list[Player], snapshot: BootstrapSnapshot) -> Table:
     table = Table(title=f"FPL players | {snapshot.season}")
     table.add_column("ID", justify="right")
@@ -48,6 +51,9 @@ def player_table(players: list[Player], snapshot: BootstrapSnapshot) -> Table:
             f"£{player.price_millions:.1f}m", str(player.total_points), player.status,
         )
     return table
+
+
+# --- fpl plan simulate ------------------------------------------------------
 
 
 def simulation_table(
@@ -97,6 +103,9 @@ def squad_state_table(state: SquadState, snapshot: BootstrapSnapshot) -> Table:
             f"£{player.price_millions:.1f}m" if player else "?",
         )
     return table
+
+
+# --- fpl plan evaluate ------------------------------------------------------
 
 
 def evaluation_table(evaluations: list[ModelEvaluation]) -> Table:
@@ -154,6 +163,9 @@ def evaluation_component_table(evaluations: list[ModelEvaluation]) -> Table:
     return table
 
 
+# --- fpl squad create (the interactive builder) -----------------------------
+
+
 def squad_grid(slots: SquadSlots, snapshot: BootstrapSnapshot) -> Group:
     """A pitch-style grid of the 15 numbered position slots, filled or empty."""
     players_by_id = snapshot.players_by_id
@@ -207,6 +219,11 @@ def squad_grid(slots: SquadSlots, snapshot: BootstrapSnapshot) -> Group:
 
 
 # --- fpl plan optimise (optimizer-ux.md §4, §5) ------------------------------
+#
+# The largest group, and the one that decided FU-18: `optimise_header` shares
+# the deadline and provenance formatting with nothing else, while the price, xP
+# and colour conventions below are the same ones the tables above use. Splitting
+# by command would cut through that sharing rather than along it.
 
 
 def _format_timedelta(delta: timedelta) -> str:

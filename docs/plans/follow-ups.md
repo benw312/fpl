@@ -22,7 +22,10 @@ and FU-13's premise was falsified by it.
 
 **Findings of this pass, in the order they matter:**
 
-- **FU-19 has regressed** and is the one to act on. It was closed on the strength
+- **FU-19 has regressed** and is the one to act on. *[Acted on: closed by
+  `task/fu-19-18-13`, which added the check. FU-18 and FU-13 were decided on the same
+  branch — FU-18 closed, FU-13 narrowed. The three rows in the table below are updated;
+  the bullets in this list are left as the pass found them.]* It was closed on the strength
   of `CLAUDE.md`'s *"Not yet written"* line being reduced to `domain/optimizer.py`
   alone. `domain/optimizer.py` is now 960 lines, so that line is false again — the
   same defect the entry was filed for, in the same field. Reopened below.
@@ -64,12 +67,12 @@ the source and the defect is still there.
 | FU-6 | Still open, body accurate | `SquadPlan.starters/captain/vice_captain` still one value each (`squad.py:23-25`) |
 | FU-9 | Still open, body accurate | `to_ledger_payload` emits `log` and `chips_played` only — no XI, captain or vice-captain |
 | FU-12 | Still open, **lines corrected** | `from rich import print` at `cli.py:12`, still mixed with `console.print` |
-| FU-13 | **Partially closed** | `--json` on `plan optimise` only (`cli.py:649`); five commands still print-only |
+| FU-13 | Open, **narrowed** by `task/fu-19-18-13` | Retitled and scoped to `plan evaluate` and `plan simulate`; explicitly not wanted on four others |
 | FU-14 | Still open, **body corrected** | `plan optimise` landed; `squad import`/`export`, `players show`, `squad show` still absent |
 | FU-15 | Still open, **lines corrected** | README Commands block still lists three commands, still documents the legacy squad shape |
 | FU-17 | Still open, **lines corrected** | `cli.py:307` unchanged; no `BadParameter` for an unknown club |
-| FU-18 | Still open, **note corrected** | `presentation.py` now 376 lines, eleven renderers; the decision deadline has passed |
-| FU-19 | **REOPENED — regressed** | `CLAUDE.md` still says `optimizer.py` is not yet written; it is 960 lines |
+| FU-18 | **Closed** by `task/fu-19-18-13` | Stays one file; section comments added and a 600-line split threshold recorded |
+| FU-19 | **Closed** by `task/fu-19-18-13` | Block corrected, and `tests/test_claude_md_structure.py` now fails when block and tree disagree |
 | FU-20 | Still open, **lines corrected** | `_build_schedule` still private (`projections.py:219`); no `fixture_count` |
 | FU-21 | Still open, **lines corrected** | `chance_of_playing_this_round` still parsed nowhere |
 | FU-22 | Still open, **body corrected** | `--output` exists but writes a transfers plan, not a `SquadPlan` — trigger unmet |
@@ -481,44 +484,57 @@ place to suppress or redirect output.
 
 ---
 
-## FU-13 — No machine-readable output on any command
+## FU-13 — `--json` on `plan evaluate` and `plan simulate`, and nowhere else
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
-**Status: partially closed** — `8bcfda8` *Merge task/snapshot-pinning* (2026-08-28).
-Checked in the source: `cli.py:649` declares `--json` on `fpl plan optimise` and it is
-the **only** `"--json"` string in the module. So the half that mattered most is done —
-the optimiser emits a payload, and it carries the `provenance` block FU-40's rule is
-written around — and the headline above is now false as written.
+**Status: open, narrowed to two commands** (2026-08-28, `task/fu-19-18-13`). Retitled:
+the original was *"No machine-readable output on any command"*, which stopped being
+true when `task/snapshot-pinning` put `--json` on `plan optimise` (`cli.py:649`, still
+the only `"--json"` string in the module). The entry is narrowed rather than closed,
+because the remaining want is specific and the remaining not-want is equally specific.
 
-**What remains, and it is most of the surface.** `players list`, `squad create`,
-`squad validate`, `plan simulate` and `plan evaluate` still print Rich tables and
-nothing else. `plan evaluate` is the one that bites: it is the command whose numbers
-get quoted, and FU-43 had to report event-live settled-ness on the console for want of
-a payload to put it in.
+**Wanted: `plan evaluate`.** The strongest case of the three, and it is FU-40's
+argument rather than a convenience one. `plan evaluate`'s figures are the ones that end
+up in commit messages and in `docs/plans/`, and FU-40 requires a quoted figure to name
+the captures it came from. `plan optimise` can satisfy that — its payload carries the
+`provenance` block. `plan evaluate` cannot: FU-43 had to report event-live settled-ness
+on the **console** for want of a payload to put it in, which tells a reader whether the
+actuals were final but not which file they came from or when it was written. So the one
+command whose numbers most need machine-readable provenance is the one that has none.
 
-**The entry's own sequencing turned out to be wrong, and that is worth recording.**
-It said *"Needs FU-12 first — a single output channel, before there is anything to
-switch."* `--json` landed with FU-12 untouched: `cli.py:12` still does
-`from rich import print` alongside the `presentation.console` import. It was possible
-because `optimise --json` writes to `stdout` directly and the surrounding notices were
-moved to `stderr` to keep the payload parseable, rather than because the channels were
-unified. That is a narrower fix than FU-12 and it does not generalise — each further
-`--json` will have to repeat the stderr discipline by hand until FU-12 lands. FU-12 is
-therefore still a prerequisite for doing this *well*, and was not one for doing it
-*once*.
+**Wanted: `plan simulate`.** Because it is a verification path, not an output path.
+[optimizer-ux.md](optimizer-ux.md) §1 makes `plan optimise --output` → `plan simulate`
+the mechanism that satisfies CLAUDE.md's *"Every optimiser recommendation must pass the
+same validator used for manual squad planning"*, and §1's test is that the two print
+identical per-gameweek numbers. Asserting that today is a by-eye comparison of two Rich
+tables — one side of which already emits JSON. Giving `simulate` a payload makes the
+comparison a diff. (FU-30 is the other half of making that comparison mean anything:
+`simulate` hardcodes `ComponentProjection`, so the two sides can still be scored under
+different models. Both are needed; neither is sufficient.)
 
-Every other command prints a Rich table or styled text and nothing else, so its output
-cannot be consumed by a script or diffed programmatically.
+**Not wanted: `players list`, `squad create`, `squad validate`, `sync`.** No consumer
+exists for any of them, and a second output format is a permanent maintenance cost, not
+a one-off: every future field has to be added twice, kept consistent twice, and tested
+twice, for output nothing reads. `players list` is the tempting one — it looks like the
+natural thing to pipe — but a script wanting player data has the snapshot cache and the
+capture directory, both already JSON on disk and both richer than any table. Adding
+`--json` there would be building an export for data that is already exported.
 
-This matters most for the optimiser: [optimizer-ux.md](optimizer-ux.md) §1 makes
-`fpl plan optimise --output` → `fpl plan simulate` the mechanism that satisfies
-CLAUDE.md's *"Every optimiser recommendation must pass the same validator used
-for manual squad planning"*. Asserting that the two agree is currently a
-by-eye comparison of two Rich tables.
+**FU-12 remains a prerequisite for doing this well, and did not turn out to be one for
+doing it at all.** The entry originally said *"Needs FU-12 first — a single output
+channel, before there is anything to switch"*. That was wrong as stated: `--json`
+landed on `plan optimise` with FU-12 untouched, and `cli.py:12` still does
+`from rich import print` alongside the `presentation.console` import. It worked because
+`optimise --json` writes the payload to stdout directly and its surrounding notices
+were moved to stderr **by hand** — the pinned-snapshot notice and the stale-cache
+notice both went to `error_console` specifically so the payload would stay parseable.
+That is a per-command fix, not a structural one. Each further `--json` has to repeat
+that discipline by hand and will break silently if a single `print` is left on stdout,
+which is precisely what FU-12 describes. So: FU-12 is not blocking, and doing these two
+without it means doing the stderr audit twice more.
 
-**Needs FU-12 first** — a single output channel, before there is anything to
-switch.
+**Not implemented on this branch.** `task/fu-19-18-13` scoped the decision only.
 
 ---
 
@@ -615,11 +631,48 @@ the point of failure.
 ## FU-18 — `presentation.py` is a flat module; the Agent Plan specifies a package
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
-**Status: open, narrowed** (2026-08-26, `33cd761`). The documentation half is settled:
-`CLAUDE.md`'s Structure block now states the flat module *and* names the conflict with
-the README Agent Plan, so the two no longer disagree silently. What remains is the
-decision this entry was actually filed for — split into a package and update
-`CLAUDE.md`, or amend the README's file list.
+
+**Status: closed — decided, stays one file** — `task/fu-19-18-13` (2026-08-28).
+`presentation.py` remains a flat module. The README Agent Plan's file list is the
+document that is wrong, and `CLAUDE.md` now says so positively — *"one file by
+decision, not by drift"* — rather than recording an unresolved conflict.
+
+**The reasoning, since the entry exists to have this argued rather than defaulted.**
+At 393 lines the sharing between renderers outweighs the cost of one file. Colour
+thresholds, price formatting (integer units to `£x.xm`) and xP formatting run through
+every table, and they are conventions rather than helpers — the kind of thing that
+stays consistent because it is visible on one screen, and drifts once it has to be
+imported. A package split by command would cut across that sharing rather than along
+it: `plan optimise`'s four renderers use the same price and xP conventions as
+`players list`'s one, so the seam between the two is not where the coupling is.
+
+**And a threshold, because that is what stops this recurring.** The entry has been
+re-litigated twice, both times as a judgement call about whether the file had got too
+big, and both times the answer moved because the number had. **Split into a package
+when `presentation.py` exceeds 600 lines.** Not a suggestion to review at 600 — the
+decision is taken now, and 600 is when it takes effect. The figure is chosen as roughly
+the point at which the shared conventions above stop being visible on one screen while
+navigating, which is the only property the sharing argument depends on. Until then this
+entry is closed and reopening it needs a new argument, not a new line count.
+
+**What was done in the closing commit.** Section comments per command group
+(`presentation.py:31, 56, 108, 166, 221`), so the file is navigable by the command
+whose output each renderer produces — the thing a package would have given, at the cost
+of nothing. `squad_state_table` sits under `plan simulate` rather than under a squad
+group because that is the command that prints it. The `plan optimise` marker carries
+the note on why the split would cut across the sharing, so the next person to weigh it
+finds the argument next to the code rather than only here.
+
+*[gap: the README Agent Plan's file list still names `src/fpl_cli/presentation/`. It
+is not amended here — the Agent Plan is a historical statement of intent rather than a
+live specification, and editing it would make it a worse record of what was planned.
+`CLAUDE.md` is the live document and it is now unambiguous. If the Agent Plan is ever
+reworked into a live spec, this is one of the lines to reconcile.]*
+
+**Superseded Status line, left as written** — *open, narrowed* (2026-08-26, `33cd761`):
+the documentation half was settled there, in that `CLAUDE.md`'s Structure block stated
+the flat module and named the conflict, so the two no longer disagreed silently. What
+remained was the decision this entry was filed for, which is the one taken above.
 
 *[Re-checked 2026-08-28 against `99e5afb`. The line count in this Status note was
 already a correction of the body's; both are now stale again, and in the direction that
@@ -629,7 +682,10 @@ reason to decide *before* they landed have landed: `optimise_paths_table:302`,
 `optimise_why_table:346`, `optimise_recommendation:325` and `optimise_header:223`, which
 is the provenance panel. **The deadline this entry set for itself has passed and the
 decision was not taken.** That is the finding, not the line count — the file doubled
-under an open question about whether it should be a file at all.]*
+under an open question about whether it should be a file at all. **This is what
+prompted the close above**, and it is why that close carries a threshold: a deadline
+expressed as "before those renderers land" was one nobody could see passing, whereas a
+line count is checkable at a glance.]*
 
 The README Agent Plan's file list names `src/fpl_cli/presentation/` — a package.
 The repo has `src/fpl_cli/presentation.py`, a flat module, now at 185 lines with
@@ -648,8 +704,32 @@ fine; the conflict is not.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
-**Status: REOPENED — regressed** (2026-08-28 reconciliation, checked against `99e5afb`).
-`CLAUDE.md`'s Structure block still reads *"Not yet written: domain/optimizer.py."*
+**Status: closed — by a check, not a correction** — `task/fu-19-18-13` (2026-08-28).
+`tests/test_claude_md_structure.py` parses `CLAUDE.md`'s Structure block, walks
+`src/fpl_cli/`, and fails naming every disagreement: a module that exists and is not
+listed, a module listed that does not exist, a package no group mentions, and a
+*"Not yet written"* entry naming something that exists. Verified in the intended order
+— the guard was written first and **failed against the block as it stood**, reporting
+both faults by name (`domain/optimizer.py` missing from the `domain/` group, and the
+*"Not yet written"* line naming a module that exists) — and the block was corrected
+afterwards, in the same commit. `optimizer.py` is now listed and the *"Not yet written"*
+line is gone, there being nothing left in it.
+
+The check is deliberately a check rather than a third correction. Two regressions by the
+same mechanism is a missing guard; a third hand-fix would have restored the same
+condition that produced the first two. Following FU-3's AST scan, it reports drift by
+name so the failure says what to change, and it reports **all** drift rather than the
+first — the block is edited by hand, and being sent back once per module is how it stops
+being edited. `CLAUDE.md` now points at the test, so the obligation is visible from the
+thing being maintained.
+
+`[gap: the guard covers `src/fpl_cli/` only, which is what the block claims to
+describe. It does not check the `docs/plans/` pointer, the Commands block, or the Stack
+list, all of which are hand-maintained in the same way and none of which has regressed
+yet. FU-15 records the README's equivalent staleness, which nothing checks either.]`
+
+**The regression this closed** (2026-08-28 reconciliation, checked against `99e5afb`).
+`CLAUDE.md`'s Structure block still read *"Not yet written: domain/optimizer.py."*
 `src/fpl_cli/domain/optimizer.py` is 960 lines and has been on `main` since
 `task/optimise-cli`; `domain/` in that same block does not list it either. The close
 below was correct when written — the line was reduced to `optimizer.py` alone, and
@@ -666,12 +746,14 @@ module lands and right only when someone remembers.
 
 **Fix:** delete the *"Not yet written"* line — there is nothing left in it — and add
 `optimizer.py` to the `domain/` list. **Not done here:** this branch reconciles
-`follow-ups.md` and changes nothing else.
+`follow-ups.md` and changes nothing else. *[Both done in `task/fu-19-18-13`.]*
 
 `[gap: a test asserting `CLAUDE.md`'s Structure block against the actual tree would
 close this permanently and is the only thing that would. Not filed as its own entry
 because the reconciliation pass has no mandate to invent work; noted here so the option
-is on the record next time this regresses.]`
+is on the record next time this regresses.]` *[Closed in `task/fu-19-18-13` — this is
+the test that was written, and the reason the entry above closes as a check rather than
+a correction.]*
 
 **Original close, left as written** — `33cd761` *Give typer.Exit an exit code, not a
 message (FU-3, FU-16); fix CLAUDE.md Structure (FU-19)* (2026-08-26). Verified against
