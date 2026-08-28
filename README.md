@@ -77,6 +77,29 @@ does not match its recorded digest is an error naming it — there is no fallbac
 to cache or live. See [docs/plans/snapshot-pinning.md](docs/plans/snapshot-pinning.md),
 including §5 on what a pinned run still does not pin.
 
+### Keeping a test sync out of the archive
+
+```bash
+fpl sync --archive-dir /tmp/fpl-scratch
+```
+
+The capture is filed under `/tmp/fpl-scratch/` instead of `~/.fpl-cli/archive/`,
+so a verification run does not claim the day's canonical slot — which is
+claimed once and never overwritten, so spending it on a test costs that day's
+real capture. The capture written is byte-identical to one filed to the real
+archive, so a good one can be promoted afterwards by moving the directory.
+
+The flag goes on the deviation, never on the routine: the systemd timer runs a
+bare `fpl sync`, and forgetting the flag pollutes a scratch directory rather
+than silently producing a non-canonical capture that looks canonical.
+
+There is no environment variable for this, deliberately, and no environment
+variable redirects the caches either — `FPL_SNAPSHOT` is the only one the CLI
+reads. **`--archive-dir` isolates the capture only:** `bootstrap-static.json`
+and `fixtures.json` are still refreshed in place under `~/.fpl-cli/`, and a
+rewritten fixtures file moves every projected cell, so a test sync remains
+disruptive to an in-flight measurement. See FU-42.
+
 ## Agent Plan
 
 Plan: FPL CLI Planner

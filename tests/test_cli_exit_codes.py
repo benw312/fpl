@@ -31,7 +31,13 @@ SRC_ROOT = Path(__file__).resolve().parents[1] / "src" / "fpl_cli"
 
 
 class _Service:
-    """A `SnapshotService` stub whose every method can be made to fail."""
+    """A `SnapshotService` stub whose every method can be made to fail.
+
+    Installed through `lambda **_:` so it absorbs the constructor arguments the
+    CLI passes — `sync` now forwards `--archive-dir`. These tests are about exit
+    codes, so where a capture is filed is not their business; that routing is
+    covered in `test_archive_dir.py`.
+    """
 
     def __init__(
         self,
@@ -110,7 +116,7 @@ def _assert_failed_cleanly(
 def test_load_snapshot_exits_1_with_message_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(load_error=_timeout()))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(load_error=_timeout()))
 
     with pytest.raises(typer.Exit) as info:
         cli.load_snapshot()
@@ -121,7 +127,7 @@ def test_load_snapshot_exits_1_with_message_on_stderr(
 def test_sync_exits_1_with_message_on_stderr(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(refresh_error=_timeout()))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(refresh_error=_timeout()))
 
     with pytest.raises(typer.Exit) as info:
         cli.sync()
@@ -138,7 +144,7 @@ def test_validate_squad_unreadable_file_exits_1_with_message_on_stderr(
     tmp_path: Path,
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(bootstrap_snapshot))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot))
     path = tmp_path / "notasquad.json"
     path.write_text('{"nonsense": [1, 2]}', encoding="utf-8")
 
@@ -157,7 +163,7 @@ def test_simulate_unreadable_ledger_exits_1_with_message_on_stderr(
     tmp_path: Path,
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(bootstrap_snapshot))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot))
     squad_path = tmp_path / "squad.json"
     squad_path.write_text("{ this is not json", encoding="utf-8")
     transfers_path = tmp_path / "transfers.json"
@@ -175,7 +181,7 @@ def test_simulate_unreadable_transfers_plan_exits_1_with_message_on_stderr(
     tmp_path: Path,
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(bootstrap_snapshot))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot))
     squad_path = tmp_path / "squad.json"
     _write_ledger(squad_path, list(range(1, 16)))
     transfers_path = tmp_path / "transfers.json"
@@ -195,7 +201,7 @@ def test_simulate_invalid_transfers_plan_exits_1_with_message_on_stderr(
 ) -> None:
     """A plan for a gameweek the squad has already moved past — `simulate`
     raises `ValueError`, a different except block from the parse failures."""
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(bootstrap_snapshot))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot))
     squad_path = tmp_path / "squad.json"
     _write_ledger(squad_path, list(range(1, 16)))
     transfers_path = tmp_path / "transfers.json"
@@ -214,7 +220,7 @@ def test_simulate_fixtures_failure_exits_1_with_message_on_stderr(
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
     monkeypatch.setattr(
-        cli, "SnapshotService", lambda: _Service(bootstrap_snapshot, fixtures_error=_timeout())
+        cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot, fixtures_error=_timeout())
     )
     squad_path = tmp_path / "squad.json"
     _write_ledger(squad_path, list(range(1, 16)))
@@ -235,7 +241,7 @@ def test_evaluate_unknown_gameweek_exits_1_with_message_on_stderr(
     capsys: pytest.CaptureFixture[str],
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: _Service(bootstrap_snapshot))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot))
 
     with pytest.raises(typer.Exit) as info:
         cli.evaluate_plan(event=99)
@@ -249,7 +255,7 @@ def test_evaluate_fixtures_failure_exits_1_with_message_on_stderr(
     bootstrap_snapshot: BootstrapSnapshot,
 ) -> None:
     monkeypatch.setattr(
-        cli, "SnapshotService", lambda: _Service(bootstrap_snapshot, fixtures_error=_timeout())
+        cli, "SnapshotService", lambda **_: _Service(bootstrap_snapshot, fixtures_error=_timeout())
     )
 
     with pytest.raises(typer.Exit) as info:

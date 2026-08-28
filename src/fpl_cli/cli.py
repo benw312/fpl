@@ -96,6 +96,31 @@ SnapshotOption = Annotated[
     ),
 ]
 
+# Declared `Annotated` for the same reason as `SnapshotOption`: the tests call
+# `cli.sync()` directly, and a `typer.Option(...)` default would hand each of
+# them an `OptionInfo` to pass on to `SnapshotService` as an archive directory.
+#
+# Deliberately with no environment variable behind it, unlike `--snapshot`.
+# `--snapshot` names what a run *reads*, so a pinned shell is a coherent thing
+# to want; this names where a run *writes* the one artefact that cannot be
+# fetched again. A shell variable is invisible at the point of use and sticky
+# across the invocations that follow, so the failure it enables is a sync that
+# believes it filed the day's canonical capture into an archive it never
+# reached. The flag goes on the deviation, never on the routine: forgetting it
+# writes a scratch capture nobody wanted, which is recoverable; the inverse —
+# a stale variable silently diverting the timer's capture — is not.
+ArchiveDirOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--archive-dir",
+        help=(
+            "File this run's capture under PATH instead of the default archive. For "
+            "test and verification syncs. Note this covers the capture only: the "
+            "bootstrap and fixtures caches are still refreshed in place."
+        ),
+    ),
+]
+
 
 def resolve_snapshot_path(explicit: Path | None) -> Path | None:
     """`--snapshot` if given, else `$FPL_SNAPSHOT`, else `None` for an unpinned run.
@@ -219,9 +244,15 @@ def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
 
 
 @app.command()
-def sync() -> None:
+def sync(archive_dir: ArchiveDirOption = None) -> None:
     """Fetch and cache the current official FPL snapshot and fixtures list."""
-    service = SnapshotService()
+    # `archive_dir` goes straight through, and `SnapshotService`'s `None`
+    # already means the default archive — so there is no mode to branch on
+    # below, and the write path cannot tell a scratch capture from a real one.
+    # That is the point: a capture filed to scratch is byte-identical to one
+    # filed to the archive, so a good capture taken during verification can be
+    # promoted by moving the directory.
+    service = SnapshotService(archive_dir=archive_dir)
     try:
         snapshot = service.refresh()
         fixtures = service.refresh_fixtures()

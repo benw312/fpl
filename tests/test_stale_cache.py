@@ -12,6 +12,11 @@ from fpl_cli.transport import RequestTimeout
 
 
 class StubService:
+    """Installed through `lambda **_:` so it absorbs the constructor arguments
+    the CLI passes — `sync` now forwards `--archive-dir`. These tests are about
+    stale-cache reporting; the flag's routing is covered in
+    `test_archive_dir.py`."""
+
     def __init__(
         self,
         *,
@@ -66,7 +71,7 @@ def test_load_snapshot_returns_stale_result_without_raising(
     monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot
 ) -> None:
     result = SnapshotResult(snapshot=bootstrap_snapshot, stale=True, reason="timed out")
-    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(load_result=result))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: StubService(load_result=result))
 
     loaded = cli.load_snapshot()
 
@@ -78,7 +83,7 @@ def test_load_snapshot_returns_stale_result_without_raising(
 
 
 def test_load_snapshot_raises_typer_exit_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(load_error=_timeout_error()))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: StubService(load_error=_timeout_error()))
 
     with pytest.raises(typer.Exit):
         cli.load_snapshot()
@@ -91,7 +96,7 @@ def test_sync_reports_success(
     monkeypatch.setattr(
         cli,
         "SnapshotService",
-        lambda: StubService(refresh_result=bootstrap_snapshot, refresh_fixtures_result=fixtures),
+        lambda **_: StubService(refresh_result=bootstrap_snapshot, refresh_fixtures_result=fixtures),
     )
 
     cli.sync()
@@ -103,7 +108,7 @@ def test_sync_reports_success(
 
 
 def test_sync_raises_typer_exit_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli, "SnapshotService", lambda: StubService(refresh_error=_timeout_error()))
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: StubService(refresh_error=_timeout_error()))
 
     with pytest.raises(typer.Exit):
         cli.sync()
@@ -115,7 +120,7 @@ def test_sync_raises_typer_exit_on_fixtures_error(
     monkeypatch.setattr(
         cli,
         "SnapshotService",
-        lambda: StubService(refresh_result=bootstrap_snapshot, refresh_fixtures_error=_timeout_error()),
+        lambda **_: StubService(refresh_result=bootstrap_snapshot, refresh_fixtures_error=_timeout_error()),
     )
 
     with pytest.raises(typer.Exit):
@@ -128,7 +133,7 @@ def test_sync_raises_typer_exit_on_archive_error(
     monkeypatch.setattr(
         cli,
         "SnapshotService",
-        lambda: StubService(refresh_result=bootstrap_snapshot, archive_error=_timeout_error()),
+        lambda **_: StubService(refresh_result=bootstrap_snapshot, archive_error=_timeout_error()),
     )
 
     with pytest.raises(typer.Exit):
