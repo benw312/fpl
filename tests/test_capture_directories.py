@@ -48,6 +48,7 @@ def _write_capture_directory(
     star_name: str = "Star",
     captured_at: datetime | None = None,
     fixtures: list[dict[str, Any]] | None = None,
+    role: str = capture.ROLE_CANONICAL,
 ) -> Path:
     """A capture directory in the shape `fpl sync` writes."""
     payload = _capture_payload(bootstrap_payload, star_name=star_name)
@@ -58,6 +59,8 @@ def _write_capture_directory(
         fixtures=fixtures if fixtures is not None else _FIXTURES,
         captured_at=when,
         current_event={"id": 1, "deadline_time": "2026-08-21T17:30:00+00:00", "deadline_passed": True},
+        next_event={"id": 2, "deadline_time": "2099-01-01T17:30:00+00:00", "captured_before_deadline": True},
+        role=role,
     )
 
 
@@ -112,8 +115,10 @@ def test_archive_writes_a_capture_directory_with_a_manifest(
     )
     service = snapshots.SnapshotService(api=object(), cache=object(), archive_dir=tmp_path)
 
-    directory = service.archive(snapshot, [Fixture(id=1, event=2, team_h=1, team_a=2)])
+    archived = service.archive(snapshot, [Fixture(id=1, event=2, team_h=1, team_a=2)])
+    directory = archived.path
 
+    assert archived.role == capture.ROLE_CANONICAL
     assert directory == tmp_path / "2026-08-28"
     assert sorted(path.name for path in directory.iterdir()) == [
         "bootstrap-static.json",
@@ -143,7 +148,7 @@ def test_the_manifest_deadline_flag_is_true_for_a_capture_taken_after_the_deadli
     )
     service = snapshots.SnapshotService(api=object(), cache=object(), archive_dir=tmp_path)
 
-    manifest = capture.read_manifest(service.archive(snapshot, []))
+    manifest = capture.read_manifest(service.archive(snapshot, []).path)
 
     assert manifest["current_event"] == {
         "id": 1,
@@ -164,7 +169,7 @@ def test_the_manifest_deadline_flag_is_false_for_a_capture_taken_before_the_dead
     )
     service = snapshots.SnapshotService(api=object(), cache=object(), archive_dir=tmp_path)
 
-    manifest = capture.read_manifest(service.archive(snapshot, []))
+    manifest = capture.read_manifest(service.archive(snapshot, []).path)
 
     assert manifest["current_event"]["deadline_passed"] is False
 
@@ -431,3 +436,293 @@ def test_the_archive_scan_reads_both_shapes_and_prefers_the_newer_capture(
 
     # And with a deadline after both, the bare file wins on recency.
     assert select_archived_snapshot(tmp_path, datetime(2099, 1, 1, tzinfo=UTC)) == bare
+
+
+# --- capture roles (FU-41) --------------------------------------------------
+
+
+def _sync_service(archive_dir: Path) -> snapshots.SnapshotService:
+    return snapshots.SnapshotService(api=object(), cache=object(), archive_dir=archive_dir)
+
+
+def _capture_snapshot(
+    bootstrap_snapshot: BootstrapSnapshot, *, fetched_at: datetime
+) -> BootstrapSnapshot:
+    for event in bootstrap_snapshot.events:
+        event.is_current = event.id == 1
+        event.is_next = event.id == 2
+        if event.id == 1:
+            event.deadline_time = datetime(2026, 8, 21, 17, 30, tzinfo=UTC)
+        if event.id == 2:
+            event.deadline_time = datetime(2026, 8, 28, 17, 30, tzinfo=UTC)
+    bootstrap_snapshot.fetched_at = fetched_at
+    return bootstrap_snapshot
+
+
+def test_the_first_capture_of_a_day_is_canonical_and_the_second_is_adhoc(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """Demonstrated by writing both: the same call claims the slot once, and
+    files itself by instant the second time."""
+    service = _sync_service(tmp_path)
+    # `_capture_snapshot` mutates the shared fixture, so the morning timestamp
+    # is held here rather than read back off the object afterwards.
+    morning_at = datetime(2026, 8, 28, 0, 32, 58, tzinfo=UTC)
+    first = service.archive(_capture_snapshot(bootstrap_snapshot, fetched_at=morning_at), [])
+
+    assert first.role == capture.ROLE_CANONICAL
+    assert first.path == tmp_path / "2026-08-28"
+    assert capture.read_manifest(first.path)["role"] == "canonical"
+
+    evening = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 20, 11, 4, tzinfo=UTC))
+    second = service.archive(evening, [])
+
+    assert second.role == capture.ROLE_ADHOC
+    assert second.path == tmp_path / "2026-08-28T201104Z"
+    assert capture.read_manifest(second.path)["role"] == "adhoc"
+    # The canonical capture is untouched, not overwritten by the later one.
+    assert capture.manifest_captured_at(capture.read_manifest(first.path)) == morning_at
+
+
+def test_an_empty_slot_is_claimed_whenever_the_day_s_first_capture_arrives(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The offline case, without inspecting timer state: nothing ran overnight,
+    someone syncs at noon, and that capture is the day's canonical one."""
+    noon = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC))
+
+    archived = _sync_service(tmp_path).archive(noon, [])
+
+    assert archived.role == capture.ROLE_CANONICAL
+    assert archived.path == tmp_path / "2026-08-28"
+
+
+def test_a_legacy_bare_file_holds_the_slot_against_a_later_capture(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The state this branch actually left on disk: `bootstrap-2026-08-28.json`
+    from 00:32 and a directory written the same morning."""
+    (tmp_path / "bootstrap-2026-08-28.json").write_text("{}", encoding="utf-8")
+    later = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC))
+
+    archived = _sync_service(tmp_path).archive(later, [])
+
+    assert archived.role == capture.ROLE_ADHOC
+    assert archived.path == tmp_path / "2026-08-28T090135Z"
+    assert (tmp_path / "bootstrap-2026-08-28.json").read_text() == "{}"  # not migrated, not deleted
+
+
+def test_a_partial_capture_does_not_hold_the_slot(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """A half-written directory is not a valid capture, so the next good run
+    claims the day rather than being demoted behind rubble."""
+    partial = tmp_path / "2026-08-28"
+    partial.mkdir()
+    (partial / "bootstrap-static.json").write_text('{"elements": [', encoding="utf-8")
+    good = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC))
+
+    archived = _sync_service(tmp_path).archive(good, [])
+
+    assert archived.role == capture.ROLE_CANONICAL
+    assert archived.path == partial
+    assert capture.is_valid_capture(partial)
+
+
+def test_a_capture_whose_digests_do_not_match_does_not_hold_the_slot(
+    tmp_path: Path, bootstrap_payload: dict[str, Any], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The control for validity: the same directory holds the slot while it
+    verifies, and stops holding it once a byte changes."""
+    slot = _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload)
+    when = datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC)
+    assert capture.slot_claimed(tmp_path, when)
+
+    tampered = json.loads((slot / "fixtures.json").read_text())
+    tampered.append({"id": 99, "event": 2, "team_h": 1, "team_a": 2})
+    (slot / "fixtures.json").write_text(json.dumps(tampered), encoding="utf-8")
+
+    assert not capture.slot_claimed(tmp_path, when)
+    assert _sync_service(tmp_path).archive(_capture_snapshot(bootstrap_snapshot, fetched_at=when), []).role == (
+        capture.ROLE_CANONICAL
+    )
+
+
+def test_writing_never_replaces_a_valid_capture(tmp_path: Path, bootstrap_payload: dict[str, Any]) -> None:
+    """The invariant behind the atomic rename, asserted directly: a valid
+    capture in the destination is refused, not clobbered."""
+    slot = _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload)
+
+    with pytest.raises(FileExistsError):
+        _write_capture_directory(slot, bootstrap_payload, star_name="Replacement")
+
+    assert "Replacement" not in (slot / "bootstrap-static.json").read_text()
+
+
+def test_a_failed_write_leaves_no_capture_in_the_slot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bootstrap_payload: dict[str, Any]
+) -> None:
+    """Staging plus rename, demonstrated: a write that dies partway leaves the
+    slot empty rather than partially filled."""
+    real_sha = capture.sha256_file
+    calls: list[Path] = []
+
+    def explode(path: Path) -> str:
+        calls.append(path)
+        if len(calls) > 1:  # after bootstrap-static.json, before the manifest
+            raise OSError("disk full")
+        return real_sha(path)
+
+    monkeypatch.setattr(capture, "sha256_file", explode)
+
+    with pytest.raises(OSError):
+        _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload)
+
+    assert not (tmp_path / "2026-08-28").exists()
+    assert list(tmp_path.iterdir()) == []  # not even a staging directory left behind
+
+
+# --- UK dates ---------------------------------------------------------------
+
+
+def test_the_canonical_slot_uses_the_uk_date_not_the_utc_date(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """23:30 UTC in summer is 00:30 the next day in London. Filing it under the
+    UTC date would put it in the slot the following night's capture is entitled
+    to — and `captured_at` stays UTC either way."""
+    late = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 7, 15, 23, 30, tzinfo=UTC))
+
+    archived = _sync_service(tmp_path).archive(late, [])
+
+    assert archived.path == tmp_path / "2026-07-16"
+    assert capture.read_manifest(archived.path)["captured_at"] == "2026-07-15T23:30:00+00:00"
+
+
+def test_a_winter_capture_at_the_same_clock_time_files_under_the_utc_date(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The control: in January the UK is on UTC, so the same 23:30 stays on the
+    same date. Without it, the test above would also pass under a hardcoded
+    +1 day."""
+    late = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 1, 15, 23, 30, tzinfo=UTC))
+
+    assert _sync_service(tmp_path).archive(late, []).path == tmp_path / "2026-01-15"
+
+
+# --- manifest deadline fields ----------------------------------------------
+
+
+def test_the_manifest_records_the_next_event_and_whether_the_capture_precedes_it(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """`current_event` cannot answer this: for a GW2 pre-deadline capture the
+    current gameweek is GW1, whose deadline passed a week earlier."""
+    before = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 7, 26, 38, tzinfo=UTC))
+
+    manifest = capture.read_manifest(_sync_service(tmp_path).archive(before, []).path)
+
+    assert manifest["current_event"] == {
+        "id": 1,
+        "deadline_time": "2026-08-21T17:30:00+00:00",
+        "deadline_passed": True,
+    }
+    assert manifest["next_event"] == {
+        "id": 2,
+        "deadline_time": "2026-08-28T17:30:00+00:00",
+        "captured_before_deadline": True,
+    }
+
+
+def test_the_next_event_flag_is_false_for_a_capture_taken_after_that_deadline(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    after = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 20, 11, 4, tzinfo=UTC))
+
+    manifest = capture.read_manifest(_sync_service(tmp_path).archive(after, []).path)
+
+    assert manifest["next_event"]["captured_before_deadline"] is False
+    # And the leak-check field still reports the current gameweek, unchanged.
+    assert manifest["current_event"]["deadline_passed"] is True
+
+
+# --- the archive scan and roles --------------------------------------------
+
+
+def test_the_archive_scan_skips_adhoc_captures_unless_asked_for_them(
+    tmp_path: Path, bootstrap_payload: dict[str, Any]
+) -> None:
+    from fpl_cli.domain.evaluation import select_archived_snapshot
+
+    canonical = _write_capture_directory(
+        tmp_path / "2026-08-20", bootstrap_payload, captured_at=datetime(2026, 8, 20, 0, 30, tzinfo=UTC)
+    )
+    adhoc = _write_capture_directory(
+        tmp_path / "2026-08-20T191500Z",
+        bootstrap_payload,
+        captured_at=datetime(2026, 8, 20, 19, 15, tzinfo=UTC),
+        role=capture.ROLE_ADHOC,
+    )
+    deadline = datetime(2026, 8, 21, 17, 30, tzinfo=UTC)
+
+    # The ad-hoc capture is newer, and would win if it were a candidate at all.
+    assert select_archived_snapshot(tmp_path, deadline) == canonical / "bootstrap-static.json"
+    assert (
+        select_archived_snapshot(tmp_path, deadline, include_adhoc=True) == adhoc / "bootstrap-static.json"
+    )
+
+
+def test_a_version_1_capture_reads_as_adhoc_so_the_bare_file_keeps_its_day(
+    tmp_path: Path, bootstrap_payload: dict[str, Any]
+) -> None:
+    """The state on disk today: a v1 directory beside the bare file that has
+    held 2026-08-28 since 00:32. A manifest that records no role must not claim
+    a slot retrospectively."""
+    from fpl_cli.domain.evaluation import select_archived_snapshot
+
+    directory = _write_capture_directory(
+        tmp_path / "2026-08-28", bootstrap_payload, captured_at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC)
+    )
+    manifest_path = directory / "manifest.json"
+    legacy = json.loads(manifest_path.read_text())
+    legacy["version"] = 1
+    del legacy["role"]
+    manifest_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    bare = tmp_path / "bootstrap-2026-08-28.json"
+    bare.write_text(json.dumps(_capture_payload(bootstrap_payload, star_name="Bare")), encoding="utf-8")
+
+    assert capture.manifest_role(capture.read_manifest(directory)) == capture.ROLE_ADHOC
+    assert select_archived_snapshot(tmp_path, datetime(2099, 1, 1, tzinfo=UTC)) == bare
+    # Still readable when pinned to explicitly — excluded from selection, not rejected.
+    assert capture.is_valid_capture(directory)
+
+
+# --- plan evaluate dates by the manifest ------------------------------------
+
+
+def test_the_projection_snapshot_is_dated_by_the_manifest_not_the_mtime(
+    tmp_path: Path, bootstrap_payload: dict[str, Any]
+) -> None:
+    """Fails if a capture's mtime and `captured_at` disagree and mtime wins —
+    which is the state every ad-hoc and every copied capture is in."""
+    from fpl_cli.domain.evaluation import archived_capture_time
+
+    when = datetime(2026, 8, 20, 0, 30, tzinfo=UTC)
+    directory = _write_capture_directory(tmp_path / "2026-08-20", bootstrap_payload, captured_at=when)
+    bootstrap = directory / "bootstrap-static.json"
+    mtime = datetime.fromtimestamp(bootstrap.stat().st_mtime, UTC)
+
+    assert mtime != when  # the disagreement the test turns on
+    assert archived_capture_time(bootstrap) == when
+
+
+def test_a_bare_archive_is_still_dated_by_its_mtime(tmp_path: Path, bootstrap_payload: dict[str, Any]) -> None:
+    """The control, and the reason the pre-FU-41 archives keep working: mtime is
+    all a bare file records."""
+    from fpl_cli.domain.evaluation import archived_capture_time
+
+    bare = tmp_path / "bootstrap-2026-08-25.json"
+    bare.write_text("{}", encoding="utf-8")
+
+    assert archived_capture_time(bare) == datetime.fromtimestamp(bare.stat().st_mtime, UTC)

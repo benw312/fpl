@@ -25,6 +25,7 @@ from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
 from fpl_cli.storage import capture
 from fpl_cli.domain.evaluation import (
     actuals_from_live_event,
+    archived_capture_time,
     evaluate_model,
     flat_points_per_game_projections,
     select_archived_snapshot,
@@ -224,7 +225,7 @@ def sync() -> None:
     try:
         snapshot = service.refresh()
         fixtures = service.refresh_fixtures()
-        archive_path = service.archive(snapshot, fixtures)
+        archived = service.archive(snapshot, fixtures)
     except FplError as exc:
         error_console.print(str(exc))
         raise typer.Exit(1) from exc
@@ -232,7 +233,7 @@ def sync() -> None:
         service.close()
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
     console.print(f"[green]Synced {len(fixtures)} fixtures.[/green]")
-    console.print(f"[green]Archived to {archive_path}/ (snapshot, fixtures, manifest).[/green]")
+    console.print(f"[green]Archived to {archived.path}/ as {archived.role}.[/green]")
 
 
 @players_app.command("list")
@@ -1002,8 +1003,11 @@ def evaluate_plan(
     )
     if archive_path is not None:
         payload = json.loads(archive_path.read_text(encoding="utf-8"))
+        # The capture's manifest, not the file's mtime (FU-41): an ad-hoc
+        # capture is written hours after the data was fetched, and copying an
+        # archive rewrites every mtime in it without moving the fetch.
         projection_snapshot = BootstrapSnapshot.from_payload(
-            payload, fetched_at=datetime.fromtimestamp(archive_path.stat().st_mtime, UTC)
+            payload, fetched_at=archived_capture_time(archive_path)
         )
     else:
         projection_snapshot = current_snapshot

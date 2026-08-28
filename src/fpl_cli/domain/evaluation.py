@@ -252,7 +252,24 @@ def flat_points_per_game_projections(snapshot: BootstrapSnapshot, event: int) ->
 # --- Archive selection (Decision 6) -------------------------------------------
 
 
-def _archive_candidates(archive_dir: Path) -> list[tuple[datetime, Path]]:
+def archived_capture_time(bootstrap_path: Path) -> datetime:
+    """When the archived snapshot at `bootstrap_path` was captured.
+
+    A capture directory answers from its manifest, which records the fetch. A
+    bare file can only answer with its mtime, which is all it has. The
+    difference is not academic: an ad-hoc capture is written hours after the
+    day it belongs to, and copying a capture rewrites every mtime in it while
+    changing nothing about when the data was fetched.
+    """
+    if bootstrap_path.name == capture.BOOTSTRAP_FILENAME:
+        try:
+            return capture.manifest_captured_at(capture.read_manifest(bootstrap_path.parent))
+        except (OSError, ValueError):
+            pass
+    return datetime.fromtimestamp(bootstrap_path.stat().st_mtime, UTC)
+
+
+def _archive_candidates(archive_dir: Path, *, include_adhoc: bool = False) -> list[tuple[datetime, Path]]:
     """Every archived bootstrap-static payload, with the time it was captured.
 
     Two shapes coexist and both are read (FU-41). A capture directory is dated
@@ -262,6 +279,13 @@ def _archive_candidates(archive_dir: Path) -> list[tuple[datetime, Path]]:
     mtime, because that is all it records. A directory whose manifest is
     missing or unreadable is skipped rather than raising: here it is one
     unusable candidate among others, not the file the run was told to use.
+
+    Ad-hoc captures are excluded: they are the second and later captures of a
+    day, kept on disk and readable through `--snapshot`, but not something
+    automatic selection should silently prefer over the day's canonical one. A
+    version 1 manifest records no role and reads as ad-hoc, which is why the
+    bare `bootstrap-2026-08-28.json` still holds that day against the directory
+    written beside it.
     """
     candidates: list[tuple[datetime, Path]] = [
         (datetime.fromtimestamp(path.stat().st_mtime, UTC), path)
@@ -275,15 +299,20 @@ def _archive_candidates(archive_dir: Path) -> list[tuple[datetime, Path]]:
         if not bootstrap.is_file():
             continue
         try:
-            captured_at = capture.manifest_captured_at(capture.read_manifest(directory))
+            manifest = capture.read_manifest(directory)
+            captured_at = capture.manifest_captured_at(manifest)
         except (OSError, ValueError):
+            continue
+        if not include_adhoc and capture.manifest_role(manifest) != capture.ROLE_CANONICAL:
             continue
         candidates.append((captured_at, bootstrap))
     return candidates
 
 
-def select_archived_snapshot(archive_dir: Path, deadline: datetime) -> Path | None:
-    """The newest archived bootstrap snapshot captured before `deadline`.
+def select_archived_snapshot(
+    archive_dir: Path, deadline: datetime, *, include_adhoc: bool = False
+) -> Path | None:
+    """The newest canonical archived snapshot captured before `deadline`.
 
     None if the directory doesn't exist or nothing qualifies — the caller
     falls back to the current snapshot and must disclose that the result is
@@ -291,7 +320,11 @@ def select_archived_snapshot(archive_dir: Path, deadline: datetime) -> Path | No
     """
     if not archive_dir.is_dir():
         return None
-    qualifying = [(when, path) for when, path in _archive_candidates(archive_dir) if when < deadline]
+    qualifying = [
+        (when, path)
+        for when, path in _archive_candidates(archive_dir, include_adhoc=include_adhoc)
+        if when < deadline
+    ]
     if not qualifying:
         return None
     return max(qualifying, key=lambda candidate: candidate[0])[1]

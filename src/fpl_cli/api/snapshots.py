@@ -19,6 +19,14 @@ DEFAULT_ARCHIVE_DIR = Path.home() / ".fpl-cli" / "archive"
 
 
 @dataclass(frozen=True)
+class ArchivedCapture:
+    """Where `sync` filed a capture, and whether it claimed the day's slot."""
+
+    path: Path
+    role: str
+
+
+@dataclass(frozen=True)
 class SnapshotResult:
     snapshot: BootstrapSnapshot
     stale: bool
@@ -122,6 +130,28 @@ def _current_event_record(snapshot: BootstrapSnapshot, captured_at: datetime) ->
     }
 
 
+def _next_event_record(snapshot: BootstrapSnapshot, captured_at: datetime) -> dict | None:
+    """The manifest's `next_event`: the gameweek this capture is a *candidate*
+    for, and whether the capture precedes its deadline.
+
+    `current_event` cannot answer that. For `gw2-pre-deadline.json` the current
+    gameweek is GW1, whose deadline had passed a week earlier — the capture is
+    named for GW2 because GW2 is what it is useful for. Both are recorded, and
+    each is phrased as the fact its own consumer needs: the leak check asks
+    whether the current gameweek's deadline has *passed*, a candidate check asks
+    whether the capture *precedes* the next one's.
+    """
+    gameweek = next((event for event in snapshot.events if event.is_next), None)
+    if gameweek is None:
+        return None
+    deadline = gameweek.deadline_time
+    return {
+        "id": gameweek.id,
+        "deadline_time": deadline.isoformat() if deadline is not None else None,
+        "captured_before_deadline": None if deadline is None else captured_at < deadline,
+    }
+
+
 def _capture_time(path: Path) -> datetime:
     """When a capture on disk was taken, as far as the filesystem knows."""
     return datetime.fromtimestamp(path.stat().st_mtime, UTC)
@@ -221,7 +251,7 @@ class SnapshotService:
             cache.save_raw(live.model_dump(mode="json"))
         return LiveEventResult(live=live, event=event, stale=False)
 
-    def archive(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture]) -> Path:
+    def archive(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture]) -> ArchivedCapture:
         """Write a dated capture directory (Decision 6, FU-41).
 
         `fpl plan evaluate` needs the inputs as they stood *before* a
@@ -232,19 +262,32 @@ class SnapshotService:
         against a rewritten `fixtures.json` is not measuring what it reports.
         Both files are captured together, with a manifest.
 
-        One directory per calendar day (UTC), dated by the *fetch* rather than
-        the clock at write time: idempotent within a day by construction,
-        since a second call the same day overwrites the same directory rather
-        than accumulating.
+        One canonical slot per **UK** date, dated by the *fetch* rather than
+        the clock at write time. The first valid capture of a day claims the
+        slot; anything later that day is written ad-hoc, keyed by the instant,
+        and stays readable through `--snapshot` without becoming a candidate for
+        automatic selection. Nothing inspects timer state: a sync that finds the
+        slot empty claims it, which is what makes the offline case — the timer
+        did not run, someone syncs by hand at noon — come out right by itself.
         """
         captured_at = snapshot.fetched_at
-        return capture.write_capture(
-            self._archive_dir / captured_at.date().isoformat(),
+        claimed = capture.slot_claimed(self._archive_dir, captured_at)
+        role = capture.ROLE_ADHOC if claimed else capture.ROLE_CANONICAL
+        destination = (
+            capture.adhoc_path(self._archive_dir, captured_at)
+            if claimed
+            else capture.canonical_slot(self._archive_dir, captured_at)
+        )
+        path = capture.write_capture(
+            destination,
             bootstrap=snapshot.raw,
             fixtures=[fixture.model_dump(mode="json") for fixture in fixtures],
             captured_at=captured_at,
             current_event=_current_event_record(snapshot, captured_at),
+            next_event=_next_event_record(snapshot, captured_at),
+            role=role,
         )
+        return ArchivedCapture(path=path, role=role)
 
 
 class PinnedSnapshotService:
