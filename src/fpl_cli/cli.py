@@ -22,6 +22,7 @@ from fpl_cli.api.snapshots import (
     SnapshotService,
 )
 from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
+from fpl_cli.storage import capture
 from fpl_cli.domain.evaluation import (
     actuals_from_live_event,
     evaluate_model,
@@ -132,9 +133,16 @@ class LoadedSnapshot:
     capture: dict | None = None
 
 
-def _snapshot_provenance(pinned: Path | None, result: SnapshotResult) -> SnapshotProvenance:
+def _snapshot_provenance(
+    pinned: Path | None, result: SnapshotResult, *, manifest: dict | None
+) -> SnapshotProvenance:
+    """`path` names the file the snapshot was read from, not the capture that
+    contains it — `provenance.capture.path` already names that, and FU-40's
+    rule is satisfied by a path a reader can hash, per file, as `fixtures`
+    already reports."""
     if pinned is not None:
-        return SnapshotProvenance(source="pinned", captured_at=result.snapshot.fetched_at, path=pinned)
+        path = pinned / capture.BOOTSTRAP_FILENAME if manifest is not None else pinned
+        return SnapshotProvenance(source="pinned", captured_at=result.snapshot.fetched_at, path=path)
     return SnapshotProvenance(
         source="cache" if result.stale else "live", captured_at=result.snapshot.fetched_at
     )
@@ -204,7 +212,7 @@ def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
         )
     return LoadedSnapshot(
         snapshot=result.snapshot,
-        provenance=_snapshot_provenance(pinned, result),
+        provenance=_snapshot_provenance(pinned, result, manifest=manifest),
         capture=_capture_block(pinned, manifest),
     )
 

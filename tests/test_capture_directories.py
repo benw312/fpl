@@ -198,6 +198,10 @@ def test_a_directory_capture_pins_both_files_and_touches_neither_cache(
     assert payload["recommendation"]["description"].startswith("P3→Star")
     assert payload["provenance"]["snapshot"]["source"] == "pinned"
     assert payload["provenance"]["fixtures"]["source"] == "pinned"
+    # Each names the file it was read from, not the directory holding both:
+    # `provenance.capture.path` names that, and FU-40's citation wants a path a
+    # reader can hash.
+    assert payload["provenance"]["snapshot"]["path"] == str(directory / "bootstrap-static.json")
     assert payload["provenance"]["fixtures"]["path"] == str(directory / "fixtures.json")
     assert (_fingerprint(bootstrap_cache), _fingerprint(fixtures_cache)) == before
 
