@@ -9,8 +9,81 @@ from the plans in this directory, so it must not shift. A closed entry carries a
 code, not just what the commit claimed. Its body is left as written, so where the
 fix diverged from the entry the Status line says how.
 
-**Last reconciled against `main`:** 2026-08-27 (`76809ae`). FU-28 is marked closed
-against `task/fu-28-dominance`, which is not on `main` yet; its Status line says so.
+**Last reconciled against `main`:** 2026-08-28 (`99e5afb`). Every entry below was
+checked against the source at that commit, not against the commit log.
+
+Five merges landed since the previous reconciliation at `76809ae`, not four:
+`30fc761` (FU-28), `8bcfda8` (`task/snapshot-pinning`, which filed FU-40),
+`670859c` (FU-41), `c44ce00` (`task/archive-dir`, FU-42) and `99e5afb`
+(`task/event-live-gate`, FU-43) — plus `a828b5a`, a direct commit that closed
+FU-28, FU-36 and FU-37 in this file. `task/snapshot-pinning` is the one usually
+forgotten, and it is the merge that moved the most entries: FU-40 was filed by it
+and FU-13's premise was falsified by it.
+
+**Findings of this pass, in the order they matter:**
+
+- **FU-19 has regressed** and is the one to act on. It was closed on the strength
+  of `CLAUDE.md`'s *"Not yet written"* line being reduced to `domain/optimizer.py`
+  alone. `domain/optimizer.py` is now 960 lines, so that line is false again — the
+  same defect the entry was filed for, in the same field. Reopened below.
+- **FU-13 is partially closed** by `task/snapshot-pinning`: `--json` exists, on
+  `plan optimise` only.
+- **FU-43 is partially closed**, and its Status line has been changed from
+  *landed* to say which half.
+- **No entry was found closed in code but unmarked**, the failure this pass exists
+  to catch. FU-13 is the near miss: its headline claim was false and its Status
+  line absent.
+- Thirteen open entries cite line numbers or symbols that have moved. Bodies
+  corrected in place; the corrections are marked so the original claim is still
+  legible.
+- **There is no FU-38.** It appears nowhere in this file, in `docs/`, in `src/`, in
+  `tests/`, or in any commit message on any branch. Most likely a number claimed and
+  abandoned before the entry was written. Recorded rather than reused: the header's
+  own rule is that numbering must not shift, and silently filling the hole would make
+  a future reader think an entry was deleted.
+
+**Closed entries were spot-checked too, where a commit claimed the close.** FU-28's
+Status line is accurate in every particular: exclusion is at
+`len(dominators) >= max_from_bucket` with `max_from_bucket = min(limit,
+position.squad_select)` (`optimizer.py:247, 269`), the inner loop skips
+`not _validator_usable(other)` (`:258`), admission is unchanged, `DEFAULT_MAX_CELLS` is
+`800_000_000`, and `dominance_pruning_unsound` is absent from the payload with
+`tests/test_cli_optimise.py:226` asserting it. FU-36 and FU-37's three named tests exist
+at the exact lines cited (`tests/test_optimizer.py:252, 1153, 1200`), and FU-36's
+`assert rejections` reachability check is present. FU-41's claims hold:
+`MANIFEST_VERSION = 2`, `ROLE_CANONICAL`/`ROLE_ADHOC`, and `write_capture` staging into
+place. No closed entry was found to overstate its close.
+
+**Every open entry, and what this pass concluded.** *Still open* means checked against
+the source and the defect is still there.
+
+| Entry | Outcome | Basis |
+|---|---|---|
+| FU-4 | Still open, body accurate | No `sqlite` anywhere in `src/`; `storage/cache.py` is JSON only |
+| FU-5 | Still open, body accurate | `chips_played` is written (`squad.py:455`) and parsed (`transfers.py:83`), read by nothing |
+| FU-6 | Still open, body accurate | `SquadPlan.starters/captain/vice_captain` still one value each (`squad.py:23-25`) |
+| FU-9 | Still open, body accurate | `to_ledger_payload` emits `log` and `chips_played` only — no XI, captain or vice-captain |
+| FU-12 | Still open, **lines corrected** | `from rich import print` at `cli.py:12`, still mixed with `console.print` |
+| FU-13 | **Partially closed** | `--json` on `plan optimise` only (`cli.py:649`); five commands still print-only |
+| FU-14 | Still open, **body corrected** | `plan optimise` landed; `squad import`/`export`, `players show`, `squad show` still absent |
+| FU-15 | Still open, **lines corrected** | README Commands block still lists three commands, still documents the legacy squad shape |
+| FU-17 | Still open, **lines corrected** | `cli.py:307` unchanged; no `BadParameter` for an unknown club |
+| FU-18 | Still open, **note corrected** | `presentation.py` now 376 lines, eleven renderers; the decision deadline has passed |
+| FU-19 | **REOPENED — regressed** | `CLAUDE.md` still says `optimizer.py` is not yet written; it is 960 lines |
+| FU-20 | Still open, **lines corrected** | `_build_schedule` still private (`projections.py:219`); no `fixture_count` |
+| FU-21 | Still open, **lines corrected** | `chance_of_playing_this_round` still parsed nowhere |
+| FU-22 | Still open, **body corrected** | `--output` exists but writes a transfers plan, not a `SquadPlan` — trigger unmet |
+| FU-25 | Still open, body accurate | `DEFAULT_FT_VALUE = 1.5` still a constant (`optimizer.py:48`); no estimator |
+| FU-27 | Still open (won't-do), **symbols corrected** | `_xi_structure`/`_XiStructure` renamed public by FU-26; `ranked` tuples still built |
+| FU-29 | Still open, body accurate | No `"--schedule"` string in `cli.py` |
+| FU-30 | Still open, **lines corrected** | `simulate_plan` still takes no `--model` (`cli.py:384`) |
+| FU-31 | Still open, **body corrected** | No `--beam`/`--first-moves`/`--max-cells`; default is now 800M, not 400M |
+| FU-34 | Decided, not implemented — unchanged | No re-check needed; the entry records a decision, not a code claim |
+| FU-35 | **Still open, and confirmed so by FU-28's own source comment** | `optimizer.py:219-223` names FU-35 as the owner of the admission line; `:231` unchanged |
+| FU-39 | Still open, body accurate | `DEFAULT_MAX_CELLS` still appears in exactly two places, both `optimizer.py` (`:60`, `:851`) |
+| FU-40 | Open permanently; **two passages superseded** | Standing rule, not closable; FU-41 landed the bundle format it assumed absent |
+| FU-42 | Still open, body accurate | `--archive-dir` at `cli.py:248`; all four cache paths still hardcoded; `FPL_SNAPSHOT` still the only env var read |
+| FU-43 | **Partially closed** | Gate landed; `capture.py` still writes two files, so event-live is not pinned |
 
 ---
 
@@ -382,14 +455,20 @@ enabler. Least visible in pre-season, most damaging late.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8 (CLI audit).
 
-`cli.py:9` does `from rich import print`, shadowing the builtin, *and* `cli.py:31-39`
+`cli.py:12` does `from rich import print`, shadowing the builtin, *and* `cli.py:64`
 imports `console` from `presentation`. Both are used, seemingly at random, within
 the same function. `fpl squad create` uses `console.print` for its own messages
-(`cli.py:121, 124, 132, 135, 144, 149`) but bare `print` for validation errors and
-warnings (`cli.py:140, 142`). `fpl plan simulate` uses `console.print` for tables
-(`cli.py:197, 205`) but bare `print` for the legacy warning, the per-gameweek
-diagnostics and the two summary lines (`cli.py:180, 200, 202, 206, 207`).
+(`cli.py:325, 328, 336, 339, 348, 353`) but bare `print` for validation errors and
+warnings (`cli.py:344, 346`). `fpl plan simulate` uses `console.print` for its table
+(`cli.py:440`) but bare `print` for the legacy warning (`cli.py:395`).
 `builder.py` uses `console` exclusively.
+
+*[Line numbers re-checked 2026-08-28 against `99e5afb`; the originals were `cli.py:9`,
+`31-39`, `121, 124, 132, 135, 144, 149`, `140, 142`, `197, 205` and
+`180, 200, 202, 206, 207`. The defect is unchanged — the mix is still there, in the
+same two commands. One thing did move on its own: `plan simulate`'s error paths now go
+through `error_console` (`cli.py:392, 403, 411, 418`), added by FU-3's exit-code work,
+so that command is now three channels rather than two.]*
 
 Two output channels means width detection, output capture and `NO_COLOR`/
 `--no-color` handling differ between lines of the same command's output.
@@ -406,9 +485,31 @@ place to suppress or redirect output.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
-Every command prints a Rich table or styled text and nothing else. There is no
-`--json` anywhere, so no command's output can be consumed by a script or diffed
-programmatically.
+**Status: partially closed** — `8bcfda8` *Merge task/snapshot-pinning* (2026-08-28).
+Checked in the source: `cli.py:649` declares `--json` on `fpl plan optimise` and it is
+the **only** `"--json"` string in the module. So the half that mattered most is done —
+the optimiser emits a payload, and it carries the `provenance` block FU-40's rule is
+written around — and the headline above is now false as written.
+
+**What remains, and it is most of the surface.** `players list`, `squad create`,
+`squad validate`, `plan simulate` and `plan evaluate` still print Rich tables and
+nothing else. `plan evaluate` is the one that bites: it is the command whose numbers
+get quoted, and FU-43 had to report event-live settled-ness on the console for want of
+a payload to put it in.
+
+**The entry's own sequencing turned out to be wrong, and that is worth recording.**
+It said *"Needs FU-12 first — a single output channel, before there is anything to
+switch."* `--json` landed with FU-12 untouched: `cli.py:12` still does
+`from rich import print` alongside the `presentation.console` import. It was possible
+because `optimise --json` writes to `stdout` directly and the surrounding notices were
+moved to `stderr` to keep the payload parseable, rather than because the channels were
+unified. That is a narrower fix than FU-12 and it does not generalise — each further
+`--json` will have to repeat the stderr discipline by hand until FU-12 lands. FU-12 is
+therefore still a prerequisite for doing this *well*, and was not one for doing it
+*once*.
+
+Every other command prints a Rich table or styled text and nothing else, so its output
+cannot be consumed by a script or diffed programmatically.
 
 This matters most for the optimiser: [optimizer-ux.md](optimizer-ux.md) §1 makes
 `fpl plan optimise --output` → `fpl plan simulate` the mechanism that satisfies
@@ -425,10 +526,15 @@ switch.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
-The README Agent Plan names nine commands. Six exist (`sync`, `players list`,
-`squad create`, `squad validate`, `plan simulate`, `plan evaluate`). Missing:
-`fpl players show`, `fpl squad show`, `fpl squad import`/`export`, and
-`fpl plan optimize`.
+The README Agent Plan names nine commands. Seven exist (`sync`, `players list`,
+`squad create`, `squad validate`, `plan simulate`, `plan optimise`, `plan evaluate`).
+Missing: `fpl players show`, `fpl squad show`, and `fpl squad import`/`export`.
+
+*[Corrected 2026-08-28 against `99e5afb`: the original listed six commands and named
+`fpl plan optimize` among the missing. It landed on `task/optimise-cli` —
+`cli.py:637` registers `plan optimise`, with `plan optimize` kept as a hidden alias at
+`cli.py:1018`. The entry's own scope is unaffected: it covers `squad import`/`export`
+only, and those are still absent.]*
 
 `fpl squad show` and `fpl players show` are **not** filed here — both are
 load-bearing for the optimiser workflow and are specified in
@@ -445,19 +551,26 @@ or a named-squad store ever appears.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
-`README.md:25-33` lists three commands (`sync`, `players list`,
-`squad validate`), omitting `squad create`, `plan simulate` and `plan evaluate`.
-Worse, `README.md:33` describes a squad plan as *"a JSON object containing a
-`players` array of player IDs"* — the **legacy** format. `fpl squad create` now
-writes a transfer ledger (`version`/`genesis_event`/`log`), and the legacy shape
+`README.md:40-45` lists three commands (`sync`, `players list`,
+`squad validate`), omitting `squad create`, `plan simulate`, `plan optimise` and
+`plan evaluate`. Worse, `README.md:48` describes a squad plan as *"a JSON object
+containing a `players` array of player IDs"* — the **legacy** format. `fpl squad create`
+now writes a transfer ledger (`version`/`genesis_event`/`log`), and the legacy shape
 survives only as `Ledger.from_file`'s fallback, which sets `legacy=True` and
 produces optimistic selling prices.
 
 A user following the README today builds the one squad format the app warns
 about.
 
-**Also stale:** `README.md:5-12` ("The first slice supports…") predates the
+**Also stale:** `README.md:7-12` ("The first slice supports…") predates the
 squad builder, transfer simulation and projections.
+
+*[Line numbers re-checked 2026-08-28 against `99e5afb`; originally `25-33`, `33` and
+`5-12`. The drift is `task/snapshot-pinning`, `task/archive-dir` and
+`task/event-live-gate`, each of which added a section **above** Commands. Note what
+that means: three consecutive branches updated the README and none of them touched the
+Commands block, so it has now been stale across four merges. The omission is wider than
+when this was filed — `plan optimise` has been added to the missing list.]*
 
 ---
 
@@ -478,7 +591,7 @@ content is not duplicated.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
-`cli.py:104`:
+`cli.py:307`:
 
 ```python
 players = [player for player in players if player.team == club_id] if club_id else []
@@ -486,9 +599,12 @@ players = [player for player in players if player.team == club_id] if club_id el
 
 An unrecognised `--club` yields `club_id is None` and therefore an empty result
 with no message — indistinguishable from a club that genuinely has no matching
-players. Two lines above, `--position` raises
+players. Four lines above, `--position` raises
 `typer.BadParameter("Use GKP, DEF, MID, or FWD.")` for the same class of error
-(`cli.py:99-100`).
+(`cli.py:303`).
+
+*[Line numbers re-checked 2026-08-28 against `99e5afb`; originally `cli.py:104` and
+`99-100`. The code itself is byte-identical — only its position moved.]*
 
 **Fix:** raise `typer.BadParameter` naming the unknown club, matching
 `--position`. Club names come from the snapshot, so the valid set is known at
@@ -503,9 +619,17 @@ the point of failure.
 `CLAUDE.md`'s Structure block now states the flat module *and* names the conflict with
 the README Agent Plan, so the two no longer disagree silently. What remains is the
 decision this entry was actually filed for — split into a package and update
-`CLAUDE.md`, or amend the README's file list. Note the entry's line count is stale:
-`presentation.py` is 200 lines now, still with seven renderers — the growth is the
-`error_console` singleton added by FU-3, not another renderer.
+`CLAUDE.md`, or amend the README's file list.
+
+*[Re-checked 2026-08-28 against `99e5afb`. The line count in this Status note was
+already a correction of the body's; both are now stale again, and in the direction that
+matters. `presentation.py` is **376 lines with eleven renderers** — it was 185 in the
+body, 200 in this note. More to the point, the four renderers this entry named as the
+reason to decide *before* they landed have landed: `optimise_paths_table:302`,
+`optimise_why_table:346`, `optimise_recommendation:325` and `optimise_header:223`, which
+is the provenance panel. **The deadline this entry set for itself has passed and the
+decision was not taken.** That is the finding, not the line count — the file doubled
+under an open question about whether it should be a file at all.]*
 
 The README Agent Plan's file list names `src/fpl_cli/presentation/` — a package.
 The repo has `src/fpl_cli/presentation.py`, a flat module, now at 185 lines with
@@ -523,8 +647,35 @@ fine; the conflict is not.
 ## FU-19 — `CLAUDE.md`'s "not yet written" line is stale
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
-**Status: closed** — `33cd761` *Give typer.Exit an exit code, not a message (FU-3,
-FU-16); fix CLAUDE.md Structure (FU-19)* (2026-08-26). Verified against the tree:
+
+**Status: REOPENED — regressed** (2026-08-28 reconciliation, checked against `99e5afb`).
+`CLAUDE.md`'s Structure block still reads *"Not yet written: domain/optimizer.py."*
+`src/fpl_cli/domain/optimizer.py` is 960 lines and has been on `main` since
+`task/optimise-cli`; `domain/` in that same block does not list it either. The close
+below was correct when written — the line was reduced to `optimizer.py` alone, and
+`optimizer.py` genuinely did not exist — but the entry is *"the 'not yet written' line
+is stale"*, and it is stale again in the same field.
+
+This is the same failure mode the original close diagnosed, and it recurred the same
+way: the commit that **added** the module did not update the block naming it as
+missing. The first time it was `b522572` adding `builder.py`; this time it is the
+`plan optimise` work adding `optimizer.py`. That is twice, which makes it a property of
+the block rather than an accident — `CLAUDE.md`'s Structure section is a hand-maintained
+list of files that nothing checks against the tree, so it is wrong by default whenever a
+module lands and right only when someone remembers.
+
+**Fix:** delete the *"Not yet written"* line — there is nothing left in it — and add
+`optimizer.py` to the `domain/` list. **Not done here:** this branch reconciles
+`follow-ups.md` and changes nothing else.
+
+`[gap: a test asserting `CLAUDE.md`'s Structure block against the actual tree would
+close this permanently and is the only thing that would. Not filed as its own entry
+because the reconciliation pass has no mandate to invent work; noted here so the option
+is on the record next time this regresses.]`
+
+**Original close, left as written** — `33cd761` *Give typer.Exit an exit code, not a
+message (FU-3, FU-16); fix CLAUDE.md Structure (FU-19)* (2026-08-26). Verified against
+the tree at the time:
 `transport.py` is listed at top level where it actually lives, `domain/` now lists
 `evaluation.py`, `projections.py` and `strength.py`, `builder.py` is listed, paths are
 stated as relative to `src/fpl_cli/`, and *"Not yet written"* is down to
@@ -566,9 +717,15 @@ line in the README.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.7.
 
-`projections.py:216-233` maps `event -> team -> list[_FixtureLeg]`, skipping
+`projections.py:219-236` maps `event -> team -> list[_FixtureLeg]`, skipping
 fixtures with `event is None`. It is the **only** machinery in the repo that
 knows about blank and double gameweeks, and it is private to `projections.py`.
+
+*[Line numbers re-checked 2026-08-28 against `99e5afb`; originally `216-233`.
+`_build_schedule` is still private and there is still no `fixture_count` helper. It now
+has three call sites inside the module (`projections.py:257, 334, 376`), one per
+projection model — so the "second caller" test this entry proposes for promoting it is
+already met internally, though not yet by anything outside the module.]*
 
 [optimizer-ux.md](optimizer-ux.md) §5 annotates a projection of `0.0` with
 "GW8: Bournemouth blank (0 fixtures)", which requires the fixture count for a
@@ -588,9 +745,14 @@ second caller genuinely needs the legs.
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md) §8, while diagnosing FU-11.
 
 `api/models.py` parses `status`, `news` and `chance_of_playing_next_round`
-(`models.py:21, 22, 26`) but not `chance_of_playing_this_round`, which the API
+(`models.py:22, 23, 27`) but not `chance_of_playing_this_round`, which the API
 also publishes. `_availability` (`projections.py:59-66`) therefore has one
 numeric availability signal where the API offers two.
+
+*[Line numbers re-checked 2026-08-28 against `99e5afb`; the model fields were cited as
+`21, 22, 26`. `_availability`'s range is unchanged at `59-66`, and its body is
+unchanged: `chance_of_playing_next_round` first, then `status` in {"d", "a"}.
+`chance_of_playing_this_round` still appears nowhere in `src/`.]*
 
 The two differ in a way that matters mid-gameweek: `..._this_round` reflects the
 gameweek in progress, `..._next_round` the one after. A player injured during a
@@ -612,15 +774,25 @@ horizon starts at the current event rather than the next one.
 
 **Deferred from:** `task/best-xi`.
 
-`best_xi` (`domain/squad.py`) returns a `BestXI(starters, captain)` — no
-vice-captain. `validate_plan` (`domain/squad.py:55-60`) requires one: it must
-be one of the starters and must differ from the captain.
+`best_xi` (`domain/squad.py:279`, returning `BestXI` at `:92`) returns
+`(starters, captain)` — no vice-captain. `validate_plan` (`domain/squad.py:64-66`)
+requires one: it must be one of the starters and must differ from the captain.
 
 **Not needed yet** — nothing currently calls `best_xi` to produce a plan file.
 It becomes load-bearing once `fpl plan optimise --output` (or whatever writes
 a `SquadPlan`/ledger from optimiser output) exists: that round-trip needs a
 complete, `validate_plan`-passing file, so the write path can't omit
 `vice_captain`.
+
+*[Re-checked 2026-08-28 against `99e5afb`; `validate_plan`'s vice-captain checks were
+cited at `55-60`. **`fpl plan optimise --output` now exists** (`cli.py:648`) — but the
+trigger this entry names is still unmet, and the distinction is the whole point of the
+entry. `--output` writes a **transfers plan** through
+`transfers.write_transfers_plan` (`domain/transfers.py:116`), a mapping of event to
+transfers; it does not write a `SquadPlan` or a ledger, so `validate_plan` is not on
+that path and no `vice_captain` field is emitted or required. The entry stays open and
+still-not-urgent, but its "once `--output` exists" wording now reads as satisfied when
+it is not — the condition is a writer of `SquadPlan`, not the flag.]*
 
 **Candidate fix:** second-highest-`xp_total` starter, by the same
 `(-xp_total, player_id)` ordering `best_xi` already uses to pick the captain —
@@ -907,10 +1079,10 @@ the repo, so nothing in it can confirm them today.
 
 **Deferred from:** FU-24's re-measurement (2026-08-26, `task/optimizer-cost-budget`).
 
-`_xi_structure` (`domain/squad.py`) builds one structure serving both halves of the
-FU-24 split, so `xi_value` pays for two things it never reads: the per-position
-`ranked` tuples, which only the witness materialises from, and the frozen
-`_XiStructure` dataclass wrapping seven fields. It also calls `legal_formations`
+`xi_structure` (`domain/squad.py:161`) builds one structure serving both halves of the
+FU-24 split, so `xi_value` (`:257`) pays for two things it never reads: the per-position
+`ranked` tuples, which only the witness materialises from (built at `:176`, filled at
+`:191`), and the `XiStructure` container. It also calls `legal_formations`
 (2.3 µs, mostly the `spec` tuple build and cache-key hash) and resolves every
 `xp_total` through a closure over the Pydantic model on each of ~34 accesses.
 
@@ -931,6 +1103,17 @@ what make `xi_value` readable as the definition of the objective.
 
 **Recommend closing as won't-do** unless a pure-Python scoring path reappears. Left
 open only because that is a judgement call rather than a fact.
+
+*[Re-checked 2026-08-28 against `99e5afb`. Two symbols this entry names were renamed by
+FU-26's `NodeScorer` work and no longer exist under the cited names: `_xi_structure` is
+now the **public** `xi_structure` (`squad.py:161`) and `_XiStructure` is now
+`XiStructure` — the kernel needed the structure across the module boundary. Body
+updated. The measurements (43.8 µs / 33 µs / 24.9 µs, 1.76×) are **not** re-verified:
+they were taken on a live snapshot with a benchmark that is not in the repo, and
+re-taking them needs a pinned capture under FU-40's rule. Treat them as indicative of
+the shape, not as current figures. The substance is unchanged — the witness-only
+`ranked` tuples are still built for both callers, and the won't-do recommendation still
+stands.]*
 
 The property test in `tests/test_xi_value.py` is what makes it safe to try: any
 divergence between a faster `xi_value` and `best_xi` fails there.
@@ -1077,9 +1260,17 @@ exist, and stub flags tend to outlive the reason they were added.
 **Deferred from:** `task/optimise-cli`, while verifying the `optimise --output` →
 `simulate` round-trip live.
 
-`simulate_plan` (`cli.py:244`) builds `model = ComponentProjection(...)` unconditionally
-— there is no way to tell it which model to project with. `fpl plan optimise` (this
-branch) takes `--model component | naive | official-ep`. Run it with anything but the
+`simulate_plan` (`cli.py:384`) builds `model = ComponentProjection(...)` unconditionally
+— there is no way to tell it which model to project with. `fpl plan optimise`
+(`cli.py:637`) takes `--model component | naive | official-ep`.
+
+*[Line numbers re-checked 2026-08-28 against `99e5afb`; originally `cli.py:244`.
+The defect is unchanged: `simulate_plan`'s signature is
+`(squad_path, transfers_path, snapshot_path)` — no `--model`. Both commands did gain
+`--snapshot` from `task/snapshot-pinning`, which narrows the *other* half of the
+round-trip's exposure (both sides can now be pinned to one capture) without touching
+this one. If anything that sharpens the entry: the round-trip is now reproducible and
+still not comparable.]* Run it with anything but the
 default and pipe `--output` into `plan simulate`: the transfers apply and the squad
 structure round-trips (legality is checked inside `apply_transfers`, which doesn't
 touch projections at all), but the printed Points column is `ComponentProjection`'s
@@ -1135,10 +1326,19 @@ concern, this one was CLI wiring for `optimise`.
 §7.1 against the live snapshot.
 
 `domain.optimizer.optimise()` takes `beam`, `first_moves` and `max_cells` keyword
-arguments (`optimizer.py:785-787`, defaults `DEFAULT_BEAM = 4`, `DEFAULT_FIRST_MOVES
-= 50`, `DEFAULT_MAX_CELLS = 400_000_000`), but `optimise_plan` (`cli.py:454-465`)
+arguments (`optimizer.py:849-851`, defaults `DEFAULT_BEAM = 4`, `DEFAULT_FIRST_MOVES
+= 50`, `DEFAULT_MAX_CELLS = 800_000_000`), but `optimise_plan` (`cli.py:638-651`)
 does not thread any of them through — there is no way to run `fpl plan optimise` at a
 non-default beam width, or to raise the cost ceiling, from the command line at all.
+
+*[Re-checked 2026-08-28 against `99e5afb`; originally `optimizer.py:785-787` and
+`cli.py:454-465`, with `DEFAULT_MAX_CELLS = 400_000_000`. The default was raised to
+800M by FU-28 (`b9706c6`) — see FU-39, which exists because of that raise. The three
+flags are still absent: grepping `"--beam"`, `"--first-moves"` and `"--max-cells"` in
+`cli.py` returns nothing, while `optimise_plan` has since gained `--decay`,
+`--robustness`, `--explain`, `--output`, `--json` and `--snapshot`. Six flags were added
+to this command without these three, which is worth weighing when the entry is
+picked up: the omission is now a deliberate-looking gap rather than an oversight.]*
 
 **Found while measuring, not while building.** optimizer-search.md §5.5 documents
 `--beam 2, 4, 8` as if it were a CLI flag; it never was one. Re-measuring §5.5 and
@@ -1413,9 +1613,10 @@ and horizon 8 at `--beam 4` back inside the 120 s budget.
 **Deferred from:** `task/fu-34-resolution` (optimizer-search.md §7.1f), where it turned
 up as the cause of every rejection FU-34 measured.
 
-`_dominance_pool` (`optimizer.py:184`) admits a player on `can_transact and not
-removed`. `validate_squad_structure` (`rules.py:57`) rejects a squad containing one that
-is `not can_select or removed`. `can_select` is not checked anywhere between the two, so
+`_dominance_pool` (`optimizer.py:191`) admits a player on `can_transact and not
+removed` (`optimizer.py:231`). `validate_squad_structure` (`rules.py:57`) rejects a
+squad containing one that is `not can_select or removed`. `can_select` is not checked
+between the two on the admission path, so
 a player with `can_transact=True, can_select=False, removed=False` enters the pool, is
 enumerated, masked, scored and materialised at every node of the search — and is then
 thrown away by the validator, along with the retained top-k slot it occupied.
@@ -1444,6 +1645,27 @@ justification.
 separate API fields; §5.2's pool and §5.3's validator currently encode different
 answers to "is this player usable". One of them is wrong, and the plan does not say
 which.
+
+*[Re-checked 2026-08-28 against `99e5afb`. **This entry is confirmed still open, and
+FU-28 explicitly left it so.** `optimizer.py:219-223` carries the note in the source:
+*"Admission — `can_transact and not removed`. Unchanged. … **FU-35 owns this line, not
+FU-28.**"* The admission list at `optimizer.py:231` is unchanged, as that note says.
+
+What FU-28 *did* change is narrower and answers half of the authoritative-flag question
+above: dominance **counting** now additionally requires `_validator_usable`
+(`optimizer.py:180-188`), which mirrors `rules.py:57`. So for "may this player be
+counted as a dominator", the validator's `can_select` is now authoritative — FU-28's
+exchange argument needs a dominator that can legally replace the excluded player. For
+"may this player enter the pool at all", nothing has changed and the two predicates
+still disagree. When this entry is picked up, the question is narrower than as written:
+not "which flag is authoritative" in general, but "should admission follow counting",
+where counting has already been settled.
+
+Line numbers corrected above (`optimizer.py:184` → the function at `:191`, the admission
+list at `:231`); `rules.py:57` is unchanged. The measurements — 189→185 pool, four
+players, 335 rejections, 42 of 614 snapshot-wide — are **not** re-verified: they were
+taken against a live snapshot that no longer exists, and re-taking them needs a pinned
+capture under FU-40's rule.]*
 
 **Unblocks:** removes 335 wasted materialisations per default run (a rounding error next
 to FU-34), and closes the false-exclusion path above, which is the real reason to do it.
@@ -1664,6 +1886,13 @@ branch did not run.]`
 exist as of `task/snapshot-pinning`; what remains is the discipline of using them,
 which no test can enforce.
 
+**Status: open — and open permanently, by construction.** Not closable: a rule about
+what a human writes in a commit message has no code to check. Re-read 2026-08-28
+against `99e5afb`. The rule stands as written; **two passages of the reasoning below
+are now out of date**, both because FU-41 landed the bundle format this entry assumed
+would not exist. They are marked inline rather than rewritten, because the argument for
+the rule is the part worth preserving and it is unaffected.
+
 **The rule.** Any figure quoted in `docs/plans/` or in a commit message must name
 **both** captures it was measured against: the pinned bootstrap-static capture, and the
 fixtures cache. Path and `captured_at` for each. "Measured against the cached snapshot"
@@ -1695,8 +1924,28 @@ need not agree.** The pin makes that drift visible rather than impossible:
 `provenance.fixtures.captured_at` is the fixtures cache's mtime, so a re-measurement
 that disagrees can be attributed instead of argued about.
 
+*[**Superseded for directory captures, 2026-08-28 (`670859c`, FU-41).** The paragraph
+above is true only of a **bare-file** pin now. A capture is a directory holding
+`bootstrap-static.json` and `fixtures.json` together with a manifest recording a sha256
+for each (`storage/capture.py:28-29, 273-285`); `PinnedSnapshotService.load_fixtures`
+reads the capture's own fixtures and verifies them, reporting
+`provenance.fixtures.source` as `pinned` rather than `cache`. So for a directory
+capture the drift described above cannot happen, and two pinned runs on different days
+**do** agree on fixtures.
+
+The rule is unchanged and the fixtures line is still not optional — it is now the thing
+that tells a reader *which* of the two situations produced the figure. Read
+`provenance.fixtures.source`: `pinned` means the fixtures came from the capture and the
+citation is complete; `cache` means a bare-file pin fell back to
+`~/.fpl-cli/fixtures.json` and every word of the paragraph above applies. The four
+pre-FU-41 archives are bare files, and one of them is the only pre-deadline capture for
+GW2, so `cache` remains reachable and is not a legacy case yet.
+
+Line numbers also drift: `load_fixtures`'s write is `api/snapshots.py:364` and
+`refresh_fixtures`'s is `:370` (originally `:155` and `:161`).]*
+
 The exposure is not confined to blanks and doubles. `_build_schedule`
-(`domain/projections.py:218`) turns the fixtures list into opponent *and venue* per team
+(`domain/projections.py:219`) turns the fixtures list into opponent *and venue* per team
 per event, and `ComponentProjection` feeds both into `rates(team, opponent, home)` for
 every projected cell — so a changed fixtures file moves every component of every
 projection, not only the fixture counts.
@@ -1722,6 +1971,25 @@ flag; snapshot-pinning.md §5 records the choice as open, and neither was in sco
 `task/snapshot-pinning`. Until one lands, this entry's rule is the only thing standing
 between a fixtures rewrite and a silently invalidated figure — and unlike the
 bootstrap-static half, no tooling enforces it.]`
+
+*[**Half closed, 2026-08-28.** The gap above had two halves and they have diverged:*
+
+- ***Fixtures: closed*** *by FU-41 (`670859c`). The bundle format landed; a directory
+  capture pins fixtures alongside bootstrap-static, digest-verified.*
+- ***Event-live: open***, *and the paragraph above still describes it exactly.
+  `storage/capture.py` writes and verifies two files and there is no third
+  (`capture.py:171, 273-285`), so a pinned run still reads
+  `~/.fpl-cli/events/{gw}-live.json` through the ordinary cache. FU-43 (`99e5afb`)
+  narrowed the damage without closing this: an event-live payload now records whether
+  the gameweek had settled, and a pinned run refuses one that cannot prove it was
+  final — so a provisional payload can no longer be scored as final. A settled payload
+  is still not pinned, and if it is later corrected the figure moves without the capture
+  moving.*
+- ***`plan evaluate` still has no `--json`***, *so the sentence above stands: a figure
+  from it carries its event-live provenance by hand. What FU-43 added is a console line
+  stating finality (`cli.py:1021`), which is a partial substitute — it tells a reader
+  whether the actuals were final, but not which file they came from or when it was
+  written. FU-43's own gap block asks for the flag; FU-13 tracks the wider surface.]*
 
 ---
 
@@ -1945,9 +2213,28 @@ guarantee nobody can see.]`
 
 ## FU-43 — An event-live payload must say whether the gameweek had settled
 
-**Status: landed** — `task/event-live-gate`. The event-live cache is now an envelope
-recording the gameweek's `finished` and `data_checked` at the moment of the fetch;
-neither service serves an unsettled or unrecorded payload silently.
+**Status: partially closed** — `99e5afb` *Merge task/event-live-gate* (2026-08-28).
+Checked in the source, not taken from the commit message.
+
+**The half that is closed — the gate.** `api/snapshots.py:117` defines
+`LIVE_CACHE_VERSION`, and `_parse_live_event_cache` classifies a cached payload
+`settled` / `unsettled` / `unknown` from the `finished` and `data_checked` it records.
+`SnapshotService.load_event_live` requires `cached.state == LIVE_SETTLED` before a cache
+hit and otherwise refetches; `PinnedSnapshotService.load_event_live` raises
+`PinnedSnapshotError` for either non-settled state and no longer consults the pinned
+snapshot at all. `evaluate_plan` calls `_report_live_provenance` (`cli.py:1021`), which
+prints finality in both directions.
+
+**The half that is not — event-live is still not in the capture.** `storage/capture.py`
+writes and verifies exactly two files: `BOOTSTRAP_FILENAME` and `FIXTURES_FILENAME`
+(`capture.py:28-29`, `171`, `273-285`). There is no third. So a pinned run still reads
+`~/.fpl-cli/events/{gw}-live.json` through the ordinary cache, the manifest still does
+not cover it, and two pinned runs of the same capture can still read different actuals
+if the payload is corrected between them. The gate stops a *provisional* payload being
+scored as final; it does not make a *settled* one reproducible.
+
+This is snapshot-pinning.md §5's first gap and the FU-41 note above, both of which stand
+unchanged. Do not read this entry as closing them.
 
 **Deferred from:** [snapshot-pinning.md](snapshot-pinning.md) §5, whose second gap this
 closes. §5's *first* gap — event-live is not in the capture — is untouched and stays
