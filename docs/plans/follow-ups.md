@@ -1854,6 +1854,13 @@ close it. Neither was needed for `--snapshot`, so neither was built — but note
 argument above, that an evaluation against loose inputs is a wrong number rather than an
 irreproducible one, applies to event-live exactly as it applied to fixtures.]`
 
+**Partly addressed by FU-43**, which is not the same as closed. `task/event-live-gate`
+stopped a provisional event-live payload being scored as final, and gave it a
+settled-ness provenance reported on the console. It did **not** put event-live in the
+capture: a pinned run still reads `~/.fpl-cli/events/{gw}-live.json`, the manifest still
+does not cover it, and `plan evaluate` still has no `--json`. The gap above stands as
+written.
+
 `[gap: `fpl-sync.service` and `fpl-sync.timer` live in `~/.config/systemd/user/` and
 are not in version control, so the reasoning above is the only record of why the
 calendar spec is what it is. A `deploy/` directory holding both units would make the
@@ -1933,3 +1940,92 @@ is a separate question and is deliberately not answered here. Note only that it
 is the same trade-off in a larger frame: whatever is chosen must move all four
 paths together or none, because the failure mode being avoided is a partial
 guarantee nobody can see.]`
+
+---
+
+## FU-43 — An event-live payload must say whether the gameweek had settled
+
+**Status: landed** — `task/event-live-gate`. The event-live cache is now an envelope
+recording the gameweek's `finished` and `data_checked` at the moment of the fetch;
+neither service serves an unsettled or unrecorded payload silently.
+
+**Deferred from:** [snapshot-pinning.md](snapshot-pinning.md) §5, whose second gap this
+closes. §5's *first* gap — event-live is not in the capture — is untouched and stays
+open, as does the FU-41 note above.
+
+**The defect.** `SnapshotService.load_event_live` gated on `finished and data_checked`
+before preferring a cached payload; `PinnedSnapshotService.load_event_live` bypassed the
+gate entirely, by a documented decision that turned out to be wrong. FPL awards bonus
+points and applies stat corrections after the final whistle, so a payload fetched at full
+time is materially wrong rather than merely early — and it is wrong in a biased
+direction, since bonus falls on the highest scorers, who are exactly the players a
+projection model is judged by. `plan evaluate` scoring against one produces a figure that
+looks valid and is not.
+
+**Why the obvious fix was the wrong one.** Giving the pinned path
+`SnapshotService`'s gate would have made it worse, not better. That gate reads finality
+out of the snapshot in hand, and under pinning the snapshot in hand is a *pre-deadline*
+capture — it reports the gameweek unfinished because it was taken before the gameweek was
+played. Gating on it refuses every correct backtest there is. Projection inputs and
+outcome data come from opposite sides of the deadline by design; that is the point of a
+backtest, not a flaw in one. Only the outcome payload can speak for the outcome payload,
+and until this branch the payload said nothing.
+
+**The envelope.** `{version, event, fetched_at, finished, data_checked, live}`. The
+reader checks what the file records rather than trusting that the writer was gated
+correctly — a file written by an older build, copied from another machine mid-gameweek,
+or edited by hand is indistinguishable otherwise, and the gameweek's finality *today*
+says nothing about the state the bytes were captured in. A payload with no `version` is
+the pre-envelope shape and classifies as `unknown`, distinct from `unsettled`: the file
+genuinely does not say, and reporting "written before it settled" would be inventing a
+finding. Settled-ness is never inferred from the contents — "some players have bonus, so
+bonus must have been applied" is a heuristic that would be wrong for exactly the gameweek
+where it mattered.
+
+**Refuse, warn or refetch — the call, and why it differs by service.** The two services
+have different options, so one policy for both would be wrong for one of them.
+
+- `SnapshotService` can reach the API, so an unsettled or unrecorded cache is
+  **refetched**, and the file rewritten in the recording format. This is a repair, not an
+  avoidance: the legacy file that forced the refetch is replaced by one a pinned run can
+  use. Refusing here would be a hard failure with a live fix sitting available.
+- `PinnedSnapshotService` cannot fetch, so it **refuses**, naming the file, the flags and
+  the remedy. Refusing was chosen over warning because a pinned run exists to produce a
+  citable measurement — the whole reason to reach for `--snapshot` — and a warned-past
+  wrong number still gets quoted. The counter-argument, that a hard failure mid-run may
+  be worse than a loud warning, does not apply here: the only caller loads event-live
+  before any projection runs, so nothing has been computed or printed and the run costs a
+  re-invocation. It is also the consistent choice — that service already refuses a
+  *missing* cache with the same shape of message, and refusing an absent payload while
+  serving an unusable one would be the incoherence.
+- A **live fetch of an in-flight gameweek is served**, marked unsettled. It is the
+  freshest data in existence, there is nothing better to fall back to and nothing to wait
+  for, so refusing would deny the only answer available rather than protect anyone from a
+  worse one. What must not happen is serving it *silently*.
+
+**Provenance on the console, not in `--json`.** FU-40's rule applied to the third input.
+`plan evaluate` has no `--json` (FU-41's gap), so `evaluate_plan` prints the settled-ness
+above the tables. The settled case is printed too, not just the unsettled one: "no
+warning appeared" is indistinguishable from "the check was skipped", and the point of
+recording finality is that a reader can tell which.
+
+**State on this machine when the branch landed.** `~/.fpl-cli/events/1-live.json`,
+written 2026-08-25, is the pre-envelope shape and classifies as `unknown`. GW1 currently
+reports `finished=true, data_checked=true`, so under the old code it would have been
+served as final on the strength of the gameweek's state alone, with nothing in the file
+to support that. It now refetches on the next unpinned `plan evaluate --event 1`, which
+rewrites it in the recording format; a pinned run refuses until that has happened.
+
+`[gap: `plan evaluate` still has no `--json`, so a figure taken from it cannot be quoted
+with machine-readable provenance the way `plan optimise` can (FU-40). The settled-ness is
+on the console only. Adding `--json` to `plan evaluate` was deliberately kept off this
+branch — it is a command-surface change, not a correctness fix, and bundling it would
+have made the gate harder to review. It is wanted: FU-40's argument for carrying
+provenance into a quotable payload applies to `plan evaluate` at least as strongly as to
+`plan optimise`, since evaluate is the command whose numbers end up in commit messages.]`
+
+`[gap: the write gate is unchanged and still the pre-existing one — an unsettled payload
+is never persisted, so in normal operation the reader's `unsettled` branch is unreachable
+from this build's own writes. It is reachable from an older build, a copied cache, a
+hand-edited file, or any future relaxation of the write gate, which is why the reader
+checks rather than assumes. Tests construct the state directly.]`

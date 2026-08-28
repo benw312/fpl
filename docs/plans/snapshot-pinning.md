@@ -118,11 +118,37 @@ manifest does not cover it, and `plan evaluate` has no `--json` to report its
 provenance through. A third file in the capture would close it; nothing in
 FU-41 needed it, so nothing in FU-41 did it. Recorded in FU-41.]`
 
-`[gap: `PinnedSnapshotService.load_event_live` serves whatever the event-live
-cache holds, bypassing `SnapshotService`'s `finished and data_checked` gate
-(Decision 6) — under pinning there is no live fetch to prefer, so the gate has
-nothing to choose between. A cache written before that gate existed would be
-served as if final.]`
+**Closed** (`task/event-live-gate`, FU-43). This previously read: "
+`PinnedSnapshotService.load_event_live` serves whatever the event-live cache
+holds, bypassing `SnapshotService`'s `finished and data_checked` gate (Decision
+6) — under pinning there is no live fetch to prefer, so the gate has nothing to
+choose between. A cache written before that gate existed would be served as if
+final."
+
+The fix was not to give the pinned path the same gate. That gate reads the
+*gameweek's* finality out of the snapshot in hand, and under pinning the
+snapshot in hand is a pre-deadline capture: it reports the gameweek unfinished
+because it was taken before the gameweek was played, so gating on it would
+refuse every correct backtest. Projection inputs and outcome data come from
+opposite sides of the deadline by design, and only the outcome payload can
+speak for the outcome payload.
+
+So the event-live cache became an envelope recording the gameweek's `finished`
+and `data_checked` at the moment of the fetch, and both services check that
+record instead of inferring from the writer having been well behaved. They
+diverge on the remedy, because their options differ: `SnapshotService` can
+reach the API, so an unsettled or unrecorded payload is **refetched** and the
+file rewritten in the recording format; `PinnedSnapshotService` cannot fetch, so
+it **refuses**, naming the file and the remedy. A live fetch of an in-flight
+gameweek is still served — it is the freshest data in existence and there is
+nothing to wait for — but never silently: it is marked unsettled and
+`plan evaluate` says so above the table.
+
+`[gap: event-live is still unpinned — see the gap above, which this does not
+close. The gate stops a provisional payload being scored as final; it does not
+put event-live in the capture, so two pinned runs of the same capture still read
+whatever the event-live cache holds at the time, and a settled payload that was
+later corrected would change the figure without changing the capture.]`
 
 ## 6. Explicitly not changed
 

@@ -102,18 +102,142 @@ def _parse_fixtures_cache(payload: object, fetched_at: datetime) -> FixturesResu
     return FixturesResult(fixtures=fixtures, fetched_at=fetched_at, stale=True, source="cache")
 
 
+# The event-live cache is an envelope around the payload, not the payload
+# itself. Version 1 introduced it; before that the file was the bare API
+# response, which recorded nothing about the gameweek it described.
+#
+# The point of the envelope is that a reader must not have to trust that the
+# writer was gated correctly. `SnapshotService` only ever persists a settled
+# gameweek, so in principle every file on disk is final — but "in principle"
+# is exactly what a backtest cannot rely on: a file written by an older build,
+# copied from another machine, or edited by hand looks identical, and the
+# gameweek's *current* settled-ness says nothing about the state the bytes were
+# captured in. Recording it makes the payload self-describing, so both services
+# check evidence rather than inferring from the writer's good intentions.
+LIVE_CACHE_VERSION = 1
+SUPPORTED_LIVE_CACHE_VERSIONS = (1,)
+
+# A cached payload is in one of three states, and the third is not a variant of
+# the second. `unsettled` means the file records that the gameweek had not
+# settled; `unknown` means the file records nothing either way, which is a
+# different problem with a different remedy and must not be reported as though
+# we had established the payload was provisional.
+LIVE_SETTLED = "settled"
+LIVE_UNSETTLED = "unsettled"
+LIVE_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class LiveEventProvenance:
+    """Whether a gameweek's outcome data was final when it was captured.
+
+    FU-40's rule applied to the third input. `bootstrap-static` and `fixtures`
+    both carry where they came from; event-live did not, so a figure from
+    `plan evaluate` could not say whether the actuals it scored against were
+    final. FPL awards bonus points and applies stat corrections after the final
+    whistle, so a payload taken at full time is materially wrong rather than
+    merely early — a model evaluation against one is a wrong number, not an
+    early one.
+
+    `state` is `settled`, `unsettled` or `unknown`. `finished` and
+    `data_checked` are the two flags behind it, `None` when the payload predates
+    the envelope and records neither. `source` is `live` or `cache`.
+    """
+
+    state: str
+    source: str
+    finished: bool | None = None
+    data_checked: bool | None = None
+    path: Path | None = None
+    detail: str | None = None
+
+    @property
+    def settled(self) -> bool:
+        return self.state == LIVE_SETTLED
+
+
 @dataclass(frozen=True)
 class LiveEventResult:
     live: LiveEvent
     event: int
     stale: bool
+    provenance: LiveEventProvenance
     reason: str | None = None
 
 
-def _parse_live_event_cache(payload: object, fetched_at: datetime) -> LiveEvent:
+@dataclass(frozen=True)
+class _DecodedLiveCache:
+    """A cached event-live payload and what it records about its own finality."""
+
+    live: LiveEvent
+    state: str
+    finished: bool | None = None
+    data_checked: bool | None = None
+    detail: str | None = None
+
+
+def _parse_live_event_cache(payload: object, fetched_at: datetime) -> _DecodedLiveCache:
+    """Decode either envelope shape. `fetched_at` is the file's mtime, unused.
+
+    A payload with no `version` is the pre-envelope shape: the bare API
+    response. It is decoded rather than rejected — the elements are perfectly
+    good — but its state is `unknown`, because the file genuinely does not say.
+    Inferring settled-ness from the contents (say, "some players have bonus, so
+    bonus must have been applied") would be a heuristic dressed as evidence,
+    and wrong for exactly the gameweek where it mattered.
+    """
     if not isinstance(payload, dict):
         raise TypeError("event-live cache payload must be a dict")
-    return LiveEvent.model_validate(payload)
+    if "version" not in payload:
+        return _DecodedLiveCache(
+            live=LiveEvent.model_validate(payload),
+            state=LIVE_UNKNOWN,
+            detail="written before the cache recorded gameweek finality",
+        )
+    version = payload.get("version")
+    if version not in SUPPORTED_LIVE_CACHE_VERSIONS:
+        # Refused the way an unrecognised manifest version is (FU-41): a newer
+        # build probably wrote it and this reader is behind, so the flags may
+        # not mean what this build would take them to mean.
+        return _DecodedLiveCache(
+            live=LiveEvent.model_validate(payload.get("live") or {}),
+            state=LIVE_UNKNOWN,
+            detail=(
+                f"cache version {version!r}; this build writes {LIVE_CACHE_VERSION} and reads "
+                f"{', '.join(str(v) for v in SUPPORTED_LIVE_CACHE_VERSIONS)}"
+            ),
+        )
+    live = LiveEvent.model_validate(payload.get("live") or {})
+    finished = payload.get("finished")
+    data_checked = payload.get("data_checked")
+    if not isinstance(finished, bool) or not isinstance(data_checked, bool):
+        return _DecodedLiveCache(
+            live=live,
+            state=LIVE_UNKNOWN,
+            detail=f"records finished={finished!r}, data_checked={data_checked!r}",
+        )
+    settled = finished and data_checked
+    return _DecodedLiveCache(
+        live=live,
+        state=LIVE_SETTLED if settled else LIVE_UNSETTLED,
+        finished=finished,
+        data_checked=data_checked,
+    )
+
+
+def _encode_live_cache(
+    live: LiveEvent, *, event: int, finished: bool, data_checked: bool, fetched_at: datetime
+) -> dict:
+    """The envelope written to disk. The flags are the gameweek's state at the
+    moment of the fetch, which is what a later reader needs and cannot recover."""
+    return {
+        "version": LIVE_CACHE_VERSION,
+        "event": event,
+        "fetched_at": fetched_at.isoformat(),
+        "finished": finished,
+        "data_checked": data_checked,
+        "live": live.model_dump(mode="json"),
+    }
 
 
 def _current_event_record(snapshot: BootstrapSnapshot, captured_at: datetime) -> dict | None:
@@ -164,9 +288,24 @@ def _capture_time(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime, UTC)
 
 
-def _is_finalised(snapshot: BootstrapSnapshot, event: int) -> bool:
+def _settled_flags(snapshot: BootstrapSnapshot, event: int) -> tuple[bool, bool]:
+    """`(finished, data_checked)` for one gameweek; `(False, False)` if unknown.
+
+    The two are reported separately rather than collapsed because they mean
+    different things and the gap between them is the realistic case:
+    `finished=True, data_checked=False` is a gameweek whose last whistle has
+    gone and whose bonus points and stat corrections have not yet been applied.
+    That payload is materially wrong, not nearly right.
+    """
     gameweek = next((gameweek for gameweek in snapshot.events if gameweek.id == event), None)
-    return gameweek is not None and gameweek.finished and gameweek.data_checked
+    if gameweek is None:
+        return (False, False)
+    return (gameweek.finished, gameweek.data_checked)
+
+
+def _is_finalised(snapshot: BootstrapSnapshot, event: int) -> bool:
+    finished, data_checked = _settled_flags(snapshot, event)
+    return finished and data_checked
 
 
 class SnapshotService:
@@ -244,19 +383,70 @@ class SnapshotService:
         have. `snapshot` is passed explicitly (rather than read from the
         bootstrap cache) so the check is against whichever snapshot the
         caller is actually evaluating with.
+
+        Two gates, not one. The gameweek must be settled *now* — otherwise the
+        data will still change and no cache hit is worth having — and the
+        cached payload must itself record that it was settled when it was
+        written. The second gate is the one this branch added: the first says
+        the outcome is final today, which is a fact about the gameweek and not
+        about the bytes on disk. A file written by a build without the write
+        gate, or copied from a machine mid-gameweek, satisfies the first and
+        fails the second, and before this it was served as final.
+
+        An unsettled or unrecorded cache is refetched rather than refused: this
+        service can reach the API, so the situation is repairable without
+        troubling anyone, and the refetch rewrites the file in the recording
+        format. Refusing here would be a hard failure with a live fix
+        available. Only the pinned twin, which cannot fetch, refuses.
         """
         cache = JsonDocumentCache(self._event_live_cache_dir / f"{event}-live.json")
-        finalised = _is_finalised(snapshot, event)
+        finished, data_checked = _settled_flags(snapshot, event)
+        finalised = finished and data_checked
 
         if finalised:
             cached = cache.load_typed(_parse_live_event_cache)
-            if cached is not None:
-                return LiveEventResult(live=cached, event=event, stale=False)
+            if cached is not None and cached.state == LIVE_SETTLED:
+                return LiveEventResult(
+                    live=cached.live,
+                    event=event,
+                    stale=False,
+                    provenance=LiveEventProvenance(
+                        state=LIVE_SETTLED,
+                        source="cache",
+                        finished=cached.finished,
+                        data_checked=cached.data_checked,
+                        path=cache.path,
+                    ),
+                )
 
         live = self._api.event_live(event)
         if finalised:
-            cache.save_raw(live.model_dump(mode="json"))
-        return LiveEventResult(live=live, event=event, stale=False)
+            cache.save_raw(
+                _encode_live_cache(
+                    live,
+                    event=event,
+                    finished=finished,
+                    data_checked=data_checked,
+                    fetched_at=datetime.now(UTC),
+                )
+            )
+        # A live fetch of an unsettled gameweek is served, and marked. It is the
+        # freshest data in existence — there is nothing better to fall back to
+        # and nothing to wait for — so refusing would deny the only answer
+        # available rather than protecting anyone from a worse one. What must
+        # not happen is serving it *silently*, which is what the provenance and
+        # the caller's warning exist to prevent.
+        return LiveEventResult(
+            live=live,
+            event=event,
+            stale=False,
+            provenance=LiveEventProvenance(
+                state=LIVE_SETTLED if finalised else LIVE_UNSETTLED,
+                source="live",
+                finished=finished,
+                data_checked=data_checked,
+            ),
+        )
 
     def archive(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture]) -> ArchivedCapture:
         """Write a dated capture directory (Decision 6, FU-41).
@@ -472,10 +662,26 @@ class PinnedSnapshotService:
     def load_event_live(self, event: int, snapshot: BootstrapSnapshot) -> LiveEventResult:
         """Read one gameweek's live cache. Never fetches, never writes, never falls back.
 
-        Unlike `SnapshotService.load_event_live` this does not consult
-        `finished and data_checked`: that gate chooses between a cache hit and
-        a live fetch, and here there is no live fetch to choose. Whatever the
-        cache holds is what a pinned run gets (snapshot-pinning.md §5).
+        **`snapshot` is deliberately not consulted.** It is the pinned capture,
+        and a capture worth pinning is a *pre-deadline* one — it says the
+        gameweek is unfinished because it was taken before the gameweek was
+        played, which is the whole point of it. Gating on it would refuse every
+        correct backtest there is. Projection inputs and outcome data come from
+        opposite sides of the deadline by design; only the payload's own record
+        of its finality can speak for the outcome data.
+
+        That record is what is checked instead. An unsettled or unrecorded
+        payload is refused outright rather than warned about, because this
+        service cannot fetch to repair it and a pinned run exists to produce a
+        citable measurement. Scoring a model against provisional actuals does
+        not yield an approximate figure — bonus points and stat corrections
+        land after the whistle and fall disproportionately on the players a
+        model is judged by, so it yields a wrong figure that looks valid, which
+        is the failure FU-41 was urgent about for fixtures. The refusal also
+        costs nothing: the only caller loads this before any projection runs
+        (`cli.evaluate_plan`), so nothing has been computed or printed, and the
+        remedy is one command. Refusing a missing cache and serving an
+        unusable one would be the inconsistency, not the reverse.
         """
         cache = JsonDocumentCache(self._event_live_cache_dir / f"{event}-live.json")
         cached = cache.load_typed(_parse_live_event_cache)
@@ -485,4 +691,34 @@ class PinnedSnapshotService:
                 f"{cache.path}. Run `fpl plan evaluate --event {event}` without --snapshot "
                 f"first, or drop --snapshot."
             )
-        return LiveEventResult(live=cached, event=event, stale=False)
+        if cached.state == LIVE_UNSETTLED:
+            raise PinnedSnapshotError(
+                f"The GW{event} live cache at {cache.path} was written before the gameweek "
+                f"settled (finished={cached.finished}, data_checked={cached.data_checked}). FPL "
+                f"awards bonus points and applies stat corrections after the final whistle, so "
+                f"scoring against this payload would produce a figure that looks like a backtest "
+                f"and is not one. A pinned run never fetches, so it cannot refresh it for you: "
+                f"run `fpl plan evaluate --event {event}` without --snapshot once the gameweek "
+                f"has settled, then pin again."
+            )
+        if cached.state != LIVE_SETTLED:
+            raise PinnedSnapshotError(
+                f"The GW{event} live cache at {cache.path} does not record whether the gameweek "
+                f"had settled when it was written ({cached.detail}). A pinned run never fetches, "
+                f"so it cannot establish that, and reading finality off the payload's contents "
+                f"would be a guess rather than evidence — wrong for exactly the gameweek where "
+                f"it mattered. Run `fpl plan evaluate --event {event}` without --snapshot once "
+                f"to rewrite the cache in a format that records it, then pin again."
+            )
+        return LiveEventResult(
+            live=cached.live,
+            event=event,
+            stale=False,
+            provenance=LiveEventProvenance(
+                state=LIVE_SETTLED,
+                source="cache",
+                finished=cached.finished,
+                data_checked=cached.data_checked,
+                path=cache.path,
+            ),
+        )
