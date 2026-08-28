@@ -293,7 +293,7 @@ def _archive_candidates(archive_dir: Path, *, include_adhoc: bool = False) -> li
         if path.is_file()
     ]
     for directory in sorted(archive_dir.iterdir()):
-        if not directory.is_dir():
+        if not directory.is_dir() or capture.QUARANTINE_INFIX in directory.name:
             continue
         bootstrap = directory / capture.BOOTSTRAP_FILENAME
         if not bootstrap.is_file():

@@ -20,10 +20,17 @@ DEFAULT_ARCHIVE_DIR = Path.home() / ".fpl-cli" / "archive"
 
 @dataclass(frozen=True)
 class ArchivedCapture:
-    """Where `sync` filed a capture, and whether it claimed the day's slot."""
+    """Where `sync` filed a capture, and what it found already there.
+
+    `quarantined` is set when something unusable was occupying the day's slot
+    and had to be renamed aside. It is never deleted, so the caller's job is to
+    say where it went and let someone look.
+    """
 
     path: Path
     role: str
+    quarantined: Path | None = None
+    problem: capture.CaptureProblem | None = None
 
 
 @dataclass(frozen=True)
@@ -271,13 +278,22 @@ class SnapshotService:
         did not run, someone syncs by hand at noon — come out right by itself.
         """
         captured_at = snapshot.fetched_at
+        slot = capture.canonical_slot(self._archive_dir, captured_at)
         claimed = capture.slot_claimed(self._archive_dir, captured_at)
+
+        # An occupied slot holding something unusable is moved aside, and this
+        # capture still files ad-hoc rather than taking the vacated slot: the
+        # slot was occupied when we looked, and quietly promoting ourselves over
+        # a capture nobody has examined is how the examination never happens.
+        quarantined: Path | None = None
+        problem: capture.CaptureProblem | None = None
+        if slot.exists():
+            problem = capture.inspect_capture(slot)
+            if problem is not None:
+                quarantined = capture.quarantine(slot, captured_at)
+
         role = capture.ROLE_ADHOC if claimed else capture.ROLE_CANONICAL
-        destination = (
-            capture.adhoc_path(self._archive_dir, captured_at)
-            if claimed
-            else capture.canonical_slot(self._archive_dir, captured_at)
-        )
+        destination = capture.adhoc_path(self._archive_dir, captured_at) if claimed else slot
         path = capture.write_capture(
             destination,
             bootstrap=snapshot.raw,
@@ -287,7 +303,7 @@ class SnapshotService:
             next_event=_next_event_record(snapshot, captured_at),
             role=role,
         )
-        return ArchivedCapture(path=path, role=role)
+        return ArchivedCapture(path=path, role=role, quarantined=quarantined, problem=problem)
 
 
 class PinnedSnapshotService:

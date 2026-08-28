@@ -64,9 +64,11 @@ fpl plan optimise squad.json --snapshot ~/fpl-pinned/gw2-pre-deadline.json --jso
   sync`) holding `bootstrap-static.json`, `fixtures.json` and a
   `manifest.json`. Both files are pinned, and each is checked against the
   manifest's sha256 before use. The first capture of a UK date claims that
-  day's canonical slot; later ones the same day are filed as ad-hoc under
-  `YYYY-MM-DDTHHMMSSZ/` and stay pinnable, but `plan evaluate` selects only
-  canonical captures.
+  day's canonical slot if it is empty; later ones the same day are filed as
+  ad-hoc under `YYYY-MM-DDTHHMMSSZ/` and stay pinnable, but `plan evaluate`
+  selects only canonical captures. An existing capture is never deleted or
+  overwritten: one that cannot be read is renamed to
+  `YYYY-MM-DD.unreadable-<timestamp>/` and `sync` says so.
 - **A bare bootstrap-static file**, as before: the snapshot is pinned and
   fixtures still come from the cache, which `provenance` reports as `cache`.
 

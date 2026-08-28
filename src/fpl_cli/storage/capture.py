@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import shutil
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,33 @@ SUPPORTED_MANIFEST_VERSIONS = (1, 2)
 
 ROLE_CANONICAL = "canonical"
 ROLE_ADHOC = "adhoc"
+
+# Renamed-aside captures carry this in their directory name. Automatic
+# selection skips them: quarantine exists to make someone look, and a capture a
+# later build happens to be able to read should not slide back into use before
+# they have.
+QUARANTINE_INFIX = ".unreadable-"
+
+PROBLEM_UNRECOGNISED_VERSION = "unrecognised-version"
+PROBLEM_UNVERIFIABLE = "unverifiable"
+
+
+class UnrecognisedManifestVersion(ValueError):
+    """The manifest parses but names a version this build does not know.
+
+    A `ValueError` so every caller that already skips unusable captures keeps
+    working unchanged, but a distinguishable one, because it means something
+    quite different from corruption: the capture is probably perfectly good and
+    *this build* is the one that is out of date.
+    """
+
+
+@dataclass(frozen=True)
+class CaptureProblem:
+    """Why a directory cannot be used as a capture."""
+
+    kind: str
+    detail: str
 
 # The archive is filed by UK date because that is the day a gameweek deadline
 # and a price change belong to. A 23:30 UTC capture in summer is 00:30 the next
@@ -68,7 +96,7 @@ def read_manifest(directory: Path) -> dict[str, Any]:
         raise ValueError(f"{path} is not a manifest object (top level is a {type(payload).__name__})")
     version = payload.get("version")
     if version not in SUPPORTED_MANIFEST_VERSIONS:
-        raise ValueError(
+        raise UnrecognisedManifestVersion(
             f"{path} is manifest version {version!r}; this build writes {MANIFEST_VERSION} "
             f"and reads {', '.join(str(v) for v in SUPPORTED_MANIFEST_VERSIONS)}"
         )
@@ -102,40 +130,95 @@ def legacy_slot_file(archive_dir: Path, captured_at: datetime) -> Path:
     return archive_dir / f"bootstrap-{uk_date(captured_at).isoformat()}.json"
 
 
+def _unused_path(base: Path) -> Path:
+    """`base`, or `base-2`, `base-3`… — the first name nothing occupies.
+
+    Both callers are places where reusing an occupied name would destroy a
+    capture, and both key on a timestamp truncated to the second, so a
+    collision needs only two captures in the same second.
+    """
+    destination = base
+    attempt = 1
+    while destination.exists():
+        attempt += 1
+        destination = base.with_name(f"{base.name}-{attempt}")
+    return destination
+
+
 def adhoc_path(archive_dir: Path, captured_at: datetime) -> Path:
     """Keyed by the instant, not the day: an ad-hoc capture is not filed under a
     date at all, so two on the same day cannot collide."""
-    return archive_dir / captured_at.astimezone(_UTC).strftime("%Y-%m-%dT%H%M%SZ")
+    return _unused_path(archive_dir / captured_at.astimezone(_UTC).strftime("%Y-%m-%dT%H%M%SZ"))
 
 
-def is_valid_capture(directory: Path) -> bool:
-    """Present, readable, and hashing to what its own manifest records.
+def inspect_capture(directory: Path) -> CaptureProblem | None:
+    """`None` if `directory` is a usable capture, otherwise why it is not.
 
-    This is what "the slot is claimed" means. A capture that fails it — half
-    written, truncated, edited — must not hold a day against a good later run.
+    The two kinds are kept apart because they call for opposite reactions. An
+    unrecognised manifest version almost certainly means a *newer* build wrote
+    it and this reader is behind — the data is probably fine and the operator
+    should look before doing anything. Anything else means the capture does not
+    verify: half-written, truncated, edited. Neither is ever deleted.
     """
     try:
         manifest = read_manifest(directory)
-        for filename in (BOOTSTRAP_FILENAME, FIXTURES_FILENAME):
-            if sha256_file(directory / filename) != recorded_sha256(manifest, filename):
-                return False
-    except (OSError, ValueError):
-        return False
-    return True
+    except UnrecognisedManifestVersion as exc:
+        return CaptureProblem(PROBLEM_UNRECOGNISED_VERSION, str(exc))
+    except OSError as exc:
+        return CaptureProblem(PROBLEM_UNVERIFIABLE, f"no readable manifest: {exc}")
+    except ValueError as exc:
+        return CaptureProblem(PROBLEM_UNVERIFIABLE, str(exc))
+    for filename in (BOOTSTRAP_FILENAME, FIXTURES_FILENAME):
+        try:
+            recorded = recorded_sha256(manifest, filename)
+            actual = sha256_file(directory / filename)
+        except (OSError, ValueError) as exc:
+            return CaptureProblem(PROBLEM_UNVERIFIABLE, f"{filename}: {exc}")
+        if actual != recorded:
+            return CaptureProblem(
+                PROBLEM_UNVERIFIABLE,
+                f"{filename} hashes to {actual}, manifest records {recorded}",
+            )
+    return None
+
+
+def is_valid_capture(directory: Path) -> bool:
+    """Present, readable, and hashing to what its own manifest records."""
+    return inspect_capture(directory) is None
 
 
 def slot_claimed(archive_dir: Path, captured_at: datetime) -> bool:
-    """Whether some valid capture already holds this UK date's canonical slot.
+    """Whether anything at all already occupies this UK date's canonical slot.
+
+    Occupancy, deliberately, not validity. A capture claims a slot only when the
+    slot is *empty*: an unreadable capture blocks the claim rather than being
+    cleared out of the way, because "this build cannot read it" and "this is
+    rubbish" are indistinguishable from inside, and the difference between them
+    is a day's snapshot that can never be fetched again.
 
     Legacy bare files compete on equal terms and are never migrated or
     displaced: `bootstrap-2026-08-28.json` was written at 00:32 and holds that
-    day, whatever shape a later capture takes. Because the check is for a claim
-    rather than for a timer having run, the offline case needs no special
-    handling — a sync that finds the slot empty simply claims it.
+    day, whatever shape a later capture takes. Because the check is for
+    occupancy rather than for a timer having run, the offline case needs no
+    special handling — a sync that finds the slot empty simply claims it.
     """
-    return legacy_slot_file(archive_dir, captured_at).is_file() or is_valid_capture(
-        canonical_slot(archive_dir, captured_at)
+    return (
+        legacy_slot_file(archive_dir, captured_at).is_file()
+        or canonical_slot(archive_dir, captured_at).exists()
     )
+
+
+def quarantine(directory: Path, when: datetime) -> Path:
+    """Rename an unusable capture aside, preserving every byte of it.
+
+    A rename, never a delete and never an overwrite: whatever is in there
+    cannot be fetched again, and the reason it is unreadable may well be that
+    this build is the old one.
+    """
+    stamp = when.astimezone(_UTC).strftime("%Y%m%dT%H%M%SZ")
+    destination = _unused_path(directory.with_name(f"{directory.name}{QUARANTINE_INFIX}{stamp}"))
+    os.rename(directory, destination)
+    return destination
 
 
 def manifest_captured_at(manifest: dict[str, Any]) -> datetime:
@@ -204,12 +287,11 @@ def write_capture(
         }
         (staging / MANIFEST_FILENAME).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         if directory.exists():
-            # Only reachable for an invalid leftover: a caller that found the
-            # slot claimed writes ad-hoc instead of here. `os.replace` will not
-            # replace a non-empty directory, so it has to go first.
-            if is_valid_capture(directory):
-                raise FileExistsError(f"{directory} already holds a valid capture")
-            shutil.rmtree(directory)
+            # No exceptions, and no inspection first: an existing capture is
+            # never deleted or overwritten, whether or not this build can read
+            # it. A caller that finds the slot occupied quarantines and writes
+            # ad-hoc instead of coming here.
+            raise FileExistsError(f"{directory} already exists; a capture is never overwritten")
         os.replace(staging, directory)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)

@@ -234,6 +234,21 @@ def sync() -> None:
     console.print(f"[green]Synced {len(snapshot.elements)} players for {snapshot.season}.[/green]")
     console.print(f"[green]Synced {len(fixtures)} fixtures.[/green]")
     console.print(f"[green]Archived to {archived.path}/ as {archived.role}.[/green]")
+    if archived.quarantined is not None:
+        assert archived.problem is not None
+        if archived.problem.kind == capture.PROBLEM_UNRECOGNISED_VERSION:
+            headline = (
+                "was written by a newer build of this tool, not corrupted. Nothing has been "
+                "deleted; check whether you are running an old checkout before touching it."
+            )
+        else:
+            headline = "does not verify against its own manifest. Nothing has been deleted."
+        console.print(
+            f"[yellow]! The capture holding that slot {headline}[/yellow]\n"
+            f"[yellow]  moved aside: {archived.quarantined}[/yellow]\n"
+            f"[yellow]  reason: {archived.problem.detail}[/yellow]",
+            soft_wrap=True,
+        )
 
 
 @players_app.command("list")

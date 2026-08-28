@@ -1780,11 +1780,32 @@ slot; anything later that day is written ad-hoc under a path keyed by the instan
 offline case come out right by itself: a sync that finds the slot empty claims it,
 whether that is the timer at 01:00 or someone at their desk at noon.
 
-"Valid" means present *and* hashing to what its own manifest records, so a half-written
-or edited capture cannot hold a day against the good run that follows. Captures are
-staged in a sibling `.incoming-*` directory and `os.replace`d into place — a crashed
-write leaves staging rubbish, never a partial capture squatting on a slot — and writing
-refuses outright to replace a capture that is already valid.
+**A capture claims a slot only when the slot is empty, and an existing capture is never
+deleted or overwritten for any reason.** The first cut of this got it wrong in a way
+worth recording, because it was nearly invisible: `is_valid_capture` treated an
+unrecognised manifest version as invalid, and the refuse-to-replace guard protected only
+*valid* captures — so an older build reading a newer capture would conclude it was
+rubbish and clear it. That is not a two-concurrent-builds problem. `git bisect` reaches
+it inside this branch's own history: at `256e7af` the manifest version was 1, an
+unrecognised version raised, and `write_capture` did `mkdir(exist_ok=True)` and wrote
+straight into the slot — it did not even need the delete. A day's snapshot cannot be
+fetched again, and "this build cannot read it" is indistinguishable from inside from
+"this is rubbish".
+
+So occupancy blocks the claim, not validity. Anything unusable found in a slot is
+*renamed aside* to `YYYY-MM-DD.unreadable-<timestamp>/`, with every byte preserved, and
+the incoming capture files ad-hoc anyway — promoting yourself into a slot you have just
+vacated is how nobody ever looks at what was in it. `sync` names both paths and
+distinguishes the two cases, because they call for opposite reactions: an unrecognised
+manifest version probably means a *newer* build wrote it and the operator should check
+what they are running, whereas a capture that fails its own digests is rubbish. Both are
+kept either way.
+
+Captures are staged in a sibling `.incoming-*` directory and `os.replace`d into place, so
+a crashed write leaves staging rubbish rather than a partial capture squatting on a slot.
+Quarantine and ad-hoc paths both key on a timestamp truncated to the second and both
+de-duplicate with a `-2` suffix — a collision at either would destroy the thing being
+preserved, or crash the sync that was trying to preserve it.
 
 Legacy bare files compete on equal terms and are neither migrated nor deleted, which is
 also why a manifest with **no** `role` reads as ad-hoc: a version 1 capture was never
@@ -1843,12 +1864,14 @@ to be corrupt, the ad-hoc captures from the same day are on disk and pinnable bu
 not be selected automatically, and nothing offers to repair the slot. Deliberate — a
 repair path that rewrites history silently is worse than one that makes you look.]`
 
-`[gap: `is_valid_capture` treats an unsupported manifest version as invalid, so a
-capture written by a *newer* build would not hold its slot against an older build, which
-would then clear and replace it. Only reachable by running two builds against one
-archive.]`
+`[gap: quarantined captures accumulate. Nothing prunes `*.unreadable-*` and nothing
+offers to restore one to its slot once the operator has decided it is fine — the restore
+is a `mv`, deliberately, because a tool that puts captures back is a tool that can put
+the wrong one back.]`
 
-**Two gaps recorded here are now closed.** `next_event` records the deadline a capture is
+**Three gaps recorded here are now closed.** The third was the destructive one: `next_event` records the deadline a capture is
 a candidate for, and `plan evaluate` dates its projection snapshot from the manifest
 rather than the archived file's mtime — the case ad-hoc and copied captures make
-reachable rather than theoretical.
+reachable rather than theoretical. And an unreadable capture is now moved aside intact
+instead of being cleared, which is the difference between an operator finding a
+confusing directory and an operator finding nothing at all.

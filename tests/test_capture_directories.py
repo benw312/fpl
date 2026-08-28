@@ -512,28 +512,27 @@ def test_a_legacy_bare_file_holds_the_slot_against_a_later_capture(
     assert (tmp_path / "bootstrap-2026-08-28.json").read_text() == "{}"  # not migrated, not deleted
 
 
-def test_a_partial_capture_does_not_hold_the_slot(
-    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot
-) -> None:
-    """A half-written directory is not a valid capture, so the next good run
-    claims the day rather than being demoted behind rubble."""
-    partial = tmp_path / "2026-08-28"
-    partial.mkdir()
-    (partial / "bootstrap-static.json").write_text('{"elements": [', encoding="utf-8")
-    good = _capture_snapshot(bootstrap_snapshot, fetched_at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC))
-
-    archived = _sync_service(tmp_path).archive(good, [])
-
-    assert archived.role == capture.ROLE_CANONICAL
-    assert archived.path == partial
-    assert capture.is_valid_capture(partial)
+def _tree(directory: Path) -> dict[str, bytes]:
+    """Every file in a capture, by relative name. The comparison for "nothing
+    was touched" has to be the bytes; a surviving directory with rewritten
+    contents is exactly the failure being guarded against."""
+    return {
+        str(path.relative_to(directory)): path.read_bytes()
+        for path in sorted(directory.rglob("*"))
+        if path.is_file()
+    }
 
 
-def test_a_capture_whose_digests_do_not_match_does_not_hold_the_slot(
+def test_an_occupied_slot_blocks_the_claim_even_when_this_build_cannot_read_it(
     tmp_path: Path, bootstrap_payload: dict[str, Any], bootstrap_snapshot: BootstrapSnapshot
 ) -> None:
-    """The control for validity: the same directory holds the slot while it
-    verifies, and stops holding it once a byte changes."""
+    """A capture claims a slot only when the slot is empty.
+
+    "This build cannot read it" and "this is rubbish" are indistinguishable from
+    inside, and the difference between them is a day's snapshot that can never
+    be fetched again. So occupancy blocks the claim, and the occupant is moved
+    aside rather than cleared away.
+    """
     slot = _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload)
     when = datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC)
     assert capture.slot_claimed(tmp_path, when)
@@ -542,21 +541,36 @@ def test_a_capture_whose_digests_do_not_match_does_not_hold_the_slot(
     tampered.append({"id": 99, "event": 2, "team_h": 1, "team_a": 2})
     (slot / "fixtures.json").write_text(json.dumps(tampered), encoding="utf-8")
 
-    assert not capture.slot_claimed(tmp_path, when)
-    assert _sync_service(tmp_path).archive(_capture_snapshot(bootstrap_snapshot, fetched_at=when), []).role == (
-        capture.ROLE_CANONICAL
-    )
+    # Still claimed: the slot is occupied, whether or not the occupant verifies.
+    assert capture.slot_claimed(tmp_path, when)
+    assert not capture.is_valid_capture(slot)
+
+    archived = _sync_service(tmp_path).archive(_capture_snapshot(bootstrap_snapshot, fetched_at=when), [])
+
+    assert archived.role == capture.ROLE_ADHOC
+    assert archived.problem.kind == capture.PROBLEM_UNVERIFIABLE
 
 
-def test_writing_never_replaces_a_valid_capture(tmp_path: Path, bootstrap_payload: dict[str, Any]) -> None:
-    """The invariant behind the atomic rename, asserted directly: a valid
-    capture in the destination is refused, not clobbered."""
+def test_writing_never_replaces_anything_at_all(tmp_path: Path, bootstrap_payload: dict[str, Any]) -> None:
+    """Not "never replaces a *valid* capture": an existing directory is refused
+    whatever is in it, because deciding it was worthless is the mistake."""
     slot = _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload)
+    before = _tree(slot)
 
     with pytest.raises(FileExistsError):
         _write_capture_directory(slot, bootstrap_payload, star_name="Replacement")
 
-    assert "Replacement" not in (slot / "bootstrap-static.json").read_text()
+    assert _tree(slot) == before
+
+    unreadable = tmp_path / "2026-08-27"
+    unreadable.mkdir()
+    (unreadable / "bootstrap-static.json").write_text('{"elements": [', encoding="utf-8")
+    rubble = _tree(unreadable)
+
+    with pytest.raises(FileExistsError):
+        _write_capture_directory(unreadable, bootstrap_payload, star_name="Replacement")
+
+    assert _tree(unreadable) == rubble
 
 
 def test_a_failed_write_leaves_no_capture_in_the_slot(
@@ -726,3 +740,202 @@ def test_a_bare_archive_is_still_dated_by_its_mtime(tmp_path: Path, bootstrap_pa
     bare.write_text("{}", encoding="utf-8")
 
     assert archived_capture_time(bare) == datetime.fromtimestamp(bare.stat().st_mtime, UTC)
+
+
+# --- an existing capture is never destroyed ---------------------------------
+
+
+def _sync_over(
+    tmp_path: Path, bootstrap_snapshot: BootstrapSnapshot, *, at: datetime
+) -> snapshots.ArchivedCapture:
+    return _sync_service(tmp_path).archive(_capture_snapshot(bootstrap_snapshot, fetched_at=at), [])
+
+
+def test_a_capture_from_a_newer_build_survives_a_sync_byte_for_byte(
+    tmp_path: Path, bootstrap_payload: dict[str, Any], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The case a `git bisect` reaches. An older checkout cannot read a newer
+    manifest, and must not conclude from that that the capture is rubbish — a
+    day's snapshot cannot be fetched again."""
+    slot = _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload, star_name="Newer")
+    manifest_path = slot / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["version"] = capture.MANIFEST_VERSION + 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    before = _tree(slot)
+
+    archived = _sync_over(tmp_path, bootstrap_snapshot, at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC))
+
+    assert archived.role == capture.ROLE_ADHOC
+    assert archived.problem.kind == capture.PROBLEM_UNRECOGNISED_VERSION
+    # Present, under a new name, and identical in every byte.
+    assert archived.quarantined == tmp_path / "2026-08-28.unreadable-20260828T090135Z"
+    assert archived.quarantined.is_dir()
+    assert _tree(archived.quarantined) == before
+    assert not slot.exists()  # moved, not copied
+
+
+def test_a_corrupt_capture_survives_a_sync_byte_for_byte(
+    tmp_path: Path, bootstrap_payload: dict[str, Any], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The other kind. Preserved on exactly the same terms — the point is that
+    the two are indistinguishable from inside, so neither is ever deleted."""
+    slot = _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload, star_name="Corrupt")
+    (slot / "manifest.json").write_text('{"version": 2, "captured_at":', encoding="utf-8")
+    before = _tree(slot)
+
+    archived = _sync_over(tmp_path, bootstrap_snapshot, at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC))
+
+    assert archived.role == capture.ROLE_ADHOC
+    assert archived.problem.kind == capture.PROBLEM_UNVERIFIABLE
+    assert _tree(archived.quarantined) == before
+
+
+def test_quarantining_twice_in_one_second_does_not_overwrite_the_first(
+    tmp_path: Path, bootstrap_payload: dict[str, Any], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The quarantine name is timestamped, so two in the same second would
+    collide — and a collision here would destroy the thing being preserved."""
+    at = datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC)
+    _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload, star_name="First")
+    (tmp_path / "2026-08-28" / "manifest.json").write_text("{", encoding="utf-8")
+    first = _sync_over(tmp_path, bootstrap_snapshot, at=at).quarantined
+
+    _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload, star_name="Second")
+    (tmp_path / "2026-08-28" / "manifest.json").write_text("{", encoding="utf-8")
+    second = _sync_over(tmp_path, bootstrap_snapshot, at=at).quarantined
+
+    assert first != second
+    assert b"First" in (first / "bootstrap-static.json").read_bytes()
+    assert b"Second" in (second / "bootstrap-static.json").read_bytes()
+    # The ad-hoc captures collide on the same truncated timestamp and must
+    # de-duplicate too — the refuse-to-overwrite guard turns a collision there
+    # into a crashed sync rather than a lost capture, but a crashed sync is
+    # still a sync that did not archive.
+    assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith("2026-08-28T")) == [
+        "2026-08-28T090135Z",
+        "2026-08-28T090135Z-2",
+    ]
+
+
+def test_an_empty_slot_still_claims_after_a_quarantine_clears_it(
+    tmp_path: Path, bootstrap_payload: dict[str, Any], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The quarantined run files ad-hoc even though the slot it vacated is now
+    empty — promoting yourself over a capture nobody has looked at is how the
+    looking never happens. The *next* day's sync claims normally."""
+    _write_capture_directory(tmp_path / "2026-08-28", bootstrap_payload)
+    (tmp_path / "2026-08-28" / "manifest.json").write_text("{", encoding="utf-8")
+
+    quarantining = _sync_over(tmp_path, bootstrap_snapshot, at=datetime(2026, 8, 28, 9, 1, 35, tzinfo=UTC))
+    assert quarantining.role == capture.ROLE_ADHOC
+    assert not (tmp_path / "2026-08-28").exists()
+
+    tomorrow = _sync_over(tmp_path, bootstrap_snapshot, at=datetime(2026, 8, 29, 0, 30, 0, tzinfo=UTC))
+    assert tomorrow.role == capture.ROLE_CANONICAL
+    assert tomorrow.path == tmp_path / "2026-08-29"
+
+
+def test_the_archive_scan_never_selects_a_quarantined_capture(
+    tmp_path: Path, bootstrap_payload: dict[str, Any]
+) -> None:
+    """Quarantine exists to make someone look. A capture a later build happens
+    to be able to read must not slide back into automatic use first."""
+    from fpl_cli.domain.evaluation import select_archived_snapshot
+
+    canonical = _write_capture_directory(
+        tmp_path / "2026-08-20", bootstrap_payload, captured_at=datetime(2026, 8, 20, 0, 30, tzinfo=UTC)
+    )
+    quarantined = _write_capture_directory(
+        tmp_path / "2026-08-21.unreadable-20260828T090135Z",
+        bootstrap_payload,
+        captured_at=datetime(2026, 8, 21, 0, 30, tzinfo=UTC),
+    )
+    deadline = datetime(2026, 8, 21, 17, 30, tzinfo=UTC)
+
+    # Readable, newer, canonical in its own manifest — and still not a candidate.
+    assert capture.is_valid_capture(quarantined)
+    assert select_archived_snapshot(tmp_path, deadline) == canonical / "bootstrap-static.json"
+    assert select_archived_snapshot(tmp_path, deadline, include_adhoc=True) == (
+        canonical / "bootstrap-static.json"
+    )
+
+
+# --- what sync tells the operator -------------------------------------------
+
+
+def _sync_with(
+    monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot, archived: snapshots.ArchivedCapture
+) -> None:
+    class Stub:
+        def refresh(self) -> BootstrapSnapshot:
+            return bootstrap_snapshot
+
+        def refresh_fixtures(self) -> list[Fixture]:
+            return []
+
+        def archive(self, snapshot: BootstrapSnapshot, fixtures: list[Fixture]) -> snapshots.ArchivedCapture:
+            return archived
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "SnapshotService", Stub)
+    cli.sync()
+
+
+def test_sync_warns_that_an_unreadable_capture_may_be_from_a_newer_build(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    _sync_with(
+        monkeypatch,
+        bootstrap_snapshot,
+        snapshots.ArchivedCapture(
+            path=Path("/archive/2026-08-28T090135Z"),
+            role=capture.ROLE_ADHOC,
+            quarantined=Path("/archive/2026-08-28.unreadable-20260828T090135Z"),
+            problem=capture.CaptureProblem(capture.PROBLEM_UNRECOGNISED_VERSION, "manifest version 3"),
+        ),
+    )
+
+    out = capsys.readouterr().out
+    assert "newer build" in out
+    assert "Nothing has been deleted" in out
+    assert "/archive/2026-08-28.unreadable-20260828T090135Z" in out
+    assert "manifest version 3" in out
+
+
+def test_sync_says_a_corrupt_capture_did_not_verify_rather_than_blaming_the_build(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """The control: the two kinds must not produce the same sentence, or the
+    distinction is decorative."""
+    _sync_with(
+        monkeypatch,
+        bootstrap_snapshot,
+        snapshots.ArchivedCapture(
+            path=Path("/archive/2026-08-28T090135Z"),
+            role=capture.ROLE_ADHOC,
+            quarantined=Path("/archive/2026-08-28.unreadable-20260828T090135Z"),
+            problem=capture.CaptureProblem(capture.PROBLEM_UNVERIFIABLE, "fixtures.json hashes to abc"),
+        ),
+    )
+
+    out = capsys.readouterr().out
+    assert "does not verify" in out
+    assert "newer build" not in out
+    assert "Nothing has been deleted" in out
+
+
+def test_sync_says_nothing_about_quarantine_when_there_was_none(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    _sync_with(
+        monkeypatch,
+        bootstrap_snapshot,
+        snapshots.ArchivedCapture(path=Path("/archive/2026-08-28"), role=capture.ROLE_CANONICAL),
+    )
+
+    out = capsys.readouterr().out
+    assert "as canonical" in out
+    assert "moved aside" not in out
