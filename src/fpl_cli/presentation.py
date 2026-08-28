@@ -20,8 +20,12 @@ console = Console()
 # which is what `typer.Exit(str)`'s accidental `sys.exit(str)` behaviour did
 # before FU-3. Markup and highlighting are off deliberately: every message on
 # this channel interpolates exception text, where a stray "[...]" would
-# otherwise be parsed as a Rich tag and either vanish or raise.
-error_console = Console(stderr=True, markup=False, highlight=False, style="red")
+# otherwise be parsed as a Rich tag and either vanish or raise. Soft wrapping
+# is on for the same reason: these messages interpolate paths and URLs, and
+# Rich's word wrap breaks an 80-column-crossing path across two lines, leaving
+# a diagnostic that names a file nobody can copy. The terminal wraps the line
+# for display either way; only the bytes differ.
+error_console = Console(stderr=True, markup=False, highlight=False, style="red", soft_wrap=True)
 
 
 def player_table(players: list[Player], snapshot: BootstrapSnapshot) -> Table:

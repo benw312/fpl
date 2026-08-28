@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich import print
 
 from fpl_cli.api.models import BootstrapSnapshot
-from fpl_cli.api.snapshots import DEFAULT_ARCHIVE_DIR, SnapshotService
+from fpl_cli.api.snapshots import (
+    DEFAULT_ARCHIVE_DIR,
+    FixturesResult,
+    PinnedSnapshotError,
+    PinnedSnapshotService,
+    SnapshotProvenance,
+    SnapshotResult,
+    SnapshotService,
+)
 from fpl_cli.builder import BuilderCancelled, SquadBuilder, TerminalTooSmall
 from fpl_cli.domain.evaluation import (
     actuals_from_live_event,
@@ -64,6 +75,75 @@ from fpl_cli.presentation import (
 )
 from fpl_cli.transport import FplError
 
+SNAPSHOT_ENV_VAR = "FPL_SNAPSHOT"
+
+# Declared with `Annotated` rather than as a `typer.Option(...)` default so the
+# Python-level default stays a real `None`. Every other option in this module
+# predates that style and hands a `typer.OptionInfo` to anything that calls the
+# command function directly — which the tests do throughout, passing each one
+# explicitly to work around it. A pinning flag that read as "pinned to
+# OptionInfo" when omitted would be a trap, so this one is left callable.
+SnapshotOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--snapshot",
+        help=(
+            "Pin this run to a bootstrap-static capture at PATH: never fetches, never "
+            f"writes the cache. Overrides ${SNAPSHOT_ENV_VAR}."
+        ),
+    ),
+]
+
+
+def resolve_snapshot_path(explicit: Path | None) -> Path | None:
+    """`--snapshot` if given, else `$FPL_SNAPSHOT`, else `None` for an unpinned run.
+
+    The flag beats the environment so a pinned shell can still be overridden
+    for a single command. An empty or whitespace-only variable reads as unset
+    rather than as the current directory.
+    """
+    if explicit is not None:
+        return explicit
+    from_env = os.environ.get(SNAPSHOT_ENV_VAR, "").strip()
+    return Path(from_env) if from_env else None
+
+
+def snapshot_service(pinned: Path | None) -> SnapshotService | PinnedSnapshotService:
+    """The one place that chooses between the writing service and the read-only one."""
+    if pinned is not None:
+        return PinnedSnapshotService(pinned)
+    return SnapshotService()
+
+
+@dataclass(frozen=True)
+class LoadedSnapshot:
+    """A snapshot together with where it came from.
+
+    The provenance is carried alongside rather than derived at the point of
+    use, because by then the distinction is gone: a cached snapshot and a live
+    one are the same object, and only the load knew which it was.
+    """
+
+    snapshot: BootstrapSnapshot
+    provenance: SnapshotProvenance
+
+
+def _snapshot_provenance(pinned: Path | None, result: SnapshotResult) -> SnapshotProvenance:
+    if pinned is not None:
+        return SnapshotProvenance(source="pinned", captured_at=result.snapshot.fetched_at, path=pinned)
+    return SnapshotProvenance(
+        source="cache" if result.stale else "live", captured_at=result.snapshot.fetched_at
+    )
+
+
+def _fixtures_provenance(result: FixturesResult) -> SnapshotProvenance:
+    """`stale` is how `FixturesResult` says "this came off disk", for both the
+    live-fetch fallback and a pinned run, which has no live path at all."""
+    return SnapshotProvenance(
+        source="cache" if result.stale else "live", captured_at=result.fetched_at
+    )
+
+
 app = typer.Typer(help="A local Fantasy Premier League planning CLI.")
 players_app = typer.Typer(help="Browse FPL players.")
 squad_app = typer.Typer(help="Create and validate local squad plans.")
@@ -73,21 +153,33 @@ app.add_typer(squad_app, name="squad")
 app.add_typer(plan_app, name="plan")
 
 
-def load_snapshot() -> BootstrapSnapshot:
-    service = SnapshotService()
+def load_snapshot(pinned: Path | None = None) -> LoadedSnapshot:
+    service = snapshot_service(pinned)
     try:
         result = service.load()
+    except PinnedSnapshotError as exc:
+        # Named separately, and first: the generic message below would say the
+        # cache was unavailable, when the whole point is that a pinned run
+        # never looked at it (snapshot-pinning.md §2).
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
     except FplError as exc:
         error_console.print("No live snapshot or cached snapshot is available.")
         raise typer.Exit(1) from exc
     finally:
         service.close()
+    if pinned is not None:
+        # stderr, not stdout: `--json` output has to stay parseable.
+        error_console.print(f"Pinned to {pinned} (captured {result.snapshot.fetched_at.isoformat()}).")
     if result.stale:
-        print(
-            f"[yellow]Using cached snapshot from {result.snapshot.fetched_at.isoformat()} "
-            f"— live fetch failed: {result.reason}[/yellow]"
+        # stderr, for the same reason as the pinned notice above: on stdout
+        # this line lands in front of `--json` output and makes it unparseable,
+        # in exactly the case a consumer most needs to read the provenance.
+        error_console.print(
+            f"Using cached snapshot from {result.snapshot.fetched_at.isoformat()} "
+            f"— live fetch failed: {result.reason}"
         )
-    return result.snapshot
+    return LoadedSnapshot(snapshot=result.snapshot, provenance=_snapshot_provenance(pinned, result))
 
 
 @app.command()
@@ -115,9 +207,10 @@ def list_players(
     name: str | None = typer.Option(None, "--name"),
     available_only: bool = typer.Option(False, "--available-only"),
     limit: int = typer.Option(25, min=1, max=200),
+    snapshot_path: SnapshotOption = None,
 ) -> None:
     """List players from the latest available snapshot."""
-    snapshot = load_snapshot()
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     positions = {item.singular_name_short.upper(): item.id for item in snapshot.element_types}
     clubs = {item.name.lower(): item.id for item in snapshot.teams}
     players = snapshot.elements
@@ -142,6 +235,7 @@ def list_players(
 def create_squad(
     output: Path = typer.Option(Path("squad.json"), "--output", help="Where to write the squad ledger."),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing output file."),
+    snapshot_path: SnapshotOption = None,
 ) -> None:
     """Interactively build a 15-player squad and write it as a transfer ledger."""
     if not sys.stdin.isatty():
@@ -151,7 +245,7 @@ def create_squad(
         console.print(f"[red]{output} already exists. Use --force to overwrite.[/red]")
         raise typer.Exit(1)
 
-    snapshot = load_snapshot()
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     builder = SquadBuilder(snapshot)
     try:
         slots = builder.run()
@@ -177,9 +271,9 @@ def create_squad(
 
 
 @squad_app.command("validate")
-def validate_squad(path: Path) -> None:
+def validate_squad(path: Path, snapshot_path: SnapshotOption = None) -> None:
     """Validate a JSON squad plan or transfer ledger against the current FPL rules."""
-    snapshot = load_snapshot()
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     try:
         result = validate_squad_file(path, snapshot)
     except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -204,9 +298,10 @@ def _project_single_event(model: ProjectionModel, player_ids: list[int], event: 
 
 
 @plan_app.command("simulate")
-def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
+def simulate_plan(squad_path: Path, transfers_path: Path, snapshot_path: SnapshotOption = None) -> None:
     """Simulate transfers from a squad ledger against a transfers plan file."""
-    snapshot = load_snapshot()
+    pinned = resolve_snapshot_path(snapshot_path)
+    snapshot = load_snapshot(pinned).snapshot
 
     try:
         ledger = Ledger.from_file(squad_path, snapshot)
@@ -233,7 +328,7 @@ def simulate_plan(squad_path: Path, transfers_path: Path) -> None:
         error_console.print(f"Invalid transfers plan: {exc}")
         raise typer.Exit(1) from exc
 
-    service = SnapshotService()
+    service = snapshot_service(pinned)
     try:
         fixtures_result = service.load_fixtures()
     except FplError as exc:
@@ -469,6 +564,7 @@ def optimise_plan(
     explain: bool = typer.Option(False, "--explain", help="Per-gameweek, per-player decomposition for the top path."),
     output: Path | None = typer.Option(None, "--output", help="Write the winning path as a transfers-plan JSON."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    snapshot_path: SnapshotOption = None,
 ) -> None:
     """Search for the best transfer plan over the horizon (docs/plans/optimizer-ux.md)."""
     if model not in _MODEL_CHOICES:
@@ -479,7 +575,9 @@ def optimise_plan(
         error_console.print("--model official-ep only supports --horizon 1 (projections.py:383-387).")
         raise typer.Exit(1)
 
-    snapshot = load_snapshot()
+    pinned = resolve_snapshot_path(snapshot_path)
+    loaded = load_snapshot(pinned)
+    snapshot = loaded.snapshot
     now = datetime.now(UTC)
 
     try:
@@ -517,7 +615,7 @@ def optimise_plan(
             error_console.print(f"No scheduled gameweek at or after GW{from_event} in this snapshot.")
             raise typer.Exit(1)
 
-    service = SnapshotService()
+    service = snapshot_service(pinned)
     try:
         fixtures_result = service.load_fixtures()
     except FplError as exc:
@@ -633,6 +731,13 @@ def optimise_plan(
             "horizon_clamped": horizon_clamped,
             "from_event": from_event,
             "unvalidated": True,
+            # FU-40: a figure taken from this payload names the capture it came
+            # from, so quoting it in a plan or a commit message does not depend
+            # on the cache still holding what it held at the time.
+            "provenance": {
+                "snapshot": loaded.provenance.as_json(),
+                "fixtures": _fixtures_provenance(fixtures_result).as_json(),
+            },
             "dominance_exclusions": len(result.dominance_exclusions),
             "scope_gaps": [
                 {"event": gap.event, "free_transfers": gap.free_transfers, "k_rules": gap.k_rules, "k_enum": gap.k_enum}
@@ -655,7 +760,10 @@ def optimise_plan(
             transfers_by_event = {node.event: list(node.transfers) for node in winner_chain}
             write_transfers_plan(output, transfers_by_event)
             payload["output"] = str(output)
-        print(json.dumps(payload, indent=2))
+        # Not `rich.print`: it word-wraps at the console width and folds an
+        # over-long token, so a payload carrying an absolute path — which
+        # `provenance` now always may — comes out as invalid JSON.
+        sys.stdout.write(json.dumps(payload, indent=2) + "\n")
         return
 
     console.print(
@@ -829,17 +937,19 @@ plan_app.command("optimize", hidden=True)(optimise_plan)
 @plan_app.command("evaluate")
 def evaluate_plan(
     event: int = typer.Option(..., "--event", help="Gameweek to evaluate against actual results."),
+    snapshot_path: SnapshotOption = None,
 ) -> None:
     """Score ComponentProjection, NaiveProjection, OfficialEpProjection and the
     flat points_per_game baseline against a finished gameweek's actual points.
     """
-    current_snapshot = load_snapshot()
+    pinned = resolve_snapshot_path(snapshot_path)
+    current_snapshot = load_snapshot(pinned).snapshot
     gameweek = next((gw for gw in current_snapshot.events if gw.id == event), None)
     if gameweek is None:
         error_console.print(f"No gameweek {event} in the current snapshot.")
         raise typer.Exit(1)
 
-    service = SnapshotService()
+    service = snapshot_service(pinned)
     try:
         fixtures_result = service.load_fixtures()
         live_result = service.load_event_live(event, current_snapshot)

@@ -47,6 +47,21 @@ fpl squad validate squad.json
 
 A squad plan is a JSON object containing a `players` array of player IDs. The validator reports the exact rule failures and the snapshot metadata used.
 
+### Pinning a run to a capture
+
+Every command that reads a snapshot takes `--snapshot PATH` (or reads
+`$FPL_SNAPSHOT`; the flag wins). A pinned run reads bootstrap-static from
+`PATH`, never fetches, and never writes the cache, so a figure measured under
+it can be re-measured later against the same inputs:
+
+```bash
+fpl plan optimise squad.json --snapshot ~/fpl-pinned/gw2-pre-deadline.json --json
+```
+
+A missing or unparseable file is an error naming the path — there is no
+fallback to cache or live. See [docs/plans/snapshot-pinning.md](docs/plans/snapshot-pinning.md),
+including §5 on what a pinned run still does not pin.
+
 ## Agent Plan
 
 Plan: FPL CLI Planner
