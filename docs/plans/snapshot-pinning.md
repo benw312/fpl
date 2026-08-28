@@ -107,6 +107,11 @@ read-only, and `provenance.fixtures.source` reports `cache` so a figure taken
 from one is visibly the weaker citation. That is a property of the old captures,
 not of the design.
 
+Captures carry a `role`. One canonical capture per UK date is what `plan
+evaluate` will select automatically; later captures the same day are ad-hoc,
+kept on disk and pinnable by path but never chosen for you. `--snapshot` does
+not care which — you named the capture, so you get it.
+
 `[gap: event-live is still unpinned. `plan evaluate` reads
 `~/.fpl-cli/events/{gw}-live.json` through the cache under a pinned run, the
 manifest does not cover it, and `plan evaluate` has no `--json` to report its

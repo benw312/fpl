@@ -1730,6 +1730,7 @@ bootstrap-static half, no tooling enforces it.]`
 **Status: landed** — `task/fu-41-capture-directories`. `fpl sync` writes
 `~/.fpl-cli/archive/YYYY-MM-DD/` holding `bootstrap-static.json`, `fixtures.json` and
 `manifest.json`; `--snapshot` accepts that directory or a bare bootstrap-static file.
+Manifest version 2 adds `role` and `next_event`.
 
 **Deferred from:** [snapshot-pinning.md](snapshot-pinning.md) §5, which recorded the
 gap and proposed "either a bundle format or a second flag". A directory is the bundle,
@@ -1756,13 +1757,60 @@ fixtures loose closed the half of the hole that was easier to see.
 }
 ```
 
-`fpl-sync.timer` is `OnCalendar=daily` with `Persistent=true` and
-`RandomizedDelaySec=1h`, so a missed firing runs on catch-up rather than being skipped.
-The four pre-FU-41 archives show what that does to a filename: `bootstrap-2026-08-25.json`
-was written at **15:12** and `bootstrap-2026-08-26.json` at **22:32**, against 00:30 and
-00:32 for the other two. **A capture's name says nothing about whether it precedes the
-deadline it appears to**, and a leak-free evaluation depends on exactly that. It is now
-recorded at capture time, from the fetch, so a backtest can check rather than assume.
+`fpl-sync.timer` is `Persistent=true`, so a missed firing runs on catch-up rather
+than being skipped. The four pre-FU-41 archives show what that does to a filename:
+`bootstrap-2026-08-25.json` was written at **15:12** and `bootstrap-2026-08-26.json` at
+**22:32**, against 00:30 and 00:32 for the other two. **A capture's name says nothing
+about whether it precedes the deadline it appears to**, and a leak-free evaluation
+depends on exactly that. It is now recorded at capture time, from the fetch, so a
+backtest can check rather than assume.
+
+Both gameweeks are recorded, because one field cannot answer both questions.
+`current_event` is the `is_current` gameweek, whose deadline has almost always passed —
+that is what makes it current — and it is the right field for the leak check
+`select_archived_snapshot` performs. `next_event` is the gameweek a capture is a
+*candidate* for: `gw2-pre-deadline.json` is named for GW2 while its `is_current` is GW1,
+whose deadline passed a week earlier. Each is phrased as the fact its own consumer
+needs — `deadline_passed` for the leak check, `captured_before_deadline` for the
+candidate check — so neither question requires opening `bootstrap-static.json`.
+
+**Roles: one canonical slot per UK date.** The first valid capture of a day claims the
+slot; anything later that day is written ad-hoc under a path keyed by the instant, and
+`role` records which it is. Nothing inspects timer state, which is what makes the
+offline case come out right by itself: a sync that finds the slot empty claims it,
+whether that is the timer at 01:00 or someone at their desk at noon.
+
+"Valid" means present *and* hashing to what its own manifest records, so a half-written
+or edited capture cannot hold a day against the good run that follows. Captures are
+staged in a sibling `.incoming-*` directory and `os.replace`d into place — a crashed
+write leaves staging rubbish, never a partial capture squatting on a slot — and writing
+refuses outright to replace a capture that is already valid.
+
+Legacy bare files compete on equal terms and are neither migrated nor deleted, which is
+also why a manifest with **no** `role` reads as ad-hoc: a version 1 capture was never
+asked to claim a slot and must not claim one retrospectively. Confirmed on the real
+archive: `bootstrap-2026-08-28.json` (00:32) holds today, the v1 directory written at
+09:01 and the ad-hoc capture at 09:19 both read as ad-hoc, and
+`select_archived_snapshot` picks the bare file.
+
+`plan evaluate`'s scan considers canonical captures only. Ad-hoc captures stay on disk
+and readable through `--snapshot`; they are simply not something automatic selection
+should silently prefer over the day's canonical one.
+
+**Slots are keyed by UK date, not UTC.** The first implementation used
+`captured_at.date()`, which is the UTC date. A 23:30 UTC capture in summer is 00:30 the
+next day in London, so it was filed under the slot the *following* night's capture is
+entitled to. `captured_at` itself stays UTC.
+
+**The timer fires at 01:00 UK, not 00:00 UTC.** FPL moved the daily price change to
+00:00 UK for 2026/27, from 01:30 GMT / 02:30 BST. `OnCalendar=daily` with
+`RandomizedDelaySec=1h` on a UTC host means 00:00–01:00 UTC: safely 01:00–02:00 UK under
+BST, but 00:00–01:00 UK once the clocks go back on 2026-10-25 — straddling the
+price-change boundary and silently mixing pre- and post-change captures in the price
+history. Now `OnCalendar=*-*-* 01:00:00 Europe/London` with `RandomizedDelaySec=5m`,
+which tracks the change instead of drifting across it: `systemd-analyze` confirms
+00:00 UTC while BST is in force and 01:00 UTC from 2026-10-26. Timezone suffixes in
+calendar specs need systemd ≥ 250; this host runs 255.
 
 `captured_at` is the fetch time rather than the clock at write time, and rather than a
 file mtime — `cp -r` resets mtimes, and mtime is what `select_archived_snapshot` had to
@@ -1785,15 +1833,22 @@ close it. Neither was needed for `--snapshot`, so neither was built — but note
 argument above, that an evaluation against loose inputs is a wrong number rather than an
 irreproducible one, applies to event-live exactly as it applied to fixtures.]`
 
-`[gap: `current_event` records the gameweek the API marks `is_current`, whose deadline
-has almost always passed — that is what makes it current. It is the right field for the
-leak check `select_archived_snapshot` performs, but it is not the field that tells you a
-capture named `gw2-pre-deadline` precedes GW2's deadline: for that capture `is_current`
-is GW1. A reader wanting the latter derives it from `events` in the capture's own
-bootstrap-static.json, which is present. Recording `next_event` too would make it
-direct; it was not in the agreed design.]`
+`[gap: `fpl-sync.service` and `fpl-sync.timer` live in `~/.config/systemd/user/` and
+are not in version control, so the reasoning above is the only record of why the
+calendar spec is what it is. A `deploy/` directory holding both units would make the
+change reviewable and reproducible; this branch documented it instead, which is weaker.]`
 
-`[gap: `plan evaluate` still builds its projection snapshot with
-`fetched_at=` the archived file's mtime (`cli.py`), not the manifest's `captured_at`,
-so a copied capture evaluates under the wrong date even though selection now uses the
-manifest. One line, but in a command this branch otherwise did not touch.]`
+`[gap: an ad-hoc capture is never promoted. If a day's canonical capture is later found
+to be corrupt, the ad-hoc captures from the same day are on disk and pinnable but will
+not be selected automatically, and nothing offers to repair the slot. Deliberate — a
+repair path that rewrites history silently is worse than one that makes you look.]`
+
+`[gap: `is_valid_capture` treats an unsupported manifest version as invalid, so a
+capture written by a *newer* build would not hold its slot against an older build, which
+would then clear and replace it. Only reachable by running two builds against one
+archive.]`
+
+**Two gaps recorded here are now closed.** `next_event` records the deadline a capture is
+a candidate for, and `plan evaluate` dates its projection snapshot from the manifest
+rather than the archived file's mtime — the case ad-hoc and copied captures make
+reachable rather than theoretical.
