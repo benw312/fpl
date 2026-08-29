@@ -89,13 +89,14 @@ twice). Treat every block here as a description, not a specification, and trust
 
 ## Commands
 
-Seven commands. Detail lives in `--help`, which is generated from the code; this
+Eight commands. Detail lives in `--help`, which is generated from the code; this
 table is hand-maintained and nothing checks it.
 
 | Command | What it does |
 |---|---|
 | `fpl sync` | Fetch and cache `bootstrap-static` and `fixtures`, and write a dated capture. |
 | `fpl players list` | List and filter players from the latest available snapshot. |
+| `fpl players project` | Rank players by projected points over a horizon. A diagnostic on the model, not a recommendation. |
 | `fpl squad create` | Interactively build a 15-player squad and write it as a transfer ledger. |
 | `fpl squad validate` | Validate a squad plan or ledger against the rules in the current snapshot. |
 | `fpl plan simulate` | Apply a transfers plan to a ledger gameweek by gameweek, with hits and selling prices. |

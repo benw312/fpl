@@ -53,6 +53,67 @@ def player_table(players: list[Player], snapshot: BootstrapSnapshot) -> Table:
     return table
 
 
+# --- fpl players project ----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProjectionRow:
+    """One row of the projection table (docs/plans/players-project.md §3).
+
+    `player` is the whole first column, already concatenated
+    ("De Cuyper · BHA · DEF"). `next_gw` and `mean_xp` are per *gameweek*, not
+    per fixture — a double gameweek's two matches are already summed into the
+    event they share (§1.2). `fixtures` is the total across the whole horizon,
+    so it reads 5 over an unbroken horizon of 5 and is what makes `mean_xp`
+    interpretable. `start_pct` is `None` where the model does not model it, and
+    renders as an em dash rather than as a fabricated 0%.
+    """
+
+    player: str
+    next_gw: float
+    mean_xp: float
+    fixtures: int
+    start_pct: float | None
+
+
+def projection_table(
+    rows: Sequence[ProjectionRow],
+    *,
+    snapshot: BootstrapSnapshot,
+    events: Sequence[int],
+    model_name: str,
+    start_note: str,
+    suppressed: int,
+) -> Table:
+    horizon = len(events)
+    span = f"GW{events[0]}" if horizon == 1 else f"GW{events[0]}–GW{events[-1]}"
+    table = Table(title=f"Projected points | {span} | {model_name} | {snapshot.season}")
+    table.add_column("Player")
+    table.add_column(f"GW{events[0]}", justify="right")
+    table.add_column(f"Next {horizon}", justify="right")
+    table.add_column("Start%", justify="right")
+    for row in rows:
+        table.add_row(
+            row.player,
+            f"{row.next_gw:.1f}",
+            f"{row.mean_xp:.1f} ({row.fixtures})",
+            "—" if row.start_pct is None else f"{row.start_pct * 100:.0f}%",
+        )
+    caption = [
+        f"Next {horizon} = mean xP per gameweek over {span}, with total fixtures in brackets.",
+        start_note,
+        "UNVALIDATED — these projections have never been scored against realised points.",
+    ]
+    if suppressed:
+        caption.insert(
+            2,
+            f"{suppressed} unavailable player{'s' if suppressed != 1 else ''} hidden "
+            f"(cannot be bought). --include-unavailable shows them.",
+        )
+    table.caption = "\n".join(caption)
+    return table
+
+
 # --- fpl plan simulate ------------------------------------------------------
 
 

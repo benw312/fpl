@@ -2398,3 +2398,119 @@ is never persisted, so in normal operation the reader's `unsettled` branch is un
 from this build's own writes. It is reachable from an older build, a copied cache, a
 hand-edited file, or any future relaxation of the write gate, which is why the reader
 checks rather than assumes. Tests construct the state directly.]`
+
+---
+
+## FU-45 — `Projection` cannot say which of its fields a model does not model
+
+**Deferred from:** `task/fu-44-project` ([players-project.md](players-project.md) §1.1).
+
+`Projection` carries `p_start`, `xmins` and the eight components as plain floats, so
+a model that does not model a field has no way to say so — it must put *something*
+there. All three current models do, and they mean three different things:
+`ComponentProjection` sets `p_start` to the minutes model's real start probability;
+`NaiveProjection` sets it to the availability scalar, which is not a start rate;
+`OfficialEpProjection` sets it to `0.0` and records the fact only in prose, in its
+own `assumptions` tuple (*"p_start and xmins are not modelled"*).
+
+A consumer therefore cannot distinguish "this player has a 0% chance of starting"
+from "this model does not compute that" without knowing which model produced the
+row. `fpl players project` special-cases it by matching the `--model` string
+(`cli.py`, `_START_NOTES` and the `start_pct=None if model == "official-ep"` line),
+which works and is honest — the column renders an em dash rather than a fabricated
+`0%` — but it is a string comparison in the CLI standing in for a property of the
+model.
+
+**Why it is not urgent.** One consumer, one field, one model. The failure is
+contained and visible.
+
+**Why it will not stay that way.** `plan optimise --explain` already renders the
+eight components, and `NaiveProjection` puts its entire `xp_total` into
+`xp_appearance` with the other seven at `0.0` — the same ambiguity, on eight fields
+rather than one, already shipped. Any second consumer of a component field repeats
+the string comparison.
+
+**Candidate fix:** a `modelled: frozenset[str]` on `Projection`, or `None` as the
+sentinel for an unmodelled float. The sentinel is smaller but widens every field's
+type; the set is explicit and costs one line per model. Prefer the set. Either way
+the `assumptions` prose stays — it explains, where this would only mark.
+
+---
+
+## FU-46 — the horizon fixture total is never checked against real blank or double data
+
+**Deferred from:** `task/fu-44-project` ([players-project.md](players-project.md) §4).
+
+`fpl players project`'s "Next N" column shows the total fixtures across the horizon
+in brackets, which is what makes the per-gameweek mean beside it interpretable — a
+`(4)` over a horizon of 5 is a blank, a `(6)` is a double. The arithmetic is covered
+by `tests/test_players_project.py::test_fixture_count_and_mean_span_a_blank_and_a_double`
+against **constructed** fixtures.
+
+It has never been exercised against real data, and currently cannot be: in the
+cached fixtures list all 20 clubs play exactly once in each of GW2–GW6, and no
+fixture has a null `event`. Every real row reads `(5)`. A verification run therefore
+cannot distinguish a correct total from one that echoes the horizon length — that
+mutation is caught by the synthetic test and by nothing else.
+
+**Not a defect in the command.** It is a property of the fixture list this early in
+a season; blanks and doubles arrive with cup competitions and postponements.
+
+**What to do, when there is data:** re-run `fpl players project` against a capture
+whose horizon contains a real blank or double and confirm the bracketed total
+against `fixtures.json` by hand. Worth doing once, and worth doing on the first
+capture that has one, since the same fixture list feeds every projected cell.
+The same gap applies to `Projection.fixtures` generally, not only to this column —
+`_build_schedule` is the only blanks-and-doubles machinery in the repo (FU-20) and
+none of its real-data behaviour has been observed.
+
+---
+
+## FU-47 — per-90 rates are consumed raw, so one good match dominates the ranking
+
+**Deferred from:** `task/fu-44-project` — found by the first run of
+`fpl players project` against `~/fpl-pinned/gw2-pre-deadline.json`, 2026-08-29.
+
+**This is a projections defect, found by the diagnostic that was built to find
+exactly this.** It is filed rather than fixed because it changes the model, not the
+command that revealed it.
+
+`ComponentProjection` shrinks three inputs toward priors — the start rate, minutes
+per start, and bonus per 90 (`projections.py`, Decision 4 and the `xp_bonus` term) —
+and consumes four others **exactly as the API publishes them**:
+`expected_goals_per_90`, `expected_assists_per_90`, `defensive_contribution_per_90`
+and `saves_per_90`. After one played gameweek those are per-90 extrapolations from a
+single match, and for a substitute from a few minutes.
+
+Measured on that capture, projecting GW3:
+
+| Player | Rate as published | Effect |
+|---|---|---|
+| De Cuyper (BHA, DEF) | `xG90 = 1.72` from 77 minutes | `xp_attack = 7.96` of a 10.28 total — top of the table, ahead of every forward |
+| Alcaraz (EVE, MID) | `dc/90 = 270.0` from **1 minute** | `xp_defcon` saturates at its 2.00 cap |
+| Haaland (MCI, FWD) | `xG90 = 0.74` from a full 90 | 3.43 total, 26th |
+
+A left-back projecting 10.3 in a gameweek, and a forward with the best underlying
+numbers in the league sitting 26th, are both wrong in the direction the shrinkage
+elsewhere in the model exists to prevent. The minutes model is not at fault here:
+`p_start` reads 72% and 44% respectively, which is reasonable. It is the rate terms
+those probabilities multiply.
+
+**Why it matters beyond the table.** `plan optimise` ranks on `xp_total`, so this
+feeds the search directly, and it is worst early in the season — exactly when
+transfer planning is most active and when the model has least data to correct
+itself.
+
+**Candidate fix:** shrink the four rates toward a positional prior on minutes
+played, in the shape `xp_bonus` already uses
+(`raw * minutes / (minutes + shrinkage_minutes)`), which is already in the file and
+already has a constant chosen for it. That gives one mechanism for all rate terms
+rather than a second invented one. The prior per position is a new
+`[assumption: no empirical basis]`, and should be flagged as such alongside the
+existing seven.
+
+**Do not fix without the harness.** `fpl plan evaluate` is the only thing that can
+say whether shrinkage helps, and its first leak-free run is still pending (README,
+Known limitations). Shrinking the rates would be principled and unmeasured, which
+is the state the whole model is already in — but a change made in that state should
+at least be recorded as such, not presented as an improvement.
