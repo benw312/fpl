@@ -247,3 +247,41 @@ OFFICIAL_EP_V1 = register(
         note="The API's own ep_next. Takes no configuration, so it could never drift.",
     )
 )
+
+# --- A test fixture, not a candidate model -----------------------------------
+#
+# This variant exists to prove two registered variants can coexist and be
+# evaluated side by side in one run. **It is not a proposal and must not be
+# quoted as a model.** It differs from `component/1.0` in exactly one field, so
+# any difference in its output is attributable to that field and nothing else.
+#
+# `mins_per_sub` 20.0 -> 20.5 was chosen for three properties, in this order:
+# the half-minute is visibly arbitrary, so no reader could mistake it for a
+# modelling claim; it is not a number anyone has argued about; and it still
+# moves enough rows to prove the pipeline end to end. Measured against
+# `~/fpl-pinned/gw2-pre-deadline.json` at GW3: 403 of 616 players change, by at
+# most 0.013 xP.
+#
+# `doubtful_chance` was the first choice and was rejected on measurement: it
+# changes **nothing at all** on that capture. All 17 `status="d"` players there
+# publish a `chance_of_playing_next_round`, and `_availability` returns on that
+# before it ever reaches the constant. A fixture that provably moves no number
+# cannot demonstrate that the comparison path works. `[gap: that also means
+# `doubtful_chance` is dead code against this capture — it is reachable only for
+# a doubtful player with no published percentage, and there were none. Not
+# investigated further here; it is a projections question, not a registry one.]`
+#
+# Delete it once FU-47's real variants are registered, or keep it as the
+# regression fixture for the multi-model path — but do not grow it.
+COMPONENT_V1_FIXTURE_MINSUB = register(
+    ModelVariant(
+        name="component/1.0-fixture-minsub205",
+        family="component",
+        minutes=replace(COMPONENT_V1.minutes, mins_per_sub=20.5),
+        strength=StrengthConfig(),
+        note=(
+            "TEST FIXTURE, not a candidate model. component/1.0 with mins_per_sub "
+            "20.0 -> 20.5. Exists to prove two variants can be compared in one run."
+        ),
+    )
+)

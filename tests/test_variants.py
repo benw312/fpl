@@ -36,12 +36,14 @@ EXPECTED_DIGESTS = {
     "component/1.0": "d72962d5977c",
     "naive/1.0": "1ad0cd721b2e",
     "official-ep/1.0": "a6d72770239f",
+    "component/1.0-fixture-minsub205": "d0737d604720",
 }
 
 EXPECTED_VERSIONS = {
     "component/1.0": "component/1.0+banded",
     "naive/1.0": "naive/1.0",
     "official-ep/1.0": "official-ep/1.0",
+    "component/1.0-fixture-minsub205": "component/1.0-fixture-minsub205+banded",
 }
 
 
@@ -327,3 +329,64 @@ def test_build_refuses_an_unknown_family_and_an_unknown_strength_model() -> None
             _snapshot(),
             _fixtures(),
         )
+
+
+# --- The fixture variant ------------------------------------------------------
+
+
+def test_the_fixture_variant_differs_from_v1_in_exactly_one_field() -> None:
+    """It exists to prove two variants can coexist, so its difference from
+    `component/1.0` must be attributable to one field and nothing else.
+
+    Mutation: changing a second field on the fixture — e.g. also setting
+    `p_sub_appearance` — makes `differing` longer than one and fails.
+    """
+    base = variants.get("component/1.0")
+    fixture = variants.get("component/1.0-fixture-minsub205")
+
+    assert fixture.family == base.family
+    assert fixture.defcon_thresholds == base.defcon_thresholds
+    assert fixture.strength == base.strength
+    assert fixture.rates == base.rates
+
+    differing = [
+        name
+        for name in ("shrinkage_k", "start_priors", "mins_per_start_prior",
+                     "p_sub_appearance", "mins_per_sub", "doubtful_chance",
+                     "bonus_shrinkage_minutes")
+        if getattr(fixture.minutes, name) != getattr(base.minutes, name)
+    ]
+    assert differing == ["mins_per_sub"]
+    assert fixture.minutes.mins_per_sub == 20.5
+
+
+def test_the_fixture_variant_actually_moves_projections() -> None:
+    """A fixture that provably changed nothing could not demonstrate that the
+    comparison path works — which is why `doubtful_chance` was rejected for the
+    role (variants.py records the measurement).
+
+    Mutation: registering the fixture with `mins_per_sub` unchanged at 20.0
+    makes the two projections equal and fails here.
+    """
+    snapshot = _snapshot()
+    fixtures = _fixtures()
+    player_ids = [player.id for player in snapshot.elements]
+
+    base = variants.build(variants.get("component/1.0"), snapshot, fixtures).project(player_ids, [3])
+    other = variants.build(variants.get("component/1.0-fixture-minsub205"), snapshot, fixtures).project(
+        player_ids, [3]
+    )
+    assert base.keys() == other.keys()
+    assert any(base[key].xp_total != other[key].xp_total for key in base)
+    assert {p.model_version for p in base.values()} == {"component/1.0+banded"}
+    assert {p.model_version for p in other.values()} == {"component/1.0-fixture-minsub205+banded"}
+
+
+def test_the_fixture_variant_is_labelled_as_one() -> None:
+    """Its note must say so: the whole risk of a fixture in the registry is
+    someone quoting it as a model.
+
+    Mutation: emptying the note fails this.
+    """
+    assert "TEST FIXTURE" in variants.get("component/1.0-fixture-minsub205").note
+    assert "fixture" in variants.get("component/1.0-fixture-minsub205").name
