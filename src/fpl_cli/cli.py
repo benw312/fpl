@@ -126,6 +126,19 @@ ArchiveDirOption = Annotated[
 ]
 
 
+# Declared `Annotated` for the same reason as `SnapshotOption` above: the tests
+# call `cli.evaluate_plan(...)` directly, and a `typer.Option(...)` default
+# would hand them a `typer.OptionInfo` where the code expects a list — which is
+# exactly the trap that comment describes, and it fired here the first time.
+EvaluateModelsOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--model",
+        help="Registered variant to score. Repeatable; default naive/1.0, component/1.0, official-ep/1.0.",
+    ),
+]
+
+
 def resolve_snapshot_path(explicit: Path | None) -> Path | None:
     """`--snapshot` if given, else `$FPL_SNAPSHOT`, else `None` for an unpinned run.
 
@@ -1228,13 +1241,24 @@ def _report_live_provenance(result: LiveEventResult) -> None:
     )
 
 
+# The models evaluated when `--model` is not given: exactly what this command
+# scored before it took the flag, so the default run is unchanged.
+_DEFAULT_EVALUATE_MODELS: tuple[str, ...] = ("naive/1.0", "component/1.0", "official-ep/1.0")
+
+
 @plan_app.command("evaluate")
 def evaluate_plan(
     event: int = typer.Option(..., "--event", help="Gameweek to evaluate against actual results."),
+    model: EvaluateModelsOption = None,
     snapshot_path: SnapshotOption = None,
 ) -> None:
-    """Score ComponentProjection, NaiveProjection, OfficialEpProjection and the
-    flat points_per_game baseline against a finished gameweek's actual points.
+    """Score projection models against a finished gameweek's actual points.
+
+    `--model` is repeatable, and every model named is scored against **one** set
+    of actuals from **one** capture in a single run. That is the point of the
+    flag: comparing two variants by running the command twice and diffing the
+    tables by hand compares two runs, which may have selected different archives
+    or different event-live payloads between them.
     """
     pinned = resolve_snapshot_path(snapshot_path)
     current_snapshot = load_snapshot(pinned).snapshot
@@ -1279,37 +1303,41 @@ def evaluate_plan(
     actuals = actuals_from_live_event(live_result.live)
     player_ids = [player.id for player in projection_snapshot.elements]
 
+    requested = list(model) if model else list(_DEFAULT_EVALUATE_MODELS)
+    duplicates = [name for index, name in enumerate(requested) if name in requested[:index]]
+    if duplicates:
+        raise typer.BadParameter(f"--model {duplicates[0]!r} given more than once.")
+    # Resolved before any projecting, so an unknown name fails immediately
+    # rather than after the run has already scored the models before it.
+    chosen = [resolve_variant(name) for name in requested]
+
+    # The flat baseline is always scored. It is not one of projections.py's
+    # models but the evaluation-only floor of projections.md's decision rule —
+    # if the component model cannot beat it, fix minutes before adding
+    # complexity — so it belongs in every comparison rather than being selected.
     evaluations = [
         evaluate_model(
             flat_points_per_game_projections(projection_snapshot, event), actuals, model_name="baseline/flat-ppg"
         )
     ]
 
-    naive_model = NaiveProjection(projection_snapshot, fixtures)
-    evaluations.append(
-        evaluate_model(_project_single_event(naive_model, player_ids, event), actuals, model_name=naive_model.name)
-    )
-
-    component_model = ComponentProjection(
-        projection_snapshot,
-        fixtures,
-        BandedTeamRates(projection_snapshot),
-        fixtures_stale=fixtures_result.stale,
-        fixtures_fetched_at=fixtures_result.fetched_at,
-    )
-    evaluations.append(
-        evaluate_model(
-            _project_single_event(component_model, player_ids, event), actuals, model_name=component_model.name
+    for variant in chosen:
+        built = variants.build(
+            variant,
+            projection_snapshot,
+            fixtures,
+            fixtures_stale=fixtures_result.stale,
+            fixtures_fetched_at=fixtures_result.fetched_at,
         )
-    )
-
-    try:
-        ep_model = OfficialEpProjection(projection_snapshot, fixtures)
-        evaluations.append(
-            evaluate_model(_project_single_event(ep_model, player_ids, event), actuals, model_name=ep_model.name)
-        )
-    except ValueError as exc:
-        print(f"[yellow]OfficialEpProjection: not evaluable for GW{event} ({exc})[/yellow]")
+        try:
+            projections = _project_single_event(built, player_ids, event)
+        except ValueError as exc:
+            # official-ep refuses any event but the snapshot's own next one. A
+            # model that cannot score this gameweek is skipped with a reason
+            # rather than failing the run, so the remaining columns still print.
+            print(f"[yellow]{built.name}: not evaluable for GW{event} ({exc})[/yellow]")
+            continue
+        evaluations.append(evaluate_model(projections, actuals, model_name=built.name))
 
     console.print(evaluation_table(evaluations))
     console.print(evaluation_category_table(evaluations))
