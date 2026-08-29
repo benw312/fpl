@@ -63,6 +63,7 @@ from fpl_cli.domain.transfers import (
 )
 from fpl_cli.presentation import (
     PathRow,
+    ProjectionRow,
     console,
     error_console,
     evaluation_category_table,
@@ -73,6 +74,7 @@ from fpl_cli.presentation import (
     optimise_recommendation,
     optimise_why_table,
     player_table,
+    projection_table,
     simulation_table,
     squad_state_table,
 )
@@ -312,6 +314,159 @@ def list_players(
         players = [player for player in players if player.can_select and not player.removed and player.status == "a"]
     players = sorted(players, key=lambda player: (-player.total_points, player.display_name))[:limit]
     console.print(player_table(players, snapshot))
+
+
+# `p_start` is on every `Projection`, but it only means a start rate under
+# `component`. `naive` puts the raw availability scalar there and `official-ep`
+# hardcodes 0.0 — its own `assumptions` tuple says "p_start and xmins are not
+# modelled" — so rendering a percentage for it would invent a measurement.
+# Keyed off the `--model` string rather than sniffed from the model object
+# because `Projection` has no way to mark a field as unmodelled (FU-45).
+_START_NOTES = {
+    "component": "Start% = modelled probability of starting. Not an interval, and not calibrated.",
+    "naive": "Start% = availability only; naive models no start rate.",
+    "official-ep": "Start% is not modelled by official-ep.",
+}
+
+
+@players_app.command("project")
+def project_players(
+    position: list[str] = typer.Option(
+        None, "--position", help="GKP, DEF, MID or FWD. Repeatable; default all."
+    ),
+    top: int = typer.Option(30, "--top", min=1, help="Rows to show."),
+    horizon: int = typer.Option(5, "--horizon", min=1, help="Gameweeks to average over."),
+    model: str = typer.Option("component", "--model", help="component | naive | official-ep."),
+    include_unavailable: bool = typer.Option(
+        False, "--include-unavailable", help="Include players who cannot be bought."
+    ),
+    snapshot_path: SnapshotOption = None,
+) -> None:
+    """Rank players by projected points (docs/plans/players-project.md).
+
+    A diagnostic, not a recommendation: the projections are unvalidated, and
+    reading the top of this table is the cheapest check that the minutes model
+    is producing sensible names.
+    """
+    if model not in _MODEL_CHOICES:
+        raise typer.BadParameter(f"--model must be one of {_MODEL_CHOICES}.")
+
+    snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
+    now = datetime.now(UTC)
+
+    # Named `--position` rather than failing silently on an unknown value, which
+    # is FU-17's still-open defect on `players list --club`. One new command is
+    # not the place to add a third instance of it.
+    positions_by_code = {item.singular_name_short.upper(): item.id for item in snapshot.element_types}
+    requested = [value.upper() for value in (position or [])]
+    unknown = [value for value in requested if value not in positions_by_code]
+    if unknown:
+        valid = ", ".join(sorted(positions_by_code))
+        raise typer.BadParameter(f"Unknown --position {unknown[0]!r}. Use one of {valid}.")
+    wanted_type_ids = {positions_by_code[value] for value in requested}
+
+    from_event = _next_open_event(snapshot, now)
+    if from_event is None:
+        error_console.print("No upcoming gameweek with an open deadline in this snapshot. Run `fpl sync`.")
+        raise typer.Exit(1)
+
+    scheduled = [gameweek.id for gameweek in snapshot.events]
+    last_scheduled = max(scheduled) if scheduled else None
+    if last_scheduled is not None and from_event + horizon - 1 > last_scheduled:
+        horizon = last_scheduled - from_event + 1
+        if horizon < 1:
+            error_console.print(f"No scheduled gameweek at or after GW{from_event} in this snapshot.")
+            raise typer.Exit(1)
+        error_console.print(f"Horizon clamped to {horizon} — GW{last_scheduled} is the last scheduled gameweek.")
+
+    # `OfficialEpProjection.project` raises for any event but the snapshot's own
+    # next one (projections.py:383-387). `_alt_models` skips it silently on that
+    # condition; here the user named the model, so refusing beats projecting
+    # something they did not ask for.
+    next_event = next((gameweek.id for gameweek in snapshot.events if gameweek.is_next), None)
+    if model == "official-ep" and (horizon != 1 or from_event != next_event):
+        error_console.print(
+            f"--model official-ep only projects the snapshot's next gameweek "
+            f"({next_event}) at --horizon 1; this run is GW{from_event} at horizon {horizon}."
+        )
+        raise typer.Exit(1)
+
+    service = snapshot_service(resolve_snapshot_path(snapshot_path))
+    try:
+        fixtures_result = service.load_fixtures()
+    except FplError as exc:
+        error_console.print(f"Could not load fixtures: {exc}")
+        raise typer.Exit(1) from exc
+    finally:
+        service.close()
+
+    candidates = [
+        player
+        for player in snapshot.elements
+        if not wanted_type_ids or player.element_type in wanted_type_ids
+    ]
+    # `can_select and not removed` is the optimiser's own usability predicate
+    # (FU-28's `_validator_usable`, unchanged by FU-35): a player the validator
+    # will not accept cannot be bought, so ranking them is noise. Deliberately
+    # not `players list`'s stricter `status == "a"` — a doubtful player is
+    # buyable, and is exactly the row worth sense-checking.
+    usable = [player for player in candidates if player.can_select and not player.removed]
+    suppressed = len(candidates) - len(usable)
+    if include_unavailable:
+        usable, suppressed = candidates, 0
+    if not usable:
+        error_console.print("No players match those filters.")
+        raise typer.Exit(1)
+
+    events = [from_event + offset for offset in range(horizon)]
+    projection_model = _build_model(model, snapshot, fixtures_result)
+    try:
+        by_event = _projections_by_event(projection_model, [player.id for player in usable], events)
+    except ValueError as exc:
+        error_console.print(str(exc))
+        raise typer.Exit(1) from exc
+
+    clubs = snapshot.clubs
+    position_names = snapshot.positions
+    rows: list[ProjectionRow] = []
+    for player in usable:
+        projections = [by_event[event][player.id] for event in events]
+        club = clubs.get(player.team)
+        position_name = position_names.get(player.element_type)
+        rows.append(
+            ProjectionRow(
+                player=" · ".join(
+                    (
+                        player.display_name,
+                        # `short_name or name` for the same reason
+                        # `Player.display_name` falls back: a blank cell in a
+                        # diagnostic table is a silent failure, and the API
+                        # types the field as optional even though it is always
+                        # populated in practice.
+                        (club.short_name or club.name) if club else str(player.team),
+                        position_name.singular_name_short if position_name else str(player.element_type),
+                    )
+                ),
+                next_gw=projections[0].xp_total,
+                mean_xp=sum(item.xp_total for item in projections) / len(projections),
+                fixtures=sum(item.fixtures for item in projections),
+                start_pct=None if model == "official-ep" else projections[0].p_start,
+            )
+        )
+
+    # Sorted on the next gameweek as specified. players-project.md §2 argues the
+    # horizon mean is the better default and is the thing to change if so.
+    rows.sort(key=lambda row: (-row.next_gw, row.player))
+    console.print(
+        projection_table(
+            rows[:top],
+            snapshot=snapshot,
+            events=events,
+            model_name=projection_model.name,
+            start_note=_START_NOTES[model],
+            suppressed=suppressed,
+        )
+    )
 
 
 @squad_app.command("create")
