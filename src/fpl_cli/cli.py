@@ -51,6 +51,7 @@ from fpl_cli.domain.projections import (
 from fpl_cli.domain.rules import validate_squad as validate_squad_players
 from fpl_cli.domain.squad import best_xi, objective_points, to_ledger_payload, validate_squad_file, xi_value
 from fpl_cli.domain.strength import BandedTeamRates
+from fpl_cli.domain import variants
 from fpl_cli.domain.transfers import (
     Ledger,
     TransferRules,
@@ -636,20 +637,39 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
+# The short names the CLI has always taken, mapped to registered variants. Both
+# forms resolve: `--model component` is `component/1.0`, and a variant can also
+# be named in full, which is how FU-47's variants will be selected without a new
+# alias each time.
+_MODEL_ALIASES: dict[str, str] = {
+    "component": "component/1.0",
+    "naive": "naive/1.0",
+    "official-ep": "official-ep/1.0",
+}
+
+
+def resolve_variant(name: str) -> variants.ModelVariant:
+    """A short alias or a registered variant name -> the variant.
+
+    Raises `typer.BadParameter` naming what is available, rather than the
+    KeyError the registry raises, so an unknown `--model` reads as a usage
+    error at the point the user made it.
+    """
+    try:
+        return variants.get(_MODEL_ALIASES.get(name, name))
+    except KeyError as exc:
+        available = ", ".join(sorted(set(_MODEL_ALIASES) | set(variants.names())))
+        raise typer.BadParameter(f"Unknown --model {name!r}. Available: {available}.") from exc
+
+
 def _build_model(name: str, snapshot: BootstrapSnapshot, fixtures_result) -> ProjectionModel:
-    if name == "component":
-        return ComponentProjection(
-            snapshot,
-            fixtures_result.fixtures,
-            BandedTeamRates(snapshot),
-            fixtures_stale=fixtures_result.stale,
-            fixtures_fetched_at=fixtures_result.fetched_at,
-        )
-    if name == "naive":
-        return NaiveProjection(snapshot, fixtures_result.fixtures)
-    if name == "official-ep":
-        return OfficialEpProjection(snapshot, fixtures_result.fixtures)
-    raise typer.BadParameter(f"--model must be one of {_MODEL_CHOICES}.")
+    return variants.build(
+        resolve_variant(name),
+        snapshot,
+        fixtures_result.fixtures,
+        fixtures_stale=fixtures_result.stale,
+        fixtures_fetched_at=fixtures_result.fetched_at,
+    )
 
 
 def _projections_by_event(

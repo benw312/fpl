@@ -14,7 +14,7 @@ Developed and run on Linux.
 All paths under `src/fpl_cli/`:
 `api/` — official.py, models.py, snapshots.py
 `domain/` — rules.py, squad.py, transfers.py, projections.py, strength.py,
-evaluation.py, optimizer.py
+evaluation.py, optimizer.py, variants.py
 `storage/` — cache.py, capture.py
 Top level — cli.py, transport.py, builder.py, presentation.py (one file by
 decision, not by drift — see FU-18, which sets 600 lines as the threshold to
