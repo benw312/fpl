@@ -1962,7 +1962,7 @@ branch did not run.]`
 
 ---
 
-## FU-40 — A measurement quoted in a plan or a commit message must name both captures it came from
+## FU-40 — A measurement quoted in a plan or a commit message must name the captures **and the model version** it came from
 
 **Standing requirement, not deferred work.** `--snapshot` and the `provenance` block
 exist as of `task/snapshot-pinning`; what remains is the discipline of using them,
@@ -1976,9 +1976,54 @@ would not exist. They are marked inline rather than rewritten, because the argum
 the rule is the part worth preserving and it is unaffected.
 
 **The rule.** Any figure quoted in `docs/plans/` or in a commit message must name
-**both** captures it was measured against: the pinned bootstrap-static capture, and the
-fixtures cache. Path and `captured_at` for each. "Measured against the cached snapshot"
-names a file, not a version of it, and both files are rewritten in ordinary use.
+**all three** things it was measured against: the pinned bootstrap-static capture, the
+fixtures cache, and **the model version that produced it**. Path and `captured_at` for
+the two captures; the registered variant name for the model. "Measured against the
+cached snapshot" names a file, not a version of it, and both files are rewritten in
+ordinary use.
+
+*[**Extended to the model version, 2026-08-29 (`task/model-versioning`).** The
+original rule covered the two inputs and said nothing about the code that consumed
+them, which was defensible only while there was exactly one configuration of each
+model. FU-47 introduces several — rate-shrinkage.md §7 enumerates sixteen constants
+across seven rates — and they are compared against the same actuals in one run, so a
+figure naming only its captures no longer identifies what produced it.*
+
+*The same argument as the original, one level up: `component/1.0+banded` named a file
+of code, not a version of it. Measured on `task/model-versioning`, four materially
+different models all reported that string, projecting Haaland at GW3 as 3.430, 2.993,
+17.243 and 5.081 — `minutes_config` and `defcon_thresholds` appeared in the version
+string nowhere at all. A figure citing both captures and `component/1.0+banded` was
+therefore **not** reproducible, and nothing said so.*
+
+*`domain/variants.py` closes the code half the way `--snapshot` closed the input half:
+the version string is a property of a registered variant, and
+`tests/test_variants.py` pins a digest over every constant each variant holds, so a
+constant cannot move while the name stays put. What that buys is that citing the
+version name is now sufficient — before, it would have been citing a label.*
+
+***What to quote.*** *The registered variant name, exactly as it appears in
+`Projection.model_version` and in `plan evaluate`'s table — e.g.
+`component/1.0+banded`, not "the component model". For a run comparing variants, name
+each. `plan optimise --json` already carries it as `model`.*
+
+***What is enforced, and what is not.*** *A digest test stops a registered variant
+drifting. Two further holes were found while reviewing this, and only one of them
+could be closed:*
+
+- ***Closed.*** *An unregistered `ModelVariant` could take a registered name, hold
+  different constants and emit the same version string — worse than the old literal,
+  because the registry blesses that string, so the digest test would pass while the
+  figure came from something else. Measured: an impostor `component/1.0` projected
+  Haaland at GW3 as 2.993 against the registered 3.430, both stamped
+  `component/1.0+banded`. `variants.build` now refuses a variant whose name is
+  registered but which is not the registered instance. Unregistered names stay free.*
+- ***Open, and unenforceable.*** *Constructing `ComponentProjection(...)` directly
+  with a hand-made `minutes_config` bypasses the registry entirely and reports the
+  fallback literal from `projections.py`, as drift-prone as it ever was. Nothing can
+  catch that without removing the fallback, which every test constructing a model
+  directly depends on. Figures must come from a registered variant, and that — like
+  the rest of this entry — is a discipline with no test behind it.]*
 
 ```bash
 fpl plan optimise squad.json --snapshot ~/fpl-pinned/gw2-pre-deadline.json --json
@@ -1990,6 +2035,7 @@ only `provenance.snapshot` is the failure this entry exists to prevent:
 ```
 snapshot ~/fpl-pinned/gw2-pre-deadline.json  (captured 2026-08-28T07:26:38Z)
 fixtures ~/.fpl-cli/fixtures.json            (captured 2026-08-28T00:32:59Z)
+model    component/1.0+banded
 ```
 
 `provenance.snapshot.source` reading `cache` or `live` is the signal that a figure is

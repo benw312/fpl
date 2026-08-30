@@ -48,6 +48,79 @@ class MinutesModelConfig:
     bonus_shrinkage_minutes: float = DEFAULT_BONUS_SHRINKAGE_MINUTES
 
 
+# --- Rate shrinkage (FU-47) — declared, not yet consumed ---------------------
+#
+# docs/plans/rate-shrinkage.md §7 enumerates the constants FU-47's variants set:
+# a prior weight in minutes and a prior source per rate, plus two shared band
+# parameters. The type lives here because that is where FU-47 will read it, and
+# because `domain/variants.py` imports this module — putting it there would make
+# the eventual consumer an import cycle.
+#
+# **Nothing reads it on this branch.** `variants.build` refuses to construct a
+# model from a variant whose config is not the identity, rather than accepting
+# the parameters and ignoring them.
+
+PRIOR_SOURCES: tuple[str, ...] = ("position", "price_conditioned", "zero")
+
+# The rates FU-47 shrinks. `bonus` already has shrinkage in
+# `_component_points_for_fixture`; its prior source is "zero" today, which is
+# the defect rather than the design (rate-shrinkage.md §1.3).
+SHRINKABLE_RATES: tuple[str, ...] = ("xg", "xa", "dc", "saves", "yellow", "red", "bonus")
+
+
+@dataclass(frozen=True)
+class RatePrior:
+    """One rate's shrinkage: how much prior weight, and toward what.
+
+    `prior_minutes = 0.0` means no shrinkage — the rate is used as published,
+    which is what every rate but `bonus` does today.
+    """
+
+    prior_minutes: float = 0.0
+    prior_source: str = "position"
+
+    def __post_init__(self) -> None:
+        if self.prior_source not in PRIOR_SOURCES:
+            raise ValueError(f"prior_source must be one of {PRIOR_SOURCES}; got {self.prior_source!r}.")
+        if self.prior_minutes < 0:
+            raise ValueError(f"prior_minutes must be non-negative; got {self.prior_minutes!r}.")
+
+
+@dataclass(frozen=True)
+class RateShrinkageConfig:
+    """Per-rate shrinkage, plus the two shared price-band parameters.
+
+    The default is the identity: every rate unshrunk, which reproduces today's
+    behaviour exactly. `is_identity` is what `variants.build` checks.
+    """
+
+    rates: Mapping[str, RatePrior] = field(default_factory=dict)
+    band_prior_minutes: float = 900.0
+    band_width: int = 5
+
+    def __post_init__(self) -> None:
+        unknown = set(self.rates) - set(SHRINKABLE_RATES)
+        if unknown:
+            raise ValueError(f"Unknown rate(s) {sorted(unknown)}; expected a subset of {SHRINKABLE_RATES}.")
+
+    @property
+    def is_identity(self) -> bool:
+        return all(prior.prior_minutes == 0.0 for prior in self.rates.values())
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "rates": {
+                name: {
+                    "prior_minutes": self.rates[name].prior_minutes,
+                    "prior_source": self.rates[name].prior_source,
+                }
+                for name in sorted(self.rates)
+            },
+            "band_prior_minutes": self.band_prior_minutes,
+            "band_width": self.band_width,
+        }
+
+
 @dataclass(frozen=True)
 class _MinutesProbabilities:
     p_start: float
@@ -249,6 +322,7 @@ class ComponentProjection:
         fixtures_fetched_at: datetime | None = None,
         minutes_config: MinutesModelConfig | None = None,
         defcon_thresholds: dict[str, int] | None = None,
+        version: str | None = None,
     ) -> None:
         self._players = snapshot.players_by_id
         self._positions = snapshot.positions
@@ -260,10 +334,15 @@ class ComponentProjection:
         self._minutes_config = minutes_config or MinutesModelConfig()
         self._defcon_thresholds = defcon_thresholds if defcon_thresholds is not None else dict(DEFCON_THRESHOLDS)
         self._appearances = _appearances(snapshot)
+        self._version = version
 
     @property
     def name(self) -> str:
-        return f"component/1.0+{self._rates_model.name}"
+        # `domain/variants.py` passes the registered variant's version, which is
+        # the only path the CLI takes. The literal below is the fallback for
+        # direct construction in tests and remains as drift-prone as it ever was
+        # — it names the strategy class, not the constants. See variants.py.
+        return self._version or f"component/1.0+{self._rates_model.name}"
 
     def project(self, players: Sequence[int], events: Sequence[int]) -> dict[tuple[int, int], Projection]:
         result: dict[tuple[int, int], Projection] = {}
@@ -329,14 +408,16 @@ class NaiveProjection:
         fixtures: Sequence[Fixture],
         *,
         minutes_config: MinutesModelConfig | None = None,
+        version: str | None = None,
     ) -> None:
         self._players = snapshot.players_by_id
         self._schedule = _build_schedule(fixtures)
         self._minutes_config = minutes_config or MinutesModelConfig()
+        self._version = version
 
     @property
     def name(self) -> str:
-        return "naive/1.0"
+        return self._version or "naive/1.0"
 
     def project(self, players: Sequence[int], events: Sequence[int]) -> dict[tuple[int, int], Projection]:
         result: dict[tuple[int, int], Projection] = {}
@@ -371,14 +452,17 @@ class NaiveProjection:
 class OfficialEpProjection:
     """The API's own `ep_next`, parsed as-is. Refuses any event but the next one."""
 
-    def __init__(self, snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) -> None:
+    def __init__(
+        self, snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture], *, version: str | None = None
+    ) -> None:
         self._players = snapshot.players_by_id
         self._schedule = _build_schedule(fixtures)
         self._next_event = next((gameweek.id for gameweek in snapshot.events if gameweek.is_next), None)
+        self._version = version
 
     @property
     def name(self) -> str:
-        return "official-ep/1.0"
+        return self._version or "official-ep/1.0"
 
     def project(self, players: Sequence[int], events: Sequence[int]) -> dict[tuple[int, int], Projection]:
         result: dict[tuple[int, int], Projection] = {}

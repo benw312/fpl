@@ -73,6 +73,12 @@ than of the run, which is what lets two pinned runs produce identical `--json`.
 capture it came from, which is what makes a plan measurement citable — the
 missing half of the fix. Quoting a figure without it is what FU-40 forbids.
 
+*[**FU-40 was extended on 2026-08-29 (`task/model-versioning`) to require the
+model version too**, and the payload's `model` key is where it comes from. The
+two captures identify the inputs; they say nothing about the code that consumed
+them, which stopped being a single configuration once `domain/variants.py`
+landed. A citation is now three lines, not two.]*
+
 `captured_at` is the snapshot's `fetched_at`: the file's mtime for a pinned
 capture and for a cache read, the moment of the fetch for a live one. Taking it
 from the clock instead would be honest about when a figure was produced and

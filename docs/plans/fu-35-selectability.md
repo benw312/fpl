@@ -522,6 +522,15 @@ fixtures  ~/.fpl-cli/fixtures.json             source=cache
           sha256 fbd4457e5c819f38cb34228453596f8c6eb3ae345bc64a11996682187bdf09a8
 ```
 
+*[**Model version, added 2026-08-29** under FU-40's extension
+(`task/model-versioning`): every figure in this document was produced by
+**`component/1.0+banded`**, which is now a registered variant with its constants pinned
+by digest in `tests/test_variants.py`. At the time these were measured that string was
+a literal that four different models could report, so the citation is completed
+retrospectively here rather than claimed to have been complete. The figures themselves
+are unaffected — `component/1.0` was registered with exactly the constants in force
+when they were taken, and projections were verified byte-identical across that change.]*
+
 `provenance.fixtures.source` reads `cache`, which under FU-40 is the signal that the
 fixtures were **not** pinned and may have moved. Here they demonstrably have not: that
 sha256 is identical to `~/fpl-pinned/gw2-fixtures.json`, the read-only 08:08Z copy.

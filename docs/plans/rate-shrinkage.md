@@ -8,8 +8,13 @@ hand-picked as the entry proposes. FU-47's body is left as written — it is the
 record of what was believed when it was filed, and correcting it in place would
 lose that. Where the two disagree, this document wins.
 **Measured against:** `~/fpl-pinned/gw2-pre-deadline.json` and
-`~/fpl-pinned/gw2-fixtures.json` (`captured_at` 2026-08-28T07:26:38Z), 2026-08-29,
-per FU-40. Every figure below is reproducible from that pair.
+`~/fpl-pinned/gw2-fixtures.json` (`captured_at` 2026-08-28T07:26:38Z), under model
+version **`component/1.0+banded`**, 2026-08-29, per FU-40 — which since
+`task/model-versioning` requires the model version alongside the two captures. Every
+figure below is reproducible from that triple. The "before" column throughout is
+`component/1.0` as registered in `domain/variants.py`; the "after" columns are the
+demonstration parameters named in §5 and are **not** a registered variant, because no
+model reads `RateShrinkageConfig` yet.
 
 ---
 
