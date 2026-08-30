@@ -89,8 +89,11 @@ twice). Treat every block here as a description, not a specification, and trust
 
 ## Commands
 
-Eight commands. Detail lives in `--help`, which is generated from the code; this
-table is hand-maintained and nothing checks it.
+Eight commands. Detail lives in `--help`, which is generated from the code. This
+table is checked against the Typer app by `tests/test_claude_md_structure.py`,
+including the count in this sentence — the app enumerates its own commands, so
+unlike the architecture table below there is no second hand-maintained list to
+disagree with.
 
 | Command | What it does |
 |---|---|
@@ -300,14 +303,16 @@ All paths under `src/fpl_cli/`:
 | `storage/cache.py` | The raw JSON snapshot cache. |
 | `storage/capture.py` | The capture directory format, manifests, roles and quarantine. |
 
-**This table is not checked against anything.** `CLAUDE.md` carries an equivalent
-Structure block that *is* — `tests/test_claude_md_structure.py` walks
-`src/fpl_cli/` and fails naming every module the block omits, every module it
-names that does not exist, and every package no group mentions (FU-19). That test
-was written because the block went stale twice by the same mechanism: the commit
-adding a module did not update the list naming it as missing. The copy above has
-the same weakness and no such guard, so where the two disagree, `CLAUDE.md` and
-the tree are right.
+**This table is checked against the tree.** `tests/test_claude_md_structure.py`
+walks `src/fpl_cli/` and fails naming the document, the package and every module
+the table omits, every module it names that does not exist, and every package it
+never mentions (FU-19). `CLAUDE.md` carries an equivalent Structure block checked
+by the same test — one comparison, two readers, because the formats differ.
+
+The guard was written for `CLAUDE.md`, whose block went stale twice by the same
+mechanism: the commit adding a module did not update the list naming it as
+missing. This table then went stale within two days of being written, by that
+same mechanism, which made it three instances and the second document.
 
 Transient failures (timeouts, connection errors, 5xx) are retried with
 exponential backoff. A 429 is deliberately **not** retried aggressively: the API

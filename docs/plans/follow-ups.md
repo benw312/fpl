@@ -704,6 +704,77 @@ fine; the conflict is not.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
+**Scope grew, 2026-08-30 (`task/fu-19-readme`): the guard now covers two
+documents.** This entry was filed about `CLAUDE.md` and closed by a check over
+it. The README's Architecture table — written on `task/readme` on 2026-08-28 —
+went stale on 2026-08-29, when the `task/model-versioning` merge added
+`domain/variants.py` without updating it. **Same mechanism, second document,
+third instance overall.** The gap block below already anticipated this: it
+recorded that the guard covered `src/fpl_cli/` only and that *"FU-15 records the
+README's equivalent staleness, which nothing checks either."* It went stale
+before anything acted on that.
+
+`tests/test_claude_md_structure.py` now checks both. The comparison is one
+function — `structure_drift`, unchanged in what it decides — taking the reader as
+an argument; each document gets a small parser producing the same
+`{group: {modules}}` mapping. **A single parser was considered and rejected**:
+`CLAUDE.md` groups modules under a package heading and wraps across lines, the
+README gives one fully-qualified path per table row, and a reader accepting both
+shapes would accept either shape in either document — a weaker guarantee than the
+one being bought. Aligning the formats instead would mean losing the README's
+per-module description column or expanding `CLAUDE.md`'s eight lines to seventeen
+table rows in a file loaded into context every session; neither is worth one
+parser. The reasoning is at the top of the test.
+
+Every failure message now names the document as well as the module, because a
+module can be missing from two places and *"`domain/`: variants.py exists but is
+not listed"* would send the reader to the wrong file.
+
+The README's *"This table is not checked against anything"* line was true when
+written and is now false; it is replaced by a description of what does check it.
+
+*[One asymmetry between the two, pinned by a test rather than smoothed over:
+`CLAUDE.md` names a package in a heading, so a package survives its last module
+being dropped from the list and the drift reads "module missing". The README
+derives groups from the paths, so dropping the last `domain/` row removes the
+package from the document and the drift reads "package missing". Both name the
+fault; the messages differ because the documents do.]*
+
+**Extended again the same day to the README's Commands table** — the fourth
+instance, and the first caught before it broke rather than after. The gap block
+this replaces said the table "has not gone stale yet, which is exactly what was
+true of the Architecture table on 2026-08-28"; acting on that rather than filing
+it is the whole difference between three corrections and a check.
+
+**This one compares a document to the thing it documents, not to another list.**
+`app_commands` reads `registered_commands` and `registered_groups` off the Typer
+app at import — no invocation, no `CliRunner`, no argument parsing — so there is
+no second hand-maintained inventory that could itself drift. That makes it a
+stronger guard than either module check, which compare a document to a directory
+listing. Groups are walked recursively (nothing nests today; the recursion costs
+two lines and closes the hole), an unnamed command falls back to its function
+name the way Typer derives it, and hidden commands are returned separately: `plan
+optimize` is a deliberate alias documented inside `plan optimise`'s row, so it
+must not be required — but a row promoting it is told it is a hidden alias rather
+than that it does not exist, which would be untrue.
+
+The prose count in the same paragraph — *"Eight commands."* — is checked too. It
+is the same hand-maintained number, one line above the table, that would go stale
+by the same mechanism.
+
+`structure_drift` is **not** reused for this one, and the reasoning is in the
+test: it compares `{group: {member}}` mappings and phrases findings in terms of
+packages and `src/fpl_cli/`. A command set is a flat set of paths, and forcing it
+through that shape would give accurate comparisons with wrong nouns. The
+comparison is a six-line set difference — a different check, not a second copy of
+the module checker.
+
+`[gap: `--help` text itself is still unchecked. The table's *descriptions* are
+prose and can say anything, including something a command no longer does; only
+the command's existence is guarded. Comparing descriptions to docstrings was
+considered and not attempted — they are deliberately written differently, the
+table being one line and the docstring several.]`
+
 **Status: closed — by a check, not a correction** — `task/fu-19-18-13` (2026-08-28).
 `tests/test_claude_md_structure.py` parses `CLAUDE.md`'s Structure block, walks
 `src/fpl_cli/`, and fails naming every disagreement: a module that exists and is not
