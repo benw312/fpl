@@ -2007,12 +2007,23 @@ version name is now sufficient — before, it would have been citing a label.*
 `component/1.0+banded`, not "the component model". For a run comparing variants, name
 each. `plan optimise --json` already carries it as `model`.*
 
-***The unenforceable half is unchanged and is now larger.*** *A digest test stops a
-registered variant drifting. It does not stop someone constructing
-`ComponentProjection(...)` directly with a hand-made `minutes_config`, which still
-reports the fallback literal from `projections.py` and is still as drift-prone as it
-ever was. Figures must come from a registered variant, and that — like the rest of
-this entry — is a discipline with no test behind it.]*
+***What is enforced, and what is not.*** *A digest test stops a registered variant
+drifting. Two further holes were found while reviewing this, and only one of them
+could be closed:*
+
+- ***Closed.*** *An unregistered `ModelVariant` could take a registered name, hold
+  different constants and emit the same version string — worse than the old literal,
+  because the registry blesses that string, so the digest test would pass while the
+  figure came from something else. Measured: an impostor `component/1.0` projected
+  Haaland at GW3 as 2.993 against the registered 3.430, both stamped
+  `component/1.0+banded`. `variants.build` now refuses a variant whose name is
+  registered but which is not the registered instance. Unregistered names stay free.*
+- ***Open, and unenforceable.*** *Constructing `ComponentProjection(...)` directly
+  with a hand-made `minutes_config` bypasses the registry entirely and reports the
+  fallback literal from `projections.py`, as drift-prone as it ever was. Nothing can
+  catch that without removing the fallback, which every test constructing a model
+  directly depends on. Figures must come from a registered variant, and that — like
+  the rest of this entry — is a discipline with no test behind it.]*
 
 ```bash
 fpl plan optimise squad.json --snapshot ~/fpl-pinned/gw2-pre-deadline.json --json

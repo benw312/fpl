@@ -390,3 +390,68 @@ def test_the_fixture_variant_is_labelled_as_one() -> None:
     """
     assert "TEST FIXTURE" in variants.get("component/1.0-fixture-minsub205").note
     assert "fixture" in variants.get("component/1.0-fixture-minsub205").name
+
+
+# --- Impersonation ------------------------------------------------------------
+
+
+def test_an_unregistered_variant_cannot_impersonate_a_registered_name() -> None:
+    """The defect this module closes, one level down.
+
+    `ModelVariant` is an ordinary dataclass, so before the guard in `build` an
+    unregistered variant could take a registered name, hold entirely different
+    constants, and emit the identical version string — a string the registry
+    blesses, so the digest test above would pass while the figure came from
+    something else. Measured on the branch before the guard: an impostor
+    `component/1.0` projected Haaland at GW3 as 2.993 against the registered
+    3.430, both stamped `component/1.0+banded`.
+
+    Mutation: dropping the `registered is not variant` check in `build` lets the
+    impostor build and this stops raising. Weakening it to compare `.name` only
+    (`registered.name != variant.name`) never fires at all, and also fails.
+    """
+    impostor = variants.ModelVariant(
+        name="component/1.0",
+        family="component",
+        minutes=MinutesModelConfig(shrinkage_k=99.0),
+        strength=variants.StrengthConfig(league_mean_goals=9.9),
+    )
+    # It really does collide on the version string — that is the whole problem,
+    # and asserting it here stops the test passing for the wrong reason later.
+    assert impostor.version == variants.get("component/1.0").version
+    assert impostor.digest != variants.get("component/1.0").digest
+
+    with pytest.raises(ValueError, match="registered variant"):
+        variants.build(impostor, _snapshot(), _fixtures())
+
+
+def test_the_registered_instance_itself_still_builds() -> None:
+    """The guard must compare identity, not merely name-is-registered, or every
+    real call would be refused.
+
+    Mutation: `if registered is not None: raise` refuses `variants.get(...)`
+    too and fails here — this is the control for the test above.
+    """
+    for name in variants.names():
+        variant = variants.get(name)
+        if variant.family == "official-ep":
+            continue  # only projects the snapshot's own next event
+        assert variants.build(variant, _snapshot(), _fixtures()) is not None
+
+
+def test_an_unregistered_name_is_still_free() -> None:
+    """Only impersonation is refused. A throwaway variant under a name nobody
+    has registered must still build, or the negative cases above — and trying a
+    variant before it earns a name — become impossible.
+
+    Mutation: refusing any variant not in the registry fails here.
+    """
+    throwaway = variants.ModelVariant(
+        name="component/scratch-not-registered",
+        family="component",
+        minutes=MinutesModelConfig(shrinkage_k=99.0),
+        strength=variants.StrengthConfig(),
+    )
+    assert throwaway.name not in variants.names()
+    model = variants.build(throwaway, _snapshot(), _fixtures())
+    assert model.name == "component/scratch-not-registered+banded"

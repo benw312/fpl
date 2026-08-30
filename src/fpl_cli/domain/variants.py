@@ -184,6 +184,28 @@ def build(
     fixtures_stale: bool = False,
     fixtures_fetched_at: datetime | None = None,
 ) -> ProjectionModel:
+    registered = _REGISTRY.get(variant.name)
+    if registered is not None and registered is not variant:
+        # The same defect this module closes, one level down. `ModelVariant` is
+        # an ordinary dataclass, so nothing stopped an unregistered one taking a
+        # registered name, holding different constants, and emitting the same
+        # version string — which is *worse* than the old fallback literal,
+        # because it is a string the registry blesses. A reader checking the
+        # digest test would find `component/1.0` pinned and correct while the
+        # figure came from something else. Measured before this guard: an
+        # impostor `component/1.0` with `shrinkage_k=99, league_mean_goals=9.9`
+        # built without complaint and projected Haaland at GW3 as 2.993 against
+        # the registered 3.430, both stamped `component/1.0+banded`.
+        #
+        # Unregistered *names* stay free — that is how the negative cases in
+        # tests/test_variants.py are written, and how a throwaway variant is
+        # tried before it earns a name. Only impersonation is refused.
+        raise ValueError(
+            f"{variant.name!r} is a registered variant, but this is a different object with "
+            f"digest {variant.digest} against the registered {registered.digest}. Register it "
+            "under its own name, or pass variants.get(name); a figure quoted under a registered "
+            "name must have come from that variant (FU-40)."
+        )
     if not variant.rates.is_identity:
         # The config exists so the registry can express FU-47's variants, per
         # the enumeration in docs/plans/rate-shrinkage.md §7. Nothing reads it
