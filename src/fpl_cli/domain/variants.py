@@ -43,8 +43,11 @@ from fpl_cli.domain.projections import (
     MinutesModelConfig,
     NaiveProjection,
     OfficialEpProjection,
+    DEFAULT_BONUS_SHRINKAGE_MINUTES,
     ProjectionModel,
+    RatePrior,
     RateShrinkageConfig,
+    legacy_rate_config,
 )
 from fpl_cli.domain.strength import BAND_MULTIPLIERS, LEAGUE_MEAN_GOALS, BandedTeamRates
 
@@ -206,17 +209,10 @@ def build(
             "under its own name, or pass variants.get(name); a figure quoted under a registered "
             "name must have come from that variant (FU-40)."
         )
-    if not variant.rates.is_identity:
-        # The config exists so the registry can express FU-47's variants, per
-        # the enumeration in docs/plans/rate-shrinkage.md §7. Nothing reads it
-        # yet. Refusing here rather than ignoring it is the point: a variant
-        # that set M_xg=270 and silently projected identically to one that did
-        # not would be a worse lie than the drift this module was written to
-        # close.
-        raise NotImplementedError(
-            f"Variant {variant.name!r} sets rate-shrinkage parameters, which no model reads yet. "
-            "See docs/plans/rate-shrinkage.md; FU-47 implements them."
-        )
+    # The NotImplementedError that used to stand here is gone: FU-47 landed and
+    # `ComponentProjection` reads `rates`. It existed so that a variant setting
+    # M_xg=270 could not silently project identically to one that did not; that
+    # is now enforced by the parameters actually being consumed.
 
     if variant.family == "component":
         if variant.strength is None:
@@ -229,6 +225,7 @@ def build(
             fixtures_fetched_at=fixtures_fetched_at,
             minutes_config=variant.minutes,
             defcon_thresholds=dict(variant.defcon_thresholds),
+            rate_config=variant.rates,
             version=variant.version,
         )
     if variant.family == "naive":
@@ -250,6 +247,7 @@ COMPONENT_V1 = register(
         name="component/1.0",
         family="component",
         strength=StrengthConfig(),
+        rates=legacy_rate_config(),
         note="The eight-term decomposition as shipped. Every constant is projections.py's default.",
     )
 )
@@ -269,6 +267,104 @@ OFFICIAL_EP_V1 = register(
         note="The API's own ep_next. Takes no configuration, so it could never drift.",
     )
 )
+
+# --- FU-47: rate shrinkage (docs/plans/rate-shrinkage.md) ---------------------
+#
+# **These parameters are chosen, not recommended, and the plan says so.** §9.2
+# lists every M here under "chosen because it looked best, and must be
+# measured"; §5 labels 270/90/270 "demonstration parameters, not proposed
+# values"; §4.3 measures that they cannot be estimated from one gameweek of
+# data. So there is no recommended parameterisation to register — the plan
+# deliberately declines to name one, and the registry exists precisely so the
+# choice can be made by evaluation instead of by argument.
+#
+# What is registered is therefore the plan's *demonstration* values for the four
+# rates §5 names, plus mid-range picks from §7's table for the three it does
+# not:
+#
+#   M_xg, M_xa   270   §5's demonstration value          (§7 range 90-900)
+#   M_dc          90   §5's demonstration value          (§7 range 45-450)
+#   M_saves      270   §5's demonstration value          (§7 range 90-900)
+#   M_yellow     900   mid-range                         (§7 range 450-1800)
+#   M_red       1800   mid-range                         (§7 range 900-3600)
+#   M_bonus      450   unchanged from today              (§7 range 180-900)
+#   BAND_M       900   §3.3, §5
+#   band_width     5   £0.5m, §5
+#
+# M_bonus stays at 450 deliberately: §1.3's finding is that bonus has the right
+# algebra and the wrong target, so 1.1 changes its prior source from "zero" to
+# "position" and leaves the weight alone. That isolates the defect from a
+# parameter change.
+#
+# **1.1 is not the default and must not become one on this branch.** §9.3: the
+# result is more internally consistent but not measurably better, and saying
+# otherwise would be exactly the claim the plan refuses to make.
+
+_M_XG = 270.0
+_M_XA = 270.0
+_M_DC = 90.0
+_M_SAVES = 270.0
+_M_YELLOW = 900.0
+_M_RED = 1800.0
+_M_BONUS = DEFAULT_BONUS_SHRINKAGE_MINUTES  # 450.0, unchanged from component/1.0
+
+
+def _rate_config(*, attack_source: str) -> RateShrinkageConfig:
+    """FU-47's shrinkage, with the xG/xA prior source as the only axis.
+
+    `attack_source` is the one thing that differs between `component/1.1-price`
+    and `component/1.1-position`. Everything else is shared, so any difference
+    between those two variants in evaluation is attributable to price
+    conditioning and to nothing else.
+
+    dc, saves and cards stay on the position prior in both: §3.2 measured
+    Spearman(price, rate) at -0.06 to -0.32 for dc and -0.087 for saves, so
+    conditioning them on price would import noise, or signal with the wrong
+    sign.
+    """
+    return RateShrinkageConfig(
+        rates={
+            "xg": RatePrior(prior_minutes=_M_XG, prior_source=attack_source),
+            "xa": RatePrior(prior_minutes=_M_XA, prior_source=attack_source),
+            "dc": RatePrior(prior_minutes=_M_DC, prior_source="position"),
+            "saves": RatePrior(prior_minutes=_M_SAVES, prior_source="position"),
+            "yellow": RatePrior(prior_minutes=_M_YELLOW, prior_source="position"),
+            "red": RatePrior(prior_minutes=_M_RED, prior_source="position"),
+            "bonus": RatePrior(prior_minutes=_M_BONUS, prior_source="position"),
+        },
+        band_prior_minutes=900.0,
+        band_width=5,
+    )
+
+
+COMPONENT_V11_PRICE = register(
+    ModelVariant(
+        name="component/1.1-price",
+        family="component",
+        strength=StrengthConfig(),
+        rates=_rate_config(attack_source="price_conditioned"),
+        note=(
+            "FU-47 rate shrinkage, xG/xA shrunk toward a price-conditioned position "
+            "prior. Parameters are chosen, not measured (rate-shrinkage.md §9.2)."
+        ),
+    )
+)
+
+COMPONENT_V11_POSITION = register(
+    ModelVariant(
+        name="component/1.1-position",
+        family="component",
+        strength=StrengthConfig(),
+        rates=_rate_config(attack_source="position"),
+        note=(
+            "FU-47 rate shrinkage, xG/xA shrunk toward the position prior only. "
+            "Registered beside 1.1-price rather than chosen against it: the price "
+            "evidence is rho = 0.458 from a single gameweek (rate-shrinkage.md §3.2), "
+            "thinner than the plan's other measurements. Settle it by evaluation."
+        ),
+    )
+)
+
 
 # --- A test fixture, not a candidate model -----------------------------------
 #
@@ -304,6 +400,7 @@ COMPONENT_V1_FIXTURE_MINSUB = register(
         family="component",
         minutes=replace(COMPONENT_V1.minutes, mins_per_sub=20.5),
         strength=StrengthConfig(),
+        rates=legacy_rate_config(),
         note=(
             "TEST FIXTURE, not a candidate model. component/1.0 with mins_per_sub "
             "20.0 -> 20.5. Exists to prove two variants can be compared in one run."

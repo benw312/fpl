@@ -17,8 +17,31 @@ from fpl_cli.domain.projections import (
     _minutes_probabilities,
     _poisson_pmf,
     _MinutesProbabilities,
+    _ShrunkRates,
 )
 from fpl_cli.domain.strength import BandedTeamRates, MatchRates, TeamRatesModel
+
+def _unshrunk(player: Player) -> _ShrunkRates:
+    """The rates a player carries with no shrinkage applied.
+
+    These tests predate rate shrinkage and are about the *component pricing*,
+    not about the rates reaching it, so they keep feeding the raw values the
+    model used to read off the Player directly. `component/1.0` behaves this
+    way by registration, so this is not a fiction for the tests' benefit.
+    """
+    minutes = player.minutes
+    per_90 = (lambda count: count / (minutes / 90) if minutes > 0 else 0.0)
+    return _ShrunkRates(
+        xg=player.expected_goals_per_90,
+        xa=player.expected_assists_per_90,
+        dc=player.defensive_contribution_per_90,
+        saves=player.saves_per_90,
+        yellow=per_90(player.yellow_cards),
+        red=per_90(player.red_cards),
+        # The one rate that was already shrunk before FU-47, toward zero.
+        bonus=per_90(player.bonus) * minutes / (minutes + 450.0) if minutes > 0 else 0.0,
+    )
+
 
 SCORING = {
     "short_play": 1,
@@ -246,10 +269,10 @@ def test_clean_sheet_is_gated_on_p60_not_p1() -> None:
     rates = MatchRates(xg_for=1.4, xg_against=1.0)
 
     full = _component_points_for_fixture(
-        _player(1, position=2), "DEF", SCORING, full_minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0
+        "DEF", SCORING, full_minutes, rates, _unshrunk(_player(1, position=2)), 1.4, DEFCON_THRESHOLDS
     )
     half = _component_points_for_fixture(
-        _player(1, position=2), "DEF", SCORING, half_minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0
+        "DEF", SCORING, half_minutes, rates, _unshrunk(_player(1, position=2)), 1.4, DEFCON_THRESHOLDS
     )
 
     xp_clean_sheet_index = 2
@@ -265,8 +288,8 @@ def test_rates_strategy_touches_attack_clean_sheet_conceded_and_saves_not_defcon
     easy = MatchRates(xg_for=2.0, xg_against=0.5)
     hard = MatchRates(xg_for=0.5, xg_against=2.0)
 
-    against_easy = _component_points_for_fixture(player, "GKP", SCORING, minutes, easy, 1.4, DEFCON_THRESHOLDS, 450.0)
-    against_hard = _component_points_for_fixture(player, "GKP", SCORING, minutes, hard, 1.4, DEFCON_THRESHOLDS, 450.0)
+    against_easy = _component_points_for_fixture("GKP", SCORING, minutes, easy, _unshrunk(player), 1.4, DEFCON_THRESHOLDS)
+    against_hard = _component_points_for_fixture("GKP", SCORING, minutes, hard, _unshrunk(player), 1.4, DEFCON_THRESHOLDS)
 
     xp_attack, xp_clean_sheet, xp_conceded, xp_saves, xp_defcon = 1, 2, 3, 4, 5
     assert against_easy[xp_attack] != against_hard[xp_attack]
@@ -283,7 +306,7 @@ def test_defcon_is_zero_for_goalkeepers_at_every_difficulty() -> None:
     minutes = _MinutesProbabilities(p_start=1.0, p60=1.0, p1=1.0, xmins=90.0)
     player = _player(1, position=1, dc90=20.0)  # GKP, huge dc rate
     for rates in (MatchRates(xg_for=2.0, xg_against=0.5), MatchRates(xg_for=0.5, xg_against=2.0)):
-        components = _component_points_for_fixture(player, "GKP", SCORING, minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0)
+        components = _component_points_for_fixture("GKP", SCORING, minutes, rates, _unshrunk(player), 1.4, DEFCON_THRESHOLDS)
         assert components[5] == 0.0
 
 
@@ -296,10 +319,10 @@ def test_defcon_responds_to_the_threshold_boundary_for_def_and_mid() -> None:
     mid_below = _player(1, position=3, dc90=11.0)
     mid_at = _player(1, position=3, dc90=12.0)
 
-    def_below_xp = _component_points_for_fixture(def_below, "DEF", SCORING, minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0)[5]
-    def_at_xp = _component_points_for_fixture(def_at, "DEF", SCORING, minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0)[5]
-    mid_below_xp = _component_points_for_fixture(mid_below, "MID", SCORING, minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0)[5]
-    mid_at_xp = _component_points_for_fixture(mid_at, "MID", SCORING, minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0)[5]
+    def_below_xp = _component_points_for_fixture("DEF", SCORING, minutes, rates, _unshrunk(def_below), 1.4, DEFCON_THRESHOLDS)[5]
+    def_at_xp = _component_points_for_fixture("DEF", SCORING, minutes, rates, _unshrunk(def_at), 1.4, DEFCON_THRESHOLDS)[5]
+    mid_below_xp = _component_points_for_fixture("MID", SCORING, minutes, rates, _unshrunk(mid_below), 1.4, DEFCON_THRESHOLDS)[5]
+    mid_at_xp = _component_points_for_fixture("MID", SCORING, minutes, rates, _unshrunk(mid_at), 1.4, DEFCON_THRESHOLDS)[5]
 
     assert def_at_xp > def_below_xp
     assert mid_at_xp > mid_below_xp
@@ -314,7 +337,7 @@ def test_conceded_uses_the_pmf_sum_not_a_linear_approximation() -> None:
     rates = MatchRates(xg_for=1.4, xg_against=xg_against)
     player = _player(1, position=2)
 
-    xp_conceded = _component_points_for_fixture(player, "DEF", SCORING, minutes, rates, 1.4, DEFCON_THRESHOLDS, 450.0)[3]
+    xp_conceded = _component_points_for_fixture("DEF", SCORING, minutes, rates, _unshrunk(player), 1.4, DEFCON_THRESHOLDS)[3]
 
     expected = sum(_poisson_pmf(k, xg_against) * (k // 2) for k in range(13)) * SCORING["goals_conceded"]["DEF"]
     assert xp_conceded == pytest.approx(expected)

@@ -32,6 +32,18 @@ class Player(BaseModel):
     expected_assists_per_90: float = 0.0
     expected_goals_conceded_per_90: float = 0.0
     saves_per_90: float = 0.0
+    # The cumulative counts behind the per-90 rates above, needed to pool a
+    # prior by exposure rather than by averaging ratios (rate-shrinkage.md
+    # §3.1). `per_90 == cumulative / (minutes/90)` holds exactly in the payload,
+    # so these carry no new information per player — but summing published
+    # counts across players avoids compounding the payload's two-decimal
+    # rounding, which reconstructing each count from its rate would not.
+    # xG and xA are numeric-as-string in the API, like `form` and
+    # `points_per_game`; Pydantic coerces them.
+    expected_goals: float = 0.0
+    expected_assists: float = 0.0
+    defensive_contribution: int = 0
+    saves: int = 0
     starts: int = 0
     starts_per_90: float = 0.0
     minutes: int = 0

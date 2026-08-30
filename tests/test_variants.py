@@ -11,6 +11,7 @@ import pytest
 from fpl_cli.api.models import BootstrapSnapshot, Fixture
 from fpl_cli.domain import variants
 from fpl_cli.domain.projections import (
+    SHRINKABLE_RATES,
     ComponentProjection,
     MinutesModelConfig,
     NaiveProjection,
@@ -32,11 +33,23 @@ from fpl_cli.domain.strength import BandedTeamRates
 # revert the constant, or to register a NEW variant under a new name and leave
 # the old one alone. Re-pinning is correct only when the change provably cannot
 # move a projection.
+#
+# component/1.0 and the fixture were re-pinned once, on task/fu-47-shrinkage
+# (d72962d5977c -> fb431918c08c, d0737d604720 -> bd7ee99cd0aa). No constant
+# moved: bonus shrinkage of 450 minutes toward zero stopped being hardcoded in
+# `_component_points_for_fixture` and became an explicit `RatePrior` on the
+# variant, so the digest covers something it previously could not see. The
+# licence for that re-pin is that projections were verified byte-identical
+# against the pinned capture across the change — sha256
+# c3812c8cae30c609b41243f3a26dcc49450c8b03993604ffb6129470037a7412 over all
+# 3080 rows, before and after.
 EXPECTED_DIGESTS = {
-    "component/1.0": "d72962d5977c",
+    "component/1.0": "fb431918c08c",
     "naive/1.0": "1ad0cd721b2e",
     "official-ep/1.0": "a6d72770239f",
-    "component/1.0-fixture-minsub205": "d0737d604720",
+    "component/1.0-fixture-minsub205": "bd7ee99cd0aa",
+    "component/1.1-price": "24c305e2025c",
+    "component/1.1-position": "877dd43d6607",
 }
 
 EXPECTED_VERSIONS = {
@@ -44,6 +57,8 @@ EXPECTED_VERSIONS = {
     "naive/1.0": "naive/1.0",
     "official-ep/1.0": "official-ep/1.0",
     "component/1.0-fixture-minsub205": "component/1.0-fixture-minsub205+banded",
+    "component/1.1-price": "component/1.1-price+banded",
+    "component/1.1-position": "component/1.1-position+banded",
 }
 
 
@@ -203,36 +218,75 @@ def _fields(variant: variants.ModelVariant) -> dict:
 # --- FU-47's config is expressible but refused --------------------------------
 
 
-def test_a_variant_setting_rate_shrinkage_is_refused_rather_than_ignored() -> None:
-    """The registry can express FU-47's variants (rate-shrinkage.md §7) but no
-    model reads them yet. Building one must fail loudly: a variant that set
-    `M_xg = 270` and projected identically to one that did not would be a worse
-    lie than the drift this module closes.
+def test_a_variant_setting_rate_shrinkage_now_changes_projections() -> None:
+    """The inverse of the test this replaces.
 
-    Mutation: dropping the `is_identity` check in `build` returns a model that
-    silently ignores the parameters, and this stops raising.
+    Until FU-47 landed, `build` raised `NotImplementedError` for a variant
+    carrying rate-shrinkage parameters, because nothing read them and a variant
+    that silently projected identically would have been a lie. The parameters
+    are consumed now, so the guarantee is demonstrated rather than refused: the
+    same variant with and without shrinkage must project differently.
+
+    Mutation: dropping `rate_config=variant.rates` from `variants.build`'s
+    `ComponentProjection` call makes the two identical and fails here.
     """
-    variant = variants.ModelVariant(
-        name="component/fu47-probe",
+    snapshot = _snapshot()
+    fixtures = _fixtures()
+    player_ids = [player.id for player in snapshot.elements]
+    # Rates must differ between players, or the pooled prior equals every
+    # player's own rate and shrinking toward it is a no-op — which is a
+    # property of the fixture, not of the code, and cost this test one
+    # false failure before it was noticed.
+    for index, player in enumerate(snapshot.elements):
+        player.minutes = 90
+        rate = 0.1 * (index + 1)
+        player.expected_goals_per_90 = rate
+        player.expected_goals = rate  # count == rate at exactly 90 minutes
+
+    base = variants.ModelVariant(
+        name="component/probe-unshrunk", family="component", strength=variants.StrengthConfig()
+    )
+    shrunk = variants.ModelVariant(
+        name="component/probe-shrunk",
         family="component",
         strength=variants.StrengthConfig(),
-        rates=RateShrinkageConfig(rates={"xg": RatePrior(prior_minutes=270.0, prior_source="price_conditioned")}),
+        rates=RateShrinkageConfig(rates={"xg": RatePrior(prior_minutes=270.0, prior_source="position")}),
     )
-    with pytest.raises(NotImplementedError, match="rate-shrinkage"):
-        variants.build(variant, _snapshot(), _fixtures())
+    a = variants.build(base, snapshot, fixtures).project(player_ids, [3])
+    b = variants.build(shrunk, snapshot, fixtures).project(player_ids, [3])
+    assert any(a[key].xp_attack != b[key].xp_attack for key in a)
 
 
-def test_the_identity_rate_config_is_what_todays_variants_carry() -> None:
-    """Mutation: `is_identity` returning `True` unconditionally makes the
-    refusal above unreachable; returning `False` unconditionally breaks every
-    registered variant. Both fail some assertion here.
+def test_component_v1_carries_the_pre_fu47_rate_treatment_not_the_identity() -> None:
+    """`component/1.0` is deliberately *not* the identity config.
+
+    One of the seven rates was already shrunk before FU-47 — bonus, toward zero,
+    over 450 minutes — and that lived in the body of
+    `_component_points_for_fixture`. Registering it as a `RatePrior` is what
+    keeps 1.0 byte-identical while making the odd choice visible: a
+    `prior_source` of "zero" sitting beside six that are not.
+
+    Mutation: registering component/1.0 with `RateShrinkageConfig()` drops the
+    bonus shrinkage, fails here, and moves the pinned digest and every bonus
+    figure with it.
     """
-    for variant in variants.all_variants():
-        assert variant.rates.is_identity
+    rates = variants.get("component/1.0").rates
+    assert not rates.is_identity
+    assert set(rates.rates) == {"bonus"}
+    assert rates.rates["bonus"].prior_minutes == 450.0
+    assert rates.rates["bonus"].prior_source == "zero"
+
+    # naive and official-ep read no rates at all, so theirs stay identity.
+    assert variants.get("naive/1.0").rates.is_identity
+    assert variants.get("official-ep/1.0").rates.is_identity
+
+
+def test_is_identity_distinguishes_shrinkage_from_its_absence() -> None:
+    """Mutation: `is_identity` returning a constant either way fails one arm."""
     assert RateShrinkageConfig().is_identity
     assert not RateShrinkageConfig(rates={"dc": RatePrior(prior_minutes=90.0)}).is_identity
-    # A rate present at zero weight is still the identity — it names a rate
-    # without shrinking it, which is what today's models do to all seven.
+    # A rate named at zero weight is still the identity — it names a rate
+    # without shrinking it.
     assert RateShrinkageConfig(rates={"dc": RatePrior(prior_minutes=0.0)}).is_identity
 
 
@@ -455,3 +509,81 @@ def test_an_unregistered_name_is_still_free() -> None:
     assert throwaway.name not in variants.names()
     model = variants.build(throwaway, _snapshot(), _fixtures())
     assert model.name == "component/scratch-not-registered+banded"
+
+
+# --- FU-47's variants ---------------------------------------------------------
+
+
+def test_the_two_11_variants_differ_only_in_the_attack_prior_source() -> None:
+    """They are registered as a pair to be settled by evaluation, so any
+    difference between them in a run must be attributable to price conditioning
+    and to nothing else.
+
+    Mutation: changing an M on one and not the other — or letting dc take
+    `price_conditioned` in the price variant — makes `differing` longer than
+    the two attack rates and fails.
+    """
+    price = variants.get("component/1.1-price").rates
+    position = variants.get("component/1.1-position").rates
+
+    assert price.band_prior_minutes == position.band_prior_minutes
+    assert price.band_width == position.band_width
+    assert set(price.rates) == set(position.rates)
+
+    differing = sorted(
+        rate for rate in price.rates if price.rates[rate] != position.rates[rate]
+    )
+    assert differing == ["xa", "xg"]
+    for rate in differing:
+        assert price.rates[rate].prior_source == "price_conditioned"
+        assert position.rates[rate].prior_source == "position"
+        assert price.rates[rate].prior_minutes == position.rates[rate].prior_minutes
+
+
+def test_11_shrinks_all_seven_rates_including_the_two_fu47_missed() -> None:
+    """Scope is six rates, seven knobs — cards splits into yellow and red.
+
+    The two FU-47 did not name are the ones this asserts hardest: cards, which
+    were built inline and so escaped a fix scoped to `*_per_90`; and bonus,
+    whose prior moves from "zero" to "position" while its weight stays at
+    today's 450.
+
+    Mutation: dropping `yellow`, `red` or `bonus` from `_rate_config` leaves it
+    unshrunk and fails here.
+    """
+    for name in ("component/1.1-price", "component/1.1-position"):
+        rates = variants.get(name).rates
+        assert set(rates.rates) == set(SHRINKABLE_RATES)
+        assert all(prior.prior_minutes > 0 for prior in rates.rates.values())
+        assert rates.rates["bonus"].prior_source == "position"
+        assert rates.rates["bonus"].prior_minutes == 450.0
+        assert rates.rates["yellow"].prior_source == "position"
+        assert rates.rates["red"].prior_source == "position"
+
+
+def test_dc_and_saves_are_never_price_conditioned() -> None:
+    """§3.2 measured Spearman(price, dc90) between -0.06 and -0.32 and
+    Spearman(price, saves90) at -0.087. Conditioning either on price would
+    import noise, or signal with the wrong sign.
+
+    Mutation: setting dc or saves to `price_conditioned` in `_rate_config`
+    fails here for both variants.
+    """
+    for name in ("component/1.1-price", "component/1.1-position"):
+        rates = variants.get(name).rates
+        assert rates.rates["dc"].prior_source == "position"
+        assert rates.rates["saves"].prior_source == "position"
+
+
+def test_component_v1_remains_the_default_and_11_is_not_registered_as_one() -> None:
+    """1.1 becomes default only if the GW2 evaluation supports it, and that
+    decision is not this branch's.
+
+    Mutation: adding a 1.1 variant to cli._DEFAULT_EVALUATE_MODELS, or changing
+    the `component` alias to point at 1.1, fails here.
+    """
+    from fpl_cli import cli  # noqa: PLC0415
+
+    assert cli._MODEL_ALIASES["component"] == "component/1.0"
+    assert "component/1.0" in cli._DEFAULT_EVALUATE_MODELS
+    assert not any(name.startswith("component/1.1") for name in cli._DEFAULT_EVALUATE_MODELS)
