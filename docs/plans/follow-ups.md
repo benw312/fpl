@@ -704,6 +704,48 @@ fine; the conflict is not.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
+**Scope grew, 2026-08-30 (`task/fu-19-readme`): the guard now covers two
+documents.** This entry was filed about `CLAUDE.md` and closed by a check over
+it. The README's Architecture table — written on `task/readme` on 2026-08-28 —
+went stale on 2026-08-29, when the `task/model-versioning` merge added
+`domain/variants.py` without updating it. **Same mechanism, second document,
+third instance overall.** The gap block below already anticipated this: it
+recorded that the guard covered `src/fpl_cli/` only and that *"FU-15 records the
+README's equivalent staleness, which nothing checks either."* It went stale
+before anything acted on that.
+
+`tests/test_claude_md_structure.py` now checks both. The comparison is one
+function — `structure_drift`, unchanged in what it decides — taking the reader as
+an argument; each document gets a small parser producing the same
+`{group: {modules}}` mapping. **A single parser was considered and rejected**:
+`CLAUDE.md` groups modules under a package heading and wraps across lines, the
+README gives one fully-qualified path per table row, and a reader accepting both
+shapes would accept either shape in either document — a weaker guarantee than the
+one being bought. Aligning the formats instead would mean losing the README's
+per-module description column or expanding `CLAUDE.md`'s eight lines to seventeen
+table rows in a file loaded into context every session; neither is worth one
+parser. The reasoning is at the top of the test.
+
+Every failure message now names the document as well as the module, because a
+module can be missing from two places and *"`domain/`: variants.py exists but is
+not listed"* would send the reader to the wrong file.
+
+The README's *"This table is not checked against anything"* line was true when
+written and is now false; it is replaced by a description of what does check it.
+
+*[One asymmetry between the two, pinned by a test rather than smoothed over:
+`CLAUDE.md` names a package in a heading, so a package survives its last module
+being dropped from the list and the drift reads "module missing". The README
+derives groups from the paths, so dropping the last `domain/` row removes the
+package from the document and the drift reads "package missing". Both name the
+fault; the messages differ because the documents do.]*
+
+`[gap: three lists are hand-maintained and only two are checked. The README's
+Commands table names eight commands and nothing compares it to the Typer app,
+which is FU-15's other half — the same defect in the same file, one section
+away. It has not gone stale yet, which is exactly what was true of the
+Architecture table on 2026-08-28.]`
+
 **Status: closed — by a check, not a correction** — `task/fu-19-18-13` (2026-08-28).
 `tests/test_claude_md_structure.py` parses `CLAUDE.md`'s Structure block, walks
 `src/fpl_cli/`, and fails naming every disagreement: a module that exists and is not
