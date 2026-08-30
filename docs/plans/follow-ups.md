@@ -2560,3 +2560,133 @@ say whether shrinkage helps, and its first leak-free run is still pending (READM
 Known limitations). Shrinking the rates would be principled and unmeasured, which
 is the state the whole model is already in — but a change made in that state should
 at least be recorded as such, not presented as an improvement.
+
+---
+
+## FU-48 — `doubtful_chance` is unreachable: every non-`a` status publishes a percentage
+
+**Deferred from:** `task/model-versioning`, while choosing the parameter for its test
+fixture variant. Filed here rather than left as a gap comment in
+`domain/variants.py`, because it is a projections question adjacent to FU-47, not a
+registry one.
+
+`MinutesModelConfig.doubtful_chance` (`DEFAULT_DOUBTFUL_CHANCE = 0.75`,
+`projections.py`) is one of the seven constants the minutes-model block carries under
+`[assumption: no empirical basis for any constant in this block]`. It is also
+**dead on every capture this repo has ever held.**
+
+`_availability` tests the published percentage first:
+
+```python
+if player.chance_of_playing_next_round is not None:
+    return player.chance_of_playing_next_round / 100
+if player.status == "d":
+    return config.doubtful_chance          # <- only reachable when the above is None
+```
+
+So `doubtful_chance` is reached only for a player who is doubtful **and** carries no
+published chance. Measured across every bootstrap-static payload on this machine —
+the pinned `~/fpl-pinned/gw2-pre-deadline.json`, the four bare archives, five capture
+directories, and the live cache; 11 captures spanning 2026-08-25 to 2026-08-30:
+
+| | |
+|---|---|
+| `status="d"` observations | **203** |
+| ...with `chance_of_playing_next_round` null | **0** |
+| distinct players ever seen `"d"` | 34 |
+
+**The pattern looks structural rather than incidental.** On the current snapshot the
+null rate is 90% for `status="a"` (444 of 494) and **0% for every other status** —
+`d` 0/18, `i` 0/58, `s` 0/2, `u` 0/51. The API appears to publish a percentage
+whenever it publishes anything but "available", which is exactly the case the
+`status == "d"` branch was written to cover.
+
+**Why it matters more since `task/model-versioning`.** `doubtful_chance` is now a
+registered-variant knob covered by the digest. A variant setting it gets a distinct
+digest and a distinct version string, and would produce **identical projections** —
+two names for one model, which is the failure FU-40's extension exists to prevent,
+arriving from the opposite direction. This was found the practical way: it was the
+first choice for that branch's fixture variant and was rejected on measurement,
+because a fixture that provably moves no number cannot demonstrate that the
+comparison path works.
+
+**Not urgent.** Nothing is wrong with the output; a constant simply has no effect.
+
+**Options, none chosen:**
+
+- **Delete the constant and the branch.** Smallest tree, and honest about what the
+  data shows. Costs the fallback if FPL ever does publish a bare `"d"`, in which case
+  availability would drop to the `return 0.0` at the end of the function — treating a
+  doubtful player as ruled out, which is worse than 0.75 and would be silent.
+- **Keep it, and say what it is.** A defensive default for a case the API has not
+  produced in 203 observations. Cheapest, and leaves a constant that no evaluation can
+  ever move — which is misleading in a block whose other six constants are live.
+- **Give it something to do.** `chance_of_playing_this_round` is published and parsed
+  nowhere (FU-21); a doubtful player mid-gameweek can have the two disagree. That is
+  the one route by which this branch could become reachable, and it argues for
+  resolving FU-21 first.
+
+`[gap: "structural" is inferred from 11 captures over six days in one season, all
+pre-season or early. Nothing in the API documents the invariant — it is undocumented
+throughout — so a mid-season or transfer-deadline payload could break it without
+warning. The claim here is "not observed", not "cannot happen".]`
+
+---
+
+### The `i`/`s`/`u` half: measured, and it is not a defect
+
+This entry originally carried a second gap, guessing that `i`, `s` and `u` mapping to
+`0.0` regardless of a published percentage would treat a 75%-chance player as certain
+to miss — a live error on real data, and the half that would have mattered. **Measured
+across the same 11 captures, that does not happen.** The gap is left in place below,
+struck, because the guess was reasonable and its falsification is the useful part.
+
+| status | observations | publishing a percentage | values seen |
+|---|---|---|---|
+| `i` | 650 | 650 (100%) | **0% only** |
+| `s` | 14 | 14 (100%) | **0% only** |
+| `u` | 497 | 497 (100%) | **0% only** |
+
+All 1,161 observations publish a percentage, and **every one of them publishes 0**.
+So `_availability` returns `0/100 = 0.0` from its *first* branch, which is exactly
+what the status mapping would have returned. The count of published values that
+disagree with the mapping is **zero**. The hypothetical player — `status="i"` with
+`chance_of_playing_next_round = 75` — does not exist in any capture held here.
+
+**So the two halves are not symmetric, and not in the direction the gap implied.** The
+first half is a real, if harmless, finding: a named constant with no effect. The
+second half is a hypothesis this measurement falsifies. Ranked, they are one finding
+and one non-finding, and the entry should be read that way.
+
+### The finding that subsumes both: two of four branches are dead
+
+Over **6,788 player-observations** across the 11 captures:
+
+| `_availability` branch | taken | share |
+|---|---|---|
+| published percentage | 1,850 | 27.25% |
+| `status == "a"` → `1.0` | 4,938 | 72.75% |
+| `status == "d"` → `doubtful_chance` | **0** | never |
+| fallback → `0.0` | **0** | never |
+
+The API publishes a percentage for *every* non-`a` status, so the whole status table
+below the first branch is decoration: the function is, in practice, "use the published
+percentage, else if `a` return 1.0". Both remaining branches are unreachable, not just
+the doubtful one.
+
+**And `0.75` is well chosen, which the first half of this entry should not be read as
+disputing.** Of the 203 `status="d"` observations, **179 (88%) publish exactly 75%**,
+with 50% (17) and 25% (7) as the tail. The constant is dead *and* correct — it matches
+the modal published value precisely. That strengthens the "keep it, and say what it is"
+option above and weakens "delete it": the fallback, if ever reached, would be right.
+
+*[Superseded gap, left as written:]* `[gap: the same question is unasked for the other
+statuses. `i`, `s` and `u` all map to 0.0 regardless of any published percentage, so a
+player with `status="i"` and `chance_of_playing_next_round = 75` is treated as
+unavailable while the API says otherwise — the inverse asymmetry, and not measured
+here.]`
+
+`[gap: the branch counts above are reachability over captures, not a coverage run —
+they say the branch was never *taken on this data*, not that it is unreachable in
+principle. The same six-day, one-season caveat as the paragraph above applies to all
+of it.]`
