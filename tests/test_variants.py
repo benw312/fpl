@@ -11,6 +11,7 @@ import pytest
 from fpl_cli.api.models import BootstrapSnapshot, Fixture
 from fpl_cli.domain import variants
 from fpl_cli.domain.projections import (
+    SHRINKABLE_RATES,
     ComponentProjection,
     MinutesModelConfig,
     NaiveProjection,
@@ -47,6 +48,8 @@ EXPECTED_DIGESTS = {
     "naive/1.0": "1ad0cd721b2e",
     "official-ep/1.0": "a6d72770239f",
     "component/1.0-fixture-minsub205": "bd7ee99cd0aa",
+    "component/1.1-price": "24c305e2025c",
+    "component/1.1-position": "877dd43d6607",
 }
 
 EXPECTED_VERSIONS = {
@@ -54,6 +57,8 @@ EXPECTED_VERSIONS = {
     "naive/1.0": "naive/1.0",
     "official-ep/1.0": "official-ep/1.0",
     "component/1.0-fixture-minsub205": "component/1.0-fixture-minsub205+banded",
+    "component/1.1-price": "component/1.1-price+banded",
+    "component/1.1-position": "component/1.1-position+banded",
 }
 
 
@@ -504,3 +509,81 @@ def test_an_unregistered_name_is_still_free() -> None:
     assert throwaway.name not in variants.names()
     model = variants.build(throwaway, _snapshot(), _fixtures())
     assert model.name == "component/scratch-not-registered+banded"
+
+
+# --- FU-47's variants ---------------------------------------------------------
+
+
+def test_the_two_11_variants_differ_only_in_the_attack_prior_source() -> None:
+    """They are registered as a pair to be settled by evaluation, so any
+    difference between them in a run must be attributable to price conditioning
+    and to nothing else.
+
+    Mutation: changing an M on one and not the other — or letting dc take
+    `price_conditioned` in the price variant — makes `differing` longer than
+    the two attack rates and fails.
+    """
+    price = variants.get("component/1.1-price").rates
+    position = variants.get("component/1.1-position").rates
+
+    assert price.band_prior_minutes == position.band_prior_minutes
+    assert price.band_width == position.band_width
+    assert set(price.rates) == set(position.rates)
+
+    differing = sorted(
+        rate for rate in price.rates if price.rates[rate] != position.rates[rate]
+    )
+    assert differing == ["xa", "xg"]
+    for rate in differing:
+        assert price.rates[rate].prior_source == "price_conditioned"
+        assert position.rates[rate].prior_source == "position"
+        assert price.rates[rate].prior_minutes == position.rates[rate].prior_minutes
+
+
+def test_11_shrinks_all_seven_rates_including_the_two_fu47_missed() -> None:
+    """Scope is six rates, seven knobs — cards splits into yellow and red.
+
+    The two FU-47 did not name are the ones this asserts hardest: cards, which
+    were built inline and so escaped a fix scoped to `*_per_90`; and bonus,
+    whose prior moves from "zero" to "position" while its weight stays at
+    today's 450.
+
+    Mutation: dropping `yellow`, `red` or `bonus` from `_rate_config` leaves it
+    unshrunk and fails here.
+    """
+    for name in ("component/1.1-price", "component/1.1-position"):
+        rates = variants.get(name).rates
+        assert set(rates.rates) == set(SHRINKABLE_RATES)
+        assert all(prior.prior_minutes > 0 for prior in rates.rates.values())
+        assert rates.rates["bonus"].prior_source == "position"
+        assert rates.rates["bonus"].prior_minutes == 450.0
+        assert rates.rates["yellow"].prior_source == "position"
+        assert rates.rates["red"].prior_source == "position"
+
+
+def test_dc_and_saves_are_never_price_conditioned() -> None:
+    """§3.2 measured Spearman(price, dc90) between -0.06 and -0.32 and
+    Spearman(price, saves90) at -0.087. Conditioning either on price would
+    import noise, or signal with the wrong sign.
+
+    Mutation: setting dc or saves to `price_conditioned` in `_rate_config`
+    fails here for both variants.
+    """
+    for name in ("component/1.1-price", "component/1.1-position"):
+        rates = variants.get(name).rates
+        assert rates.rates["dc"].prior_source == "position"
+        assert rates.rates["saves"].prior_source == "position"
+
+
+def test_component_v1_remains_the_default_and_11_is_not_registered_as_one() -> None:
+    """1.1 becomes default only if the GW2 evaluation supports it, and that
+    decision is not this branch's.
+
+    Mutation: adding a 1.1 variant to cli._DEFAULT_EVALUATE_MODELS, or changing
+    the `component` alias to point at 1.1, fails here.
+    """
+    from fpl_cli import cli  # noqa: PLC0415
+
+    assert cli._MODEL_ALIASES["component"] == "component/1.0"
+    assert "component/1.0" in cli._DEFAULT_EVALUATE_MODELS
+    assert not any(name.startswith("component/1.1") for name in cli._DEFAULT_EVALUATE_MODELS)
