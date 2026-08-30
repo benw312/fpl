@@ -45,6 +45,7 @@ from fpl_cli.domain.projections import (
     OfficialEpProjection,
     ProjectionModel,
     RateShrinkageConfig,
+    legacy_rate_config,
 )
 from fpl_cli.domain.strength import BAND_MULTIPLIERS, LEAGUE_MEAN_GOALS, BandedTeamRates
 
@@ -206,17 +207,10 @@ def build(
             "under its own name, or pass variants.get(name); a figure quoted under a registered "
             "name must have come from that variant (FU-40)."
         )
-    if not variant.rates.is_identity:
-        # The config exists so the registry can express FU-47's variants, per
-        # the enumeration in docs/plans/rate-shrinkage.md §7. Nothing reads it
-        # yet. Refusing here rather than ignoring it is the point: a variant
-        # that set M_xg=270 and silently projected identically to one that did
-        # not would be a worse lie than the drift this module was written to
-        # close.
-        raise NotImplementedError(
-            f"Variant {variant.name!r} sets rate-shrinkage parameters, which no model reads yet. "
-            "See docs/plans/rate-shrinkage.md; FU-47 implements them."
-        )
+    # The NotImplementedError that used to stand here is gone: FU-47 landed and
+    # `ComponentProjection` reads `rates`. It existed so that a variant setting
+    # M_xg=270 could not silently project identically to one that did not; that
+    # is now enforced by the parameters actually being consumed.
 
     if variant.family == "component":
         if variant.strength is None:
@@ -229,6 +223,7 @@ def build(
             fixtures_fetched_at=fixtures_fetched_at,
             minutes_config=variant.minutes,
             defcon_thresholds=dict(variant.defcon_thresholds),
+            rate_config=variant.rates,
             version=variant.version,
         )
     if variant.family == "naive":
@@ -250,6 +245,7 @@ COMPONENT_V1 = register(
         name="component/1.0",
         family="component",
         strength=StrengthConfig(),
+        rates=legacy_rate_config(),
         note="The eight-term decomposition as shipped. Every constant is projections.py's default.",
     )
 )
@@ -304,6 +300,7 @@ COMPONENT_V1_FIXTURE_MINSUB = register(
         family="component",
         minutes=replace(COMPONENT_V1.minutes, mins_per_sub=20.5),
         strength=StrengthConfig(),
+        rates=legacy_rate_config(),
         note=(
             "TEST FIXTURE, not a candidate model. component/1.0 with mins_per_sub "
             "20.0 -> 20.5. Exists to prove two variants can be compared in one run."

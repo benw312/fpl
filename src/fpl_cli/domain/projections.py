@@ -86,6 +86,25 @@ class RatePrior:
             raise ValueError(f"prior_minutes must be non-negative; got {self.prior_minutes!r}.")
 
 
+def legacy_rate_config() -> "RateShrinkageConfig":
+    """The rate treatment in force before FU-47, expressed in the new form.
+
+    Six rates unshrunk, and `bonus` shrunk toward **zero** with
+    `DEFAULT_BONUS_SHRINKAGE_MINUTES` — which is exactly what
+    `_component_points_for_fixture` used to do inline, and is what
+    `component/1.0` must keep doing to stay byte-identical.
+
+    Note that this is *not* `RateShrinkageConfig()`. The default config is the
+    pure identity; today's model is not, because one of the seven rates was
+    already shrunk. Registering that as a setting rather than leaving it in the
+    function body is most of what makes the defect visible: the odd choice is
+    now a named prior source, `zero`, sitting beside six that are `position`.
+    """
+    return RateShrinkageConfig(
+        rates={"bonus": RatePrior(prior_minutes=DEFAULT_BONUS_SHRINKAGE_MINUTES, prior_source="zero")}
+    )
+
+
 @dataclass(frozen=True)
 class RateShrinkageConfig:
     """Per-rate shrinkage, plus the two shared price-band parameters.
@@ -119,6 +138,165 @@ class RateShrinkageConfig:
             "band_prior_minutes": self.band_prior_minutes,
             "band_width": self.band_width,
         }
+
+
+def shrink_rate(raw: float, minutes: float, prior: float, prior_minutes: float) -> float:
+    """Pull a per-90 rate toward `prior`, weighting by exposure in minutes.
+
+    `prior_minutes` (M) is how many minutes of prior the estimate carries. The
+    two algebraic forms in rate-shrinkage.md §4.1 are identical:
+
+        raw·m/(m+M) + prior·M/(m+M)  ==  (count + prior·M/90) / ((m+M)/90)
+
+    The convex combination is used because it needs only the published per-90
+    and the minutes, which keeps `M = 0` exactly equal to the published rate —
+    reconstructing a count from a two-decimal rate and dividing back would not.
+
+    **`M = 0` returns `raw` unchanged, whatever `minutes` is.** §8.4 of the plan
+    asks both for "M = 0 -> exactly raw" and for "minutes = 0 and M = 0 ->
+    prior", which conflict; this resolves in favour of the first. M = 0 means no
+    shrinkage was requested, so the prior is not merely unused but irrelevant,
+    and component/1.0 is byte-identical only because of it.
+
+    The unit is minutes, not matches — see §4.2. `MinutesModelConfig.shrinkage_k`
+    is deliberately in *matches*, because a start is a per-match event; a rate
+    per 90 is not, so it does not inherit that unit. Do not unify them.
+    """
+    if prior_minutes <= 0.0:
+        return raw
+    return (raw * minutes + prior * prior_minutes) / (minutes + prior_minutes)
+
+
+# The cumulative-count field backing each shrinkable rate, and the published
+# per-90 field where the API offers one. `yellow`, `red` and `bonus` have no
+# published rate, which is why `_component_points_for_fixture` used to build
+# theirs inline — the shape that let cards evade FU-47 entirely.
+_RATE_COUNT_FIELD: dict[str, str] = {
+    "xg": "expected_goals",
+    "xa": "expected_assists",
+    "dc": "defensive_contribution",
+    "saves": "saves",
+    "yellow": "yellow_cards",
+    "red": "red_cards",
+    "bonus": "bonus",
+}
+_RATE_PER_90_FIELD: dict[str, str] = {
+    "xg": "expected_goals_per_90",
+    "xa": "expected_assists_per_90",
+    "dc": "defensive_contribution_per_90",
+    "saves": "saves_per_90",
+}
+
+
+def _raw_rate(player: Player, rate: str) -> float:
+    """The player's own per-90, before shrinkage.
+
+    Prefers the published field where one exists: it is what the model consumed
+    before this change, so preferring it is what keeps `component/1.0`
+    byte-identical rather than merely close.
+    """
+    field = _RATE_PER_90_FIELD.get(rate)
+    if field is not None:
+        return float(getattr(player, field))
+    if player.minutes <= 0:
+        return 0.0
+    return getattr(player, _RATE_COUNT_FIELD[rate]) / (player.minutes / 90)
+
+
+@dataclass(frozen=True)
+class RatePriors:
+    """Per-rate priors pooled from a snapshot (rate-shrinkage.md §3).
+
+    Pooled by exposure — `sum(count)/sum(minutes)*90` — and **not** the mean of
+    players' per-90 ratios. The difference is the defect in miniature: dc90 for
+    midfielders pools to 8.396 but averages to 11.475, the gap being one player
+    with three defensive actions in one minute. Pooling weights by exposure and
+    is immune to him.
+
+    Derived from the snapshot rather than hardcoded, so the fix removes hand-set
+    constants instead of adding twenty-eight of them (§7).
+    """
+
+    position: Mapping[tuple[str, str], float]
+    band: Mapping[tuple[str, str, int], float]
+    band_width: int
+
+    def prior_for(self, rate: str, position: str, now_cost: int, source: str) -> float:
+        if source == "zero":
+            return 0.0
+        position_prior = self.position.get((rate, position), 0.0)
+        if source != "price_conditioned":
+            return position_prior
+        band = now_cost // self.band_width * self.band_width
+        return self.band.get((rate, position, band), position_prior)
+
+
+def build_rate_priors(snapshot: BootstrapSnapshot, config: RateShrinkageConfig) -> RatePriors:
+    """Pool every rate by position, and by (position, price band) above that.
+
+    The band level is itself shrunk toward the position rate by
+    `band_prior_minutes`, so a band holding one player cannot become that
+    player's own prior — the Haaland-alone-at-£15m case in §3.3, where an
+    unshrunk band prior would leave him entirely unshrunk.
+    """
+    positions = snapshot.positions
+    by_position: dict[str, list[Player]] = {}
+    for player in snapshot.elements:
+        position = positions[player.element_type].singular_name_short
+        by_position.setdefault(position, []).append(player)
+
+    position_priors: dict[tuple[str, str], float] = {}
+    band_priors: dict[tuple[str, str, int], float] = {}
+    width = config.band_width
+    for position, players in by_position.items():
+        played = [p for p in players if p.minutes > 0]
+        total_minutes = sum(p.minutes for p in played)
+        for rate, count_field in _RATE_COUNT_FIELD.items():
+            if total_minutes <= 0:
+                position_priors[(rate, position)] = 0.0
+                continue
+            pooled = sum(float(getattr(p, count_field)) for p in played) / total_minutes * 90
+            position_priors[(rate, position)] = pooled
+            for band in {p.now_cost // width * width for p in played}:
+                in_band = [p for p in played if p.now_cost // width * width == band]
+                band_minutes = sum(p.minutes for p in in_band)
+                band_pooled = sum(float(getattr(p, count_field)) for p in in_band) / band_minutes * 90
+                band_priors[(rate, position, band)] = shrink_rate(
+                    band_pooled, band_minutes, pooled, config.band_prior_minutes
+                )
+    return RatePriors(position=position_priors, band=band_priors, band_width=width)
+
+
+@dataclass(frozen=True)
+class _ShrunkRates:
+    """Every per-90 rate a component may consume, already shrunk.
+
+    `_component_points_for_fixture` takes this instead of a `Player`, so no
+    unshrunk rate can reach a component — the property
+    `tests/test_rate_shrinkage.py`'s AST guard enforces. A rate added later
+    either lands here or fails that test by name.
+    """
+
+    xg: float
+    xa: float
+    dc: float
+    saves: float
+    yellow: float
+    red: float
+    bonus: float
+
+
+def shrunk_rates(
+    player: Player, position: str, priors: RatePriors, config: RateShrinkageConfig
+) -> _ShrunkRates:
+    values: dict[str, float] = {}
+    for rate in SHRINKABLE_RATES:
+        setting = config.rates.get(rate, RatePrior())
+        prior = priors.prior_for(rate, position, player.now_cost, setting.prior_source)
+        values[rate] = shrink_rate(
+            _raw_rate(player, rate), float(player.minutes), prior, setting.prior_minutes
+        )
+    return _ShrunkRates(**values)
 
 
 @dataclass(frozen=True)
@@ -200,15 +378,21 @@ _ComponentTuple = tuple[float, float, float, float, float, float, float, float]
 
 
 def _component_points_for_fixture(
-    player: Player,
     position: str,
     scoring: dict[str, Any],
     minutes: _MinutesProbabilities,
     rates: MatchRates,
+    player_rates: _ShrunkRates,
     league_mean_goals: float,
     defcon_thresholds: dict[str, int],
-    bonus_shrinkage_minutes: float,
 ) -> _ComponentTuple:
+    """Price one fixture from already-shrunk rates.
+
+    Takes no `Player`: every rate arrives via `player_rates`, which is what
+    stops an unshrunk one reaching a component. `bonus_shrinkage_minutes` is
+    gone from the signature too — bonus is now shrunk with the other six in
+    `shrunk_rates`, rather than being the one term that did it for itself.
+    """
     p1, p60, xmins = minutes.p1, minutes.p60, minutes.xmins
     frac = xmins / 90
 
@@ -216,8 +400,8 @@ def _component_points_for_fixture(
 
     attack_scale = rates.xg_for / league_mean_goals
     xp_attack = (
-        player.expected_goals_per_90 * attack_scale * frac * scoring["goals_scored"][position]
-        + player.expected_assists_per_90 * attack_scale * frac * scoring["assists"]
+        player_rates.xg * attack_scale * frac * scoring["goals_scored"][position]
+        + player_rates.xa * attack_scale * frac * scoring["assists"]
     )
 
     xp_clean_sheet = p60 * math.exp(-rates.xg_against) * scoring["clean_sheets"][position]
@@ -229,7 +413,7 @@ def _component_points_for_fixture(
     )
 
     if position == "GKP":
-        saves_lambda = player.saves_per_90 * frac * (rates.xg_against / league_mean_goals)
+        saves_lambda = player_rates.saves * frac * (rates.xg_against / league_mean_goals)
         xp_saves = _poisson_expected_floor_div(saves_lambda, 3) * scoring["saves"]
     else:
         xp_saves = 0.0
@@ -238,16 +422,14 @@ def _component_points_for_fixture(
     if threshold is None:
         xp_defcon = 0.0
     else:
-        dc_lambda = player.defensive_contribution_per_90 * frac
+        dc_lambda = player_rates.dc * frac
         xp_defcon = _poisson_at_least(dc_lambda, threshold) * scoring["defensive_contribution"][position]
 
-    raw_bonus_per_90 = player.bonus / (player.minutes / 90) if player.minutes > 0 else 0.0
-    shrunk_bonus_per_90 = raw_bonus_per_90 * player.minutes / (player.minutes + bonus_shrinkage_minutes)
-    xp_bonus = shrunk_bonus_per_90 * frac * scoring["bonus"]
+    xp_bonus = player_rates.bonus * frac * scoring["bonus"]
 
-    yellow_per_90 = player.yellow_cards / (player.minutes / 90) if player.minutes > 0 else 0.0
-    red_per_90 = player.red_cards / (player.minutes / 90) if player.minutes > 0 else 0.0
-    xp_cards = (yellow_per_90 * scoring["yellow_cards"] + red_per_90 * scoring["red_cards"]) * frac
+    xp_cards = (
+        player_rates.yellow * scoring["yellow_cards"] + player_rates.red * scoring["red_cards"]
+    ) * frac
 
     return (xp_appearance, xp_attack, xp_clean_sheet, xp_conceded, xp_saves, xp_defcon, xp_bonus, xp_cards)
 
@@ -322,6 +504,7 @@ class ComponentProjection:
         fixtures_fetched_at: datetime | None = None,
         minutes_config: MinutesModelConfig | None = None,
         defcon_thresholds: dict[str, int] | None = None,
+        rate_config: RateShrinkageConfig | None = None,
         version: str | None = None,
     ) -> None:
         self._players = snapshot.players_by_id
@@ -334,6 +517,13 @@ class ComponentProjection:
         self._minutes_config = minutes_config or MinutesModelConfig()
         self._defcon_thresholds = defcon_thresholds if defcon_thresholds is not None else dict(DEFCON_THRESHOLDS)
         self._appearances = _appearances(snapshot)
+        # Defaults to the pre-FU-47 treatment, not to the identity: direct
+        # construction (which the tests use throughout) must keep behaving as
+        # it did, and bonus was already shrunk before this branch.
+        self._rate_config = rate_config if rate_config is not None else legacy_rate_config()
+        # Pooled once per snapshot, not per player: the prior is a population
+        # statistic, and recomputing it 616 times would be the same number.
+        self._rate_priors = build_rate_priors(snapshot, self._rate_config)
         self._version = version
 
     @property
@@ -350,26 +540,31 @@ class ComponentProjection:
             player = self._players[player_id]
             position = self._positions[player.element_type].singular_name_short
             minutes = _minutes_probabilities(player, position, self._appearances, self._minutes_config)
+            rates = shrunk_rates(player, position, self._rate_priors, self._rate_config)
             for event in events:
-                result[(player_id, event)] = self._project_one(player, position, minutes, event)
+                result[(player_id, event)] = self._project_one(player, position, minutes, rates, event)
         return result
 
     def _project_one(
-        self, player: Player, position: str, minutes: _MinutesProbabilities, event: int
+        self,
+        player: Player,
+        position: str,
+        minutes: _MinutesProbabilities,
+        player_rates: _ShrunkRates,
+        event: int,
     ) -> Projection:
         legs = self._schedule.get(event, {}).get(player.team, [])
         totals = [0.0] * 8
         for leg in legs:
             rates = self._rates_model.rates(team=player.team, opponent=leg.opponent, home=leg.home)
             components = _component_points_for_fixture(
-                player,
                 position,
                 self._scoring,
                 minutes,
                 rates,
+                player_rates,
                 self._rates_model.league_mean_goals,
                 self._defcon_thresholds,
-                self._minutes_config.bonus_shrinkage_minutes,
             )
             for index, value in enumerate(components):
                 totals[index] += value
