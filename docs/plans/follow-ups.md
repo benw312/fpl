@@ -2631,7 +2631,62 @@ pre-season or early. Nothing in the API documents the invariant — it is undocu
 throughout — so a mid-season or transfer-deadline payload could break it without
 warning. The claim here is "not observed", not "cannot happen".]`
 
-`[gap: the same question is unasked for the other statuses. `i`, `s` and `u` all map
-to 0.0 regardless of any published percentage, so a player with `status="i"` and
-`chance_of_playing_next_round = 75` is treated as unavailable while the API says
-otherwise — the inverse asymmetry, and not measured here.]`
+---
+
+### The `i`/`s`/`u` half: measured, and it is not a defect
+
+This entry originally carried a second gap, guessing that `i`, `s` and `u` mapping to
+`0.0` regardless of a published percentage would treat a 75%-chance player as certain
+to miss — a live error on real data, and the half that would have mattered. **Measured
+across the same 11 captures, that does not happen.** The gap is left in place below,
+struck, because the guess was reasonable and its falsification is the useful part.
+
+| status | observations | publishing a percentage | values seen |
+|---|---|---|---|
+| `i` | 650 | 650 (100%) | **0% only** |
+| `s` | 14 | 14 (100%) | **0% only** |
+| `u` | 497 | 497 (100%) | **0% only** |
+
+All 1,161 observations publish a percentage, and **every one of them publishes 0**.
+So `_availability` returns `0/100 = 0.0` from its *first* branch, which is exactly
+what the status mapping would have returned. The count of published values that
+disagree with the mapping is **zero**. The hypothetical player — `status="i"` with
+`chance_of_playing_next_round = 75` — does not exist in any capture held here.
+
+**So the two halves are not symmetric, and not in the direction the gap implied.** The
+first half is a real, if harmless, finding: a named constant with no effect. The
+second half is a hypothesis this measurement falsifies. Ranked, they are one finding
+and one non-finding, and the entry should be read that way.
+
+### The finding that subsumes both: two of four branches are dead
+
+Over **6,788 player-observations** across the 11 captures:
+
+| `_availability` branch | taken | share |
+|---|---|---|
+| published percentage | 1,850 | 27.25% |
+| `status == "a"` → `1.0` | 4,938 | 72.75% |
+| `status == "d"` → `doubtful_chance` | **0** | never |
+| fallback → `0.0` | **0** | never |
+
+The API publishes a percentage for *every* non-`a` status, so the whole status table
+below the first branch is decoration: the function is, in practice, "use the published
+percentage, else if `a` return 1.0". Both remaining branches are unreachable, not just
+the doubtful one.
+
+**And `0.75` is well chosen, which the first half of this entry should not be read as
+disputing.** Of the 203 `status="d"` observations, **179 (88%) publish exactly 75%**,
+with 50% (17) and 25% (7) as the tail. The constant is dead *and* correct — it matches
+the modal published value precisely. That strengthens the "keep it, and say what it is"
+option above and weakens "delete it": the fallback, if ever reached, would be right.
+
+*[Superseded gap, left as written:]* `[gap: the same question is unasked for the other
+statuses. `i`, `s` and `u` all map to 0.0 regardless of any published percentage, so a
+player with `status="i"` and `chance_of_playing_next_round = 75` is treated as
+unavailable while the API says otherwise — the inverse asymmetry, and not measured
+here.]`
+
+`[gap: the branch counts above are reachability over captures, not a coverage run —
+they say the branch was never *taken on this data*, not that it is unreachable in
+principle. The same six-day, one-season caveat as the paragraph above applies to all
+of it.]`
