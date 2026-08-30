@@ -1,6 +1,6 @@
 # FPL CLI
 
-**Last updated: 2026-08-28.**
+**Last updated: 2026-08-30.**
 
 A local, read-only Fantasy Premier League planning tool. It talks to the official
 (undocumented) FPL API, holds no credentials and submits nothing — it cannot
@@ -226,6 +226,19 @@ still does not pin.
   cache the same day gives 0.700 — which is a second reason not to read anything
   into it. The first honest run is the first gameweek whose deadline post-dates a
   capture.
+- **At this stage of the season the model ranks largely on start probability.**
+  This is the most useful thing to know about the output, and it is sharper than
+  "unvalidated". Until FU-47 the per-90 rates were consumed exactly as the API
+  publishes them, so a single strong match produced ratings like 1.72 xG90 from
+  77 minutes, or 270 defensive actions per 90 from **one minute**. Those are now
+  shrunk toward a prior pooled from the snapshot — and the measured consequence
+  is that the table gets *less* discriminating, not more: goalkeepers in the top
+  30 rise from 1 to 8, because once single-match noise is removed the component
+  model has very little left with which to separate outfielders, and keepers
+  have the highest start probability of anyone. The noise was doing the work of
+  discrimination and was never measuring player quality. Read a projection this
+  early as "is this player likely to play", not "is this player good".
+  `docs/plans/rate-shrinkage.md` §5.3 and §9.
 - **The search considers at most two transfers per gameweek.** The rules allow far
   more — 20 in the run above, taken from the snapshot's `transfers_cap` — and the
   run says so per gameweek rather than leaving it implicit. Three or more at every
@@ -281,6 +294,7 @@ All paths under `src/fpl_cli/`:
 | `domain/transfers.py` | The ledger, transfer application, rollover, hits and selling prices. |
 | `domain/projections.py` | The eight-component xP model and its two controls. |
 | `domain/strength.py` | The fixture-strength seam: `MatchRates`, `BandedTeamRates`. |
+| `domain/variants.py` | Named model variants, the registry, and the derived version string. |
 | `domain/optimizer.py` | The beam search, the numpy scoring kernel and dominance pruning. |
 | `domain/evaluation.py` | RMSE, MAE, Spearman, return categories and per-component error. |
 | `storage/cache.py` | The raw JSON snapshot cache. |

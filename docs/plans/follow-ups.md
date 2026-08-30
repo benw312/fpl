@@ -2514,6 +2514,72 @@ none of its real-data behaviour has been observed.
 
 ## FU-47 — per-90 rates are consumed raw, so one good match dominates the ranking
 
+**Status: the principle is fixed; the parameters are not.** `08f6e54`
+(`task/fu-47-shrinkage`, 2026-08-30), designed in
+[rate-shrinkage.md](rate-shrinkage.md). Read the two halves separately — they are
+different kinds of claim and the entry is not closed in the ordinary sense.
+
+**What landed — the half that is settled.** `shrink_rate(raw, minutes, prior,
+prior_minutes)` generalises the shrinkage `xp_bonus` already had, and all seven
+rate knobs now go through it: the four `*_per_90` API inputs, yellow and red, and
+bonus. They are computed once per player into a frozen `_ShrunkRates` and passed
+to `_component_points_for_fixture`, which **no longer receives a `Player` at
+all** — there is nothing left for an unshrunk rate to arrive on.
+`tests/test_rate_shrinkage.py` scans that function's AST for the two shapes the
+defect took and reports every site; run against the pre-fix code it finds all
+eight. Priors are pooled from the snapshot by exposure, so the fix removes
+hand-set constants rather than adding twenty-eight.
+
+**Scope was six rates, not the four this entry names.** The entry's body below is
+correct about the four `*_per_90` fields and misses two, both found while
+designing the fix: `xp_cards` built its own per-90 inline and so would have
+survived a fix scoped to `*_per_90` fields, and `xp_bonus` had the right algebra
+with its prior pinned to zero rather than the league rate. rate-shrinkage.md §1.3
+records both. That a fifth instance already existed is the argument for the guard
+— it is a regression test, not a precaution.
+
+**What is *not* settled — the parameters.** Every `M` is chosen, not measured,
+and the plan says so at length: §9.2 files them all under "chosen because it
+looked best, and must be measured", §5 calls 270/90/270 "demonstration
+parameters, not proposed values", and §4.3 *measures* that they cannot be
+estimated from one gameweek — Gamma-Poisson empirical Bayes returns negative
+excess variance for xG, xA and saves in every position. There was therefore no
+recommended parameterisation to register, and the values in
+`domain/variants.py` are §5's demonstration figures plus mid-range picks from
+§7's table for the three rates §5 does not name.
+
+**The price-versus-position question is open, deliberately.** `component/1.1-price`
+and `component/1.1-position` are registered as a **pair** rather than one being
+chosen: they differ in exactly one thing — whether xG and xA shrink toward a
+price-conditioned prior or a position-only one — and a test asserts that is the
+only difference, so any gap between them is attributable to price conditioning
+and nothing else. The evidence for price is Spearman 0.458 (MID xG90) from a
+single gameweek, thinner than the plan's other measurements. This is what the
+registry was built for; settle it by evaluation, not argument.
+
+**`component/1.0` is unchanged and remains the default.** Projections are
+byte-identical to pre-branch `main` across all 3080 rows —
+sha256 `c3812c8cae30c609b41243f3a26dcc49450c8b03993604ffb6129470037a7412`,
+pinned to `~/fpl-pinned/gw2-pre-deadline.json` and `~/fpl-pinned/gw2-fixtures.json`
+(captured 2026-08-28T07:26:38Z). 1.1 becomes the default only if a leak-free
+evaluation supports it, and a test fails if the `component` alias or
+`plan evaluate`'s default set starts pointing at it.
+
+`[gap: the only evaluation available is GW1, which leaks — the flat baseline
+scores a perfect 0.000 because points_per_game after one gameweek *is* that
+gameweek's score. Under it 1.1 scores worse than 1.0 (RMSE 2.457/2.472 against
+2.241; Spearman 0.652/0.658 against 0.707), and price and position disagree by
+about 0.006 in opposite directions on the two metrics. **None of that is
+evidence either way.** The first honest comparison is the first gameweek whose
+deadline post-dates a capture, and until then neither 1.1 variant should be
+quoted as better or worse than 1.0.]`
+
+`[gap: rate-shrinkage.md §9.3 is the standing caveat and survives this commit —
+the change is more internally consistent but not measurably better, and must not
+be presented as an improvement to accuracy.]`
+
+**The original entry follows, for the record.**
+
 **Deferred from:** `task/fu-44-project` — found by the first run of
 `fpl players project` against `~/fpl-pinned/gw2-pre-deadline.json`, 2026-08-29.
 
