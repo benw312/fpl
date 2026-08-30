@@ -288,10 +288,13 @@ OFFICIAL_EP_V1 = register(
 # changes **nothing at all** on that capture. All 17 `status="d"` players there
 # publish a `chance_of_playing_next_round`, and `_availability` returns on that
 # before it ever reaches the constant. A fixture that provably moves no number
-# cannot demonstrate that the comparison path works. `[gap: that also means
-# `doubtful_chance` is dead code against this capture — it is reachable only for
-# a doubtful player with no published percentage, and there were none. Not
-# investigated further here; it is a projections question, not a registry one.]`
+# cannot demonstrate that the comparison path works.
+#
+# That constant is dead more widely than on one capture — 203 `status="d"`
+# observations across 11 captures, none with a null percentage — and is filed
+# as **FU-48**. Note what it would mean here: a variant setting `doubtful_chance`
+# would earn a distinct digest and version string while projecting identically,
+# which is two names for one model.
 #
 # Delete it once FU-47's real variants are registered, or keep it as the
 # regression fixture for the multi-model path — but do not grow it.

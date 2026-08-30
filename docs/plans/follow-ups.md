@@ -2560,3 +2560,78 @@ say whether shrinkage helps, and its first leak-free run is still pending (READM
 Known limitations). Shrinking the rates would be principled and unmeasured, which
 is the state the whole model is already in — but a change made in that state should
 at least be recorded as such, not presented as an improvement.
+
+---
+
+## FU-48 — `doubtful_chance` is unreachable: every non-`a` status publishes a percentage
+
+**Deferred from:** `task/model-versioning`, while choosing the parameter for its test
+fixture variant. Filed here rather than left as a gap comment in
+`domain/variants.py`, because it is a projections question adjacent to FU-47, not a
+registry one.
+
+`MinutesModelConfig.doubtful_chance` (`DEFAULT_DOUBTFUL_CHANCE = 0.75`,
+`projections.py`) is one of the seven constants the minutes-model block carries under
+`[assumption: no empirical basis for any constant in this block]`. It is also
+**dead on every capture this repo has ever held.**
+
+`_availability` tests the published percentage first:
+
+```python
+if player.chance_of_playing_next_round is not None:
+    return player.chance_of_playing_next_round / 100
+if player.status == "d":
+    return config.doubtful_chance          # <- only reachable when the above is None
+```
+
+So `doubtful_chance` is reached only for a player who is doubtful **and** carries no
+published chance. Measured across every bootstrap-static payload on this machine —
+the pinned `~/fpl-pinned/gw2-pre-deadline.json`, the four bare archives, five capture
+directories, and the live cache; 11 captures spanning 2026-08-25 to 2026-08-30:
+
+| | |
+|---|---|
+| `status="d"` observations | **203** |
+| ...with `chance_of_playing_next_round` null | **0** |
+| distinct players ever seen `"d"` | 34 |
+
+**The pattern looks structural rather than incidental.** On the current snapshot the
+null rate is 90% for `status="a"` (444 of 494) and **0% for every other status** —
+`d` 0/18, `i` 0/58, `s` 0/2, `u` 0/51. The API appears to publish a percentage
+whenever it publishes anything but "available", which is exactly the case the
+`status == "d"` branch was written to cover.
+
+**Why it matters more since `task/model-versioning`.** `doubtful_chance` is now a
+registered-variant knob covered by the digest. A variant setting it gets a distinct
+digest and a distinct version string, and would produce **identical projections** —
+two names for one model, which is the failure FU-40's extension exists to prevent,
+arriving from the opposite direction. This was found the practical way: it was the
+first choice for that branch's fixture variant and was rejected on measurement,
+because a fixture that provably moves no number cannot demonstrate that the
+comparison path works.
+
+**Not urgent.** Nothing is wrong with the output; a constant simply has no effect.
+
+**Options, none chosen:**
+
+- **Delete the constant and the branch.** Smallest tree, and honest about what the
+  data shows. Costs the fallback if FPL ever does publish a bare `"d"`, in which case
+  availability would drop to the `return 0.0` at the end of the function — treating a
+  doubtful player as ruled out, which is worse than 0.75 and would be silent.
+- **Keep it, and say what it is.** A defensive default for a case the API has not
+  produced in 203 observations. Cheapest, and leaves a constant that no evaluation can
+  ever move — which is misleading in a block whose other six constants are live.
+- **Give it something to do.** `chance_of_playing_this_round` is published and parsed
+  nowhere (FU-21); a doubtful player mid-gameweek can have the two disagree. That is
+  the one route by which this branch could become reachable, and it argues for
+  resolving FU-21 first.
+
+`[gap: "structural" is inferred from 11 captures over six days in one season, all
+pre-season or early. Nothing in the API documents the invariant — it is undocumented
+throughout — so a mid-season or transfer-deadline payload could break it without
+warning. The claim here is "not observed", not "cannot happen".]`
+
+`[gap: the same question is unasked for the other statuses. `i`, `s` and `u` all map
+to 0.0 regardless of any published percentage, so a player with `status="i"` and
+`chance_of_playing_next_round = 75` is treated as unavailable while the API says
+otherwise — the inverse asymmetry, and not measured here.]`
