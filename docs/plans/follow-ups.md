@@ -740,11 +740,40 @@ derives groups from the paths, so dropping the last `domain/` row removes the
 package from the document and the drift reads "package missing". Both name the
 fault; the messages differ because the documents do.]*
 
-`[gap: three lists are hand-maintained and only two are checked. The README's
-Commands table names eight commands and nothing compares it to the Typer app,
-which is FU-15's other half — the same defect in the same file, one section
-away. It has not gone stale yet, which is exactly what was true of the
-Architecture table on 2026-08-28.]`
+**Extended again the same day to the README's Commands table** — the fourth
+instance, and the first caught before it broke rather than after. The gap block
+this replaces said the table "has not gone stale yet, which is exactly what was
+true of the Architecture table on 2026-08-28"; acting on that rather than filing
+it is the whole difference between three corrections and a check.
+
+**This one compares a document to the thing it documents, not to another list.**
+`app_commands` reads `registered_commands` and `registered_groups` off the Typer
+app at import — no invocation, no `CliRunner`, no argument parsing — so there is
+no second hand-maintained inventory that could itself drift. That makes it a
+stronger guard than either module check, which compare a document to a directory
+listing. Groups are walked recursively (nothing nests today; the recursion costs
+two lines and closes the hole), an unnamed command falls back to its function
+name the way Typer derives it, and hidden commands are returned separately: `plan
+optimize` is a deliberate alias documented inside `plan optimise`'s row, so it
+must not be required — but a row promoting it is told it is a hidden alias rather
+than that it does not exist, which would be untrue.
+
+The prose count in the same paragraph — *"Eight commands."* — is checked too. It
+is the same hand-maintained number, one line above the table, that would go stale
+by the same mechanism.
+
+`structure_drift` is **not** reused for this one, and the reasoning is in the
+test: it compares `{group: {member}}` mappings and phrases findings in terms of
+packages and `src/fpl_cli/`. A command set is a flat set of paths, and forcing it
+through that shape would give accurate comparisons with wrong nouns. The
+comparison is a six-line set difference — a different check, not a second copy of
+the module checker.
+
+`[gap: `--help` text itself is still unchecked. The table's *descriptions* are
+prose and can say anything, including something a command no longer does; only
+the command's existence is guarded. Comparing descriptions to docstrings was
+considered and not attempted — they are deliberately written differently, the
+table being one line and the docstring several.]`
 
 **Status: closed — by a check, not a correction** — `task/fu-19-18-13` (2026-08-28).
 `tests/test_claude_md_structure.py` parses `CLAUDE.md`'s Structure block, walks

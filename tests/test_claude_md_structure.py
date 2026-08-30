@@ -44,6 +44,8 @@ from pathlib import Path
 
 import pytest
 
+from fpl_cli import cli
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 README_MD = REPO_ROOT / "README.md"
@@ -580,3 +582,288 @@ def test_a_missing_architecture_section_is_an_error_not_an_empty_parse() -> None
 
     with pytest.raises(AssertionError, match="no `## Structure` section"):
         parse_structure("## Something Else\n\n`api/` — official.py\n\n## Next\n")
+
+
+# --- the README's Commands table, against the Typer app ----------------------
+#
+# The fourth instance of the same mechanism, and the first that can be checked
+# against something better than another hand-maintained list: the app enumerates
+# its own commands. That makes this a stronger guard than either module check —
+# those compare a document to a directory listing, this compares a document to
+# the thing it documents.
+#
+# **`structure_drift` is deliberately not reused here**, unlike the Architecture
+# table. That function compares `{group: {member}}` mappings and phrases its
+# findings in terms of packages and `src/fpl_cli/`. A command set is a flat set
+# of paths, and forcing it through the grouped shape would produce accurate
+# comparisons with wrong nouns — "`plan/` exists in src/fpl_cli/ but nothing
+# lists the package" for a missing command group. The comparison below is a set
+# difference in six lines; that is a different check, not a second copy of the
+# module checker.
+
+_COMMAND_CELL = re.compile(r"`fpl\s+([a-z][a-z0-9 -]*)`")
+
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+
+
+def commands_section(text: str) -> str:
+    """The `## Commands` section of the README, up to the next heading."""
+    match = re.search(r"^## Commands$(.*?)^## ", text, flags=re.M | re.S)
+    assert match is not None, "README.md has no `## Commands` section"
+    return match.group(1)
+
+
+def parse_commands(text: str) -> set[str]:
+    """The command paths the Commands table names, e.g. `{"sync", "players list"}`.
+
+    First cell of each table row only, and for the same reason as
+    `parse_architecture`: the prose below this table names `fpl players show`,
+    `fpl squad show` and `fpl squad import`/`export`, none of which exist
+    (FU-14). A reader taking the whole section would report three commands as
+    missing from an app that never had them — the guard failing for a reason
+    that has nothing to do with drift.
+    """
+    commands: set[str] = set()
+    for raw in commands_section(text).splitlines():
+        row = _TABLE_ROW.match(raw.strip())
+        if row is None:
+            continue
+        for match in _COMMAND_CELL.findall(row.group("first")):
+            commands.add(" ".join(match.split()))
+    return commands
+
+
+def documented_command_count(text: str) -> int | None:
+    """The count the prose claims, e.g. "Eight commands." — `None` if absent.
+
+    Checked because it is the same hand-maintained number in the same paragraph
+    as the table, and would go stale by the same mechanism. Words rather than
+    digits because that is how the sentence is written.
+    """
+    match = re.search(r"^(\w+) commands\b", commands_section(text).strip(), flags=re.M | re.I)
+    return _NUMBER_WORDS.get(match.group(1).lower()) if match else None
+
+
+def app_commands(app: object) -> tuple[set[str], set[str]]:
+    """`(visible, hidden)` command paths the Typer app has registered.
+
+    Read off `registered_commands` and `registered_groups` at import time. No
+    invocation, no `CliRunner`, no argument parsing — importing `fpl_cli.cli` is
+    all it takes, which several other test modules already do.
+
+    Hidden commands are returned separately rather than dropped: `plan optimize`
+    is a deliberate hidden alias documented inside `plan optimise`'s row, so it
+    must not be required in the table — but a row naming it should say "hidden"
+    rather than "does not exist", which needs the set.
+
+    Groups are walked recursively. Nothing nests beyond one level today; the
+    recursion costs two lines and stops a nested group from being a silent hole.
+    """
+    visible: set[str] = set()
+    hidden: set[str] = set()
+
+    def walk(node: object, prefix: str) -> None:
+        for command in node.registered_commands:
+            # Typer derives an unnamed command from its function, lowercasing
+            # and turning underscores into dashes. `sync` is the only one here,
+            # but replicating the rule beats hardcoding the one case.
+            name = command.name or command.callback.__name__.lower().replace("_", "-")
+            (hidden if command.hidden else visible).add(f"{prefix}{name}")
+        for group in node.registered_groups:
+            walk(group.typer_instance, f"{prefix}{group.name} ")
+
+    walk(app, "")
+    return visible, hidden
+
+
+def command_drift(
+    text: str,
+    visible: set[str],
+    hidden: set[str] = frozenset(),
+    *,
+    document: str = "README.md",
+) -> list[str]:
+    """Every disagreement between the Commands table and the app, named.
+
+    Same discipline as `structure_drift`: a list rather than a raise on the
+    first, and every message names the document and the command.
+    """
+    documented = parse_commands(text)
+    drift: list[str] = []
+
+    for command in sorted(visible - documented):
+        drift.append(f"{document}: `fpl {command}` is registered but the Commands table omits it")
+    for command in sorted(documented - visible):
+        if command in hidden:
+            drift.append(
+                f"{document}: `fpl {command}` is a hidden alias and should not have its own row"
+            )
+        else:
+            drift.append(
+                f"{document}: the Commands table lists `fpl {command}`, which the app does not register"
+            )
+
+    claimed = documented_command_count(text)
+    if claimed is not None and claimed != len(visible):
+        drift.append(
+            f"{document}: the prose says {claimed} commands; the app registers {len(visible)}"
+        )
+    return drift
+
+
+def test_readme_commands_match_the_app() -> None:
+    """The fourth instance, caught before it happened rather than after.
+
+    "It has not gone stale yet" was true of the Architecture table two days
+    before it did. The checker existed, the table was labelled unchecked, and
+    deferring would have meant fixing it after it broke.
+    """
+    visible, hidden = app_commands(cli.app)
+    drift = command_drift(README_MD.read_text(encoding="utf-8"), visible, hidden)
+
+    assert not drift, "README.md's Commands table disagrees with the Typer app:\n  " + "\n  ".join(
+        drift
+    )
+
+
+# --- the Commands reader, checked the same way -------------------------------
+
+
+def _commands_table(rows: str, lead: str = "Two commands.", trailing_prose: str = "") -> str:
+    return (
+        "## Commands\n\n"
+        f"{lead} Detail lives in `--help`.\n\n"
+        "| Command | What it does |\n|---|---|\n"
+        f"{rows}"
+        "\n"
+        f"{trailing_prose}"
+        "\n## How it works\n"
+    )
+
+
+_TWO_ROWS = "| `fpl sync` | Fetch. |\n| `fpl players list` | List. |\n"
+
+
+def test_the_commands_reader_passes_on_a_table_that_matches() -> None:
+    """The control, without which none of the mutations below is evidence."""
+    assert command_drift(_commands_table(_TWO_ROWS), {"sync", "players list"}) == []
+
+
+def test_the_commands_reader_ignores_prose_naming_commands_that_do_not_exist() -> None:
+    """The specific trap in this section: the paragraph below the real table
+    names `fpl players show`, `fpl squad show` and `fpl squad import`, none of
+    which exist (FU-14). A reader taking the whole section would report three
+    commands as missing from an app that never had them.
+
+    Mutation: scanning the section rather than table rows picks them up and
+    fails.
+    """
+    prose = (
+        "`fpl players show`, `fpl squad show` and `fpl squad import`/`export` are named\n"
+        "in the Agent Plan below and do not exist (FU-14).\n"
+    )
+    assert parse_commands(_commands_table(_TWO_ROWS, trailing_prose=prose)) == {
+        "sync",
+        "players list",
+    }
+
+
+def test_the_commands_reader_ignores_the_description_column() -> None:
+    """`plan optimise`'s real description says "`optimize` is a hidden alias",
+    which a reader taking the whole row would promote to a command.
+
+    Mutation: matching the whole row instead of the first cell reads
+    `fpl plan optimize` as documented and fails.
+    """
+    rows = "| `fpl sync` | Fetch; see also `fpl players list` one day. |\n"
+    assert parse_commands(_commands_table(rows, lead="One command.")) == {"sync"}
+
+
+def test_a_missing_commands_section_is_an_error_not_an_empty_parse() -> None:
+    """The hole that has already appeared once in this file: a reader returning
+    nothing on a renamed heading reports every command as undocumented, which
+    buries the real cause.
+
+    Mutation: `if match is None: return ""` in `commands_section` stops this
+    raising.
+    """
+    with pytest.raises(AssertionError, match="no `## Commands` section"):
+        parse_commands("## Something Else\n\n| `fpl sync` | x |\n\n## Next\n")
+
+
+def test_a_hidden_alias_is_not_required_but_is_named_if_documented() -> None:
+    """`plan optimize` is a deliberate hidden alias, documented inside
+    `plan optimise`'s row. It must not be required, and a row promoting it must
+    say "hidden alias" rather than "does not exist" — the second is simply
+    untrue and would send someone looking for a bug.
+
+    Mutation: dropping the `command in hidden` branch produces the wrong
+    message and fails the second assertion.
+    """
+    assert command_drift(_commands_table(_TWO_ROWS), {"sync", "players list"}, {"plan optimize"}) == []
+
+    rows = _TWO_ROWS + "| `fpl plan optimize` | Promoted by mistake. |\n"
+    drift = command_drift(
+        _commands_table(rows, lead="Three commands."), {"sync", "players list"}, {"plan optimize"}
+    )
+    assert drift == [
+        "README.md: `fpl plan optimize` is a hidden alias and should not have its own row",
+        "README.md: the prose says 3 commands; the app registers 2",
+    ]
+
+
+def test_both_drift_directions_name_the_document_and_the_command() -> None:
+    """Same message discipline as the module guard, for the same reason: a
+    command can now be wrong in two documents' worth of places, and a message
+    saying only "omits it" would not say where to look.
+
+    Mutation: dropping `document` from either message fails here.
+    """
+    omitted = command_drift(_commands_table(_TWO_ROWS), {"sync", "players list", "plan evaluate"})
+    invented = command_drift(_commands_table(_TWO_ROWS), {"sync"})
+
+    assert omitted == [
+        "README.md: `fpl plan evaluate` is registered but the Commands table omits it",
+        "README.md: the prose says 2 commands; the app registers 3",
+    ]
+    assert invented == [
+        "README.md: the Commands table lists `fpl players list`, which the app does not register",
+        "README.md: the prose says 2 commands; the app registers 1",
+    ]
+
+
+def test_the_prose_count_is_checked_against_the_app() -> None:
+    """The same hand-maintained number, in the same paragraph, going stale by
+    the same mechanism.
+
+    Mutation: dropping the count comparison from `command_drift` leaves the
+    first assertion passing with a wrong number in the README.
+    """
+    assert documented_command_count(_commands_table(_TWO_ROWS, lead="Eight commands.")) == 8
+    assert documented_command_count(_commands_table(_TWO_ROWS, lead="No count here.")) is None
+
+    drift = command_drift(_commands_table(_TWO_ROWS, lead="Nine commands."), {"sync", "players list"})
+    assert drift == ["README.md: the prose says 9 commands; the app registers 2"]
+
+
+def test_the_app_enumerates_its_own_commands_without_being_invoked() -> None:
+    """The property that makes this guard stronger than the module ones: they
+    compare a document to a directory listing, this compares a document to the
+    thing it documents.
+
+    Also pins the two derivations that are easy to get wrong — an unnamed
+    command falls back to its function name (`sync`), and the hidden alias is
+    separated rather than dropped.
+
+    Mutation: returning `command.name` without the fallback loses `sync`;
+    putting hidden commands in `visible` fails the disjointness assertion.
+    """
+    visible, hidden = app_commands(cli.app)
+
+    assert "sync" in visible
+    assert {"players list", "players project", "plan optimise", "plan evaluate"} <= visible
+    assert hidden == {"plan optimize"}
+    assert not (visible & hidden)

@@ -89,8 +89,11 @@ twice). Treat every block here as a description, not a specification, and trust
 
 ## Commands
 
-Eight commands. Detail lives in `--help`, which is generated from the code; this
-table is hand-maintained and nothing checks it.
+Eight commands. Detail lives in `--help`, which is generated from the code. This
+table is checked against the Typer app by `tests/test_claude_md_structure.py`,
+including the count in this sentence — the app enumerates its own commands, so
+unlike the architecture table below there is no second hand-maintained list to
+disagree with.
 
 | Command | What it does |
 |---|---|
