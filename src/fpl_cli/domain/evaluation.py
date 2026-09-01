@@ -2,8 +2,9 @@
 
 Scores any model's `{player_id: Projection}` output for one event against
 that event's actual `LiveEvent` data: RMSE/MAE (over all players and over
-`stats.played` only), Spearman rank correlation, a return-category error
-breakdown, and per-component error via `explain`. Also selects the archived
+`stats.played` only), Spearman rank correlation (likewise over both
+populations), a return-category error breakdown, and per-component error via
+`explain`. Also selects the archived
 snapshot a leak-free evaluation must project from.
 """
 
@@ -160,6 +161,24 @@ class ModelEvaluation:
     rmse_played: float
     mae_played: float
     spearman_all: float
+    # Spearman over `stats.played` only. Reported beside `spearman_all` rather
+    # than replacing it, because the two answer different questions and the
+    # difference between them is itself the diagnostic.
+    #
+    # `spearman_all` ranks all elements, and in a typical gameweek over half of
+    # them score zero because they did not play. Non-appearance is highly
+    # persistent week to week, so a model that merely extrapolates last week's
+    # points gets most of that ordering right without projecting anything —
+    # which inflates it relative to a model that tries to predict *how much* a
+    # player who features will score. The restricted figure removes the
+    # played/didn't-play split from the comparison and asks only how well the
+    # model orders players who actually appeared.
+    #
+    # Neither is the truer number. `spearman_all` is the right metric for a
+    # question that includes "will this player feature at all", which squad
+    # selection genuinely does; `spearman_played` is the right one for "given
+    # they feature, who scores more". Quoting either alone hides half of it.
+    spearman_played: float
     categories: dict[str, CategoryStats]
     # Signed mean error per component, over played players only — unplayed
     # players contribute ~0 to every component in both predicted and actual,
@@ -176,6 +195,8 @@ def evaluate_model(
     errors_played: list[float] = []
     predicted_all: list[float] = []
     actual_all: list[float] = []
+    predicted_played: list[float] = []
+    actual_played: list[float] = []
     category_errors: dict[str, list[float]] = {category: [] for category in CATEGORIES}
     component_errors: dict[str, list[float]] = {component: [] for component in COMPONENTS}
 
@@ -191,6 +212,8 @@ def evaluate_model(
 
         if actual.played:
             errors_played.append(error)
+            predicted_played.append(projection.xp_total)
+            actual_played.append(float(actual.total_points))
             for component in COMPONENTS:
                 component_errors[component].append(getattr(projection, component) - actual.component_points[component])
 
@@ -203,6 +226,7 @@ def evaluate_model(
         rmse_played=_rmse(errors_played),
         mae_played=_mae(errors_played),
         spearman_all=spearman(predicted_all, actual_all),
+        spearman_played=spearman(predicted_played, actual_played),
         categories={
             category: CategoryStats(count=len(errors), mean_error=_mean(errors), mae=_mae(errors))
             for category, errors in category_errors.items()

@@ -19,6 +19,7 @@ from fpl_cli.domain.evaluation import (
     spearman,
 )
 from fpl_cli.domain.projections import Projection
+from fpl_cli.presentation import evaluation_table
 
 
 def _projection(player: int, xp_total: float, **components: float) -> Projection:
@@ -85,6 +86,58 @@ def test_spearman_average_rank_tie_handling() -> None:
 def test_spearman_degenerate_inputs_return_zero() -> None:
     assert spearman([1.0], [1.0]) == 0.0
     assert spearman([1, 1, 1], [1, 2, 3]) == 0.0  # zero variance in predicted
+
+
+def test_spearman_played_restricts_to_players_who_appeared() -> None:
+    # Player 3 did not play. Over all three the model orders perfectly; over the
+    # two who played it orders backwards. One number cannot say both.
+    projections = {1: _projection(1, 2.0), 2: _projection(2, 6.0), 3: _projection(3, 0.0)}
+    actuals = {
+        1: _actual(1, 8, played=True),
+        2: _actual(2, 3, played=True),
+        3: _actual(3, 0, played=False),
+    }
+
+    result = evaluate_model(projections, actuals, model_name="test")
+
+    assert result.n_played == 2
+    assert result.spearman_all == pytest.approx(0.5)
+    assert result.spearman_played == pytest.approx(-1.0)
+
+
+def test_spearman_played_ignores_the_didnt_play_split_that_inflates_spearman_all() -> None:
+    """The confound the restricted column exists to expose.
+
+    A model that predicts nothing but "who will feature" — a flat score for
+    everyone who played, zero for everyone who did not — orders the full
+    population well, because non-appearance is most of the ordering. It has no
+    information at all about how much a player who features will score, and the
+    restricted figure is what says so.
+    """
+    projections = {i: _projection(i, 5.0 if i <= 4 else 0.0) for i in range(1, 9)}
+    actuals = {
+        **{i: _actual(i, points, played=True) for i, points in zip(range(1, 5), (2, 6, 9, 13))},
+        **{i: _actual(i, 0, played=False) for i in range(5, 9)},
+    }
+
+    result = evaluate_model(projections, actuals, model_name="test")
+
+    assert result.n_played == 4
+    assert result.spearman_all > 0.9
+    # Every played player got the same prediction: zero variance, no ordering.
+    assert result.spearman_played == 0.0
+
+
+def test_spearman_played_is_zero_when_nobody_played() -> None:
+    # `spearman` returns 0.0 for n < 2 rather than raising, so an all-blank
+    # gameweek reports 0.000 in the column instead of failing the run.
+    projections = {1: _projection(1, 4.0), 2: _projection(2, 1.0)}
+    actuals = {1: _actual(1, 0, played=False), 2: _actual(2, 0, played=False)}
+
+    result = evaluate_model(projections, actuals, model_name="test")
+
+    assert result.n_played == 0
+    assert result.spearman_played == 0.0
 
 
 # --- Return categories ----------------------------------------------------------
@@ -260,3 +313,34 @@ def test_select_archived_snapshot_returns_none_when_nothing_qualifies(tmp_path: 
     _touch(too_late, mtime=datetime(2026, 1, 11, tzinfo=UTC))
 
     assert select_archived_snapshot(tmp_path, datetime(2026, 1, 1, tzinfo=UTC)) is None
+
+
+# --- The evaluation table renders both Spearman columns -------------------------
+
+
+def test_evaluation_table_renders_both_spearman_columns() -> None:
+    """Guards the pairing, not the numbers.
+
+    `spearman_all` and `spearman_played` are three-decimal floats in adjacent
+    columns, so a renderer that dropped one or emitted the same value twice
+    would look right in a table nobody diffed. Demonstrated failing against
+    both mutations: removing the `spearman_played` column, and rendering
+    `spearman_all` into it.
+    """
+    projections = {1: _projection(1, 2.0), 2: _projection(2, 6.0), 3: _projection(3, 0.0)}
+    actuals = {
+        1: _actual(1, 8, played=True),
+        2: _actual(2, 3, played=True),
+        3: _actual(3, 0, played=False),
+    }
+    evaluation = evaluate_model(projections, actuals, model_name="test")
+    assert evaluation.spearman_all != pytest.approx(evaluation.spearman_played)
+
+    table = evaluation_table([evaluation])
+
+    headers = [column.header for column in table.columns]
+    assert headers.count("Spearman") == 1
+    assert "Spearman (played)" in headers
+    rendered = [list(column.cells) for column in table.columns]
+    assert rendered[headers.index("Spearman")] == [f"{evaluation.spearman_all:.3f}"]
+    assert rendered[headers.index("Spearman (played)")] == [f"{evaluation.spearman_played:.3f}"]
