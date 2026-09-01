@@ -2927,6 +2927,64 @@ provenance belongs in that payload under FU-40 whichever option is chosen here, 
 3 becomes materially more defensible — machine-readable provenance *does* travel with the
 number in a way a console warning does not.
 
+### `data_checked` is a lagging indicator of finality, not the definition of it
+
+Everything above treats `finished and data_checked` as *the* boundary between provisional
+and final. That is the wrong mechanism, and the entry should not be read as asserting it.
+The flag is FPL's sign-off that the scores are final; it is not what *makes* them final,
+and it does not arrive at the moment they become so.
+
+**The published rule.** For 2026/27, FPL states that a gameweek's points are subject to
+change until **09:00 UK on the day after the gameweek's final match**, after which no
+further adjustments are made. This is new this season — it was previously one hour after
+the final whistle, extended so that post-match Opta review can feed into BPS and DefCon.
+So finality is defined by a clock, and `data_checked` is an operator action taken at some
+point after that clock strikes.
+
+**The lag is visible in this gameweek's own data.** GW2's last match kicked off
+`2026-08-31T19:00:00Z`, so lockdown was 2026-09-01 09:00 UK = **08:00Z**. The live sync at
+`2026-09-01T10:23:54Z` — two hours and twenty-three minutes past lockdown — still read
+`finished=false, data_checked=false`, with `average_entry_score` at 81. By FPL's own
+published rule those scores were final and immutable. The API was still reporting them
+provisional, and `_report_live_provenance` would still have printed the yellow warning.
+
+**So there are two errors, in opposite directions, and both belong on record.**
+
+| window | actual state | tool reports | consequence |
+|---|---|---|---|
+| final whistle → 09:00 UK next day | genuinely provisional | provisional, and **scores anyway** | the defect this entry is filed for — a wrong number that looks valid |
+| 09:00 UK next day → flag flip | **genuinely final** | provisional | a correct number disclaimed as provisional, or refused outright under options 1 and 2 |
+
+The second is the milder failure — a false negative costs a delayed measurement, a false
+positive costs a wrong one that gets quoted — but it is not nothing. Under **option 1** a
+run in that window is refused outright despite the data being final by rule, and under
+**option 2** it demands `--allow-provisional` for actuals that are not provisional, which
+makes the flag's name a lie in exactly the case an operator would most reasonably reach for
+it. Whoever implements either should know the window exists rather than discovering it as a
+bug report.
+
+**The recommendation does not change: `data_checked` stays the gate.** A clock-based rule
+would have to derive "the gameweek's final match" from the fixtures list and then reason
+about BST/GMT boundaries, rearranged fixtures, and postponements that move a gameweek's
+last match days after its nominal end — each a way to compute a lockdown time that is
+confidently wrong, and wrong in the *permissive* direction, which is the one that produces
+a quoted bad number. `data_checked` is FPL's own sign-off, and being late is the safe way
+for it to be inaccurate. It is the right gate. It is simply not the definition of finality,
+and this entry described the mechanism wrongly by treating it as one.
+
+**How to measure the lag, unblocked and cheap.** The systemd daily capture runs at 01:00 UK
+(`archive/2026-09-01/` was written 00:01Z), so consecutive canonical captures bracket the
+09:00 UK lockdown by roughly 23 hours — nowhere near fine enough to time the flip. Two
+**ad-hoc** syncs on the day after a gameweek's last match, either side of 09:00 UK, would
+bracket it: one at ~08:30 UK and one at ~09:30 UK, repeated across a few gameweeks, gives
+the distribution of the lag rather than one observation of it. `fpl sync --archive-dir`
+keeps these out of the canonical slot, which matters because a claimed slot is never
+overwritten (FU-41) and a test capture costs that day's real one. **Note FU-42's gap
+applies:** `--archive-dir` protects the archive and nothing else — both syncs still rewrite
+`~/.fpl-cli/bootstrap-static.json` and `~/.fpl-cli/fixtures.json` in place, which moves
+every cell of any measurement in flight. Do this on a day with no evaluation running, not
+alongside one.
+
 `[gap: the fixture schema in this dataset carries eight keys — `event`, `finished`, `id`,
 `kickoff_time`, `team_a`, `team_a_score`, `team_h`, `team_h_score`. There is no
 `finished_provisional`, no `minutes` and no `started`, so fixture-level provisionality is
@@ -2948,3 +3006,27 @@ the two services' code paths, not a coverage run. A cache written by an older bu
 from another machine, or hand-edited reaches the same branch — the cases FU-43's envelope
 exists for — and the unpinned caller treats those identically, since it reads
 `provenance.state` not at all.]`
+
+`[gap: the 09:00 UK rule is stated here on Ben's authority, from FPL's published rules for
+2026/27. It is not derivable from anything in `bootstrap-static` or `fixtures` — no field
+in either payload carries a lockdown time — so it cannot be checked by this repo's own
+data, and under CLAUDE.md's "derive FPL rules from the live API snapshot" it could not be
+hardcoded even if a clock-based gate were wanted. That is a third argument for keeping
+`data_checked` as the gate, independent of the DST and postponement reasoning above: the
+flag is *in* the snapshot and the deadline rule is not.]`
+
+`[gap: this section's own evidence does not time the lag, it only bounds it — the flip had
+not happened by 10:23Z, so the lag was **at least 2h23m**. No upper bound: the flip may
+have occurred at any point after, and nothing was capturing. The GW1 transition cannot
+supply a comparison either, since the only captures spanning it are the 01:00 UK dailies.
+One observation, one gameweek, and the bracketing measurement described above is what would
+replace it.]`
+
+`[gap: the +2 in the evidence table above (79 at 00:01Z → 81 at 10:23Z) is bracketed by
+captures that **straddle** the 08:00Z lockdown, so it does not establish movement *after*
+lockdown and must not be read as doing so. Under the published rule it necessarily occurred
+before 08:00Z. The table's original claim is unaffected — it was that scores moved after
+every match had finished, and the last whistle was ~20:50Z the previous evening, so both
+readings sit in the post-whistle, pre-lockdown window where movement is expected. The
+figures are left as written; this is a tightening of what they prove, not a correction of
+them.]`
