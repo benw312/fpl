@@ -2628,6 +2628,15 @@ and nothing else. The evidence for price is Spearman 0.458 (MID xG90) from a
 single gameweek, thinner than the plan's other measurements. This is what the
 registry was built for; settle it by evaluation, not argument.
 
+*[Still open after GW2, and after 1.1-price became the default on 2026-09-01.
+The GW2 gap is 0.005 on Spearman(all) and 0.012 on Spearman(played), both inside
+the 0.02 threshold, so the evaluation did not settle it and the pair is still a
+pair. 1.1-price was made default over 1.0, not over 1.1-position. FU-50 fixes the
+criteria for the next attempt.]*
+
+*[Superseded 2026-09-01 by `task/default-1.1-and-preregistration`. Left as
+written; the correction follows it.]*
+
 **`component/1.0` is unchanged and remains the default.** Projections are
 byte-identical to pre-branch `main` across all 3080 rows —
 sha256 `c3812c8cae30c609b41243f3a26dcc49450c8b03993604ffb6129470037a7412`,
@@ -2635,6 +2644,35 @@ pinned to `~/fpl-pinned/gw2-pre-deadline.json` and `~/fpl-pinned/gw2-fixtures.js
 (captured 2026-08-28T07:26:38Z). 1.1 becomes the default only if a leak-free
 evaluation supports it, and a test fails if the `component` alias or
 `plan evaluate`'s default set starts pointing at it.
+
+**The default is now `component/1.1-price`.** The `component` alias and
+`_DEFAULT_EVALUATE_MODELS` both point at it; the test quoted above was inverted
+rather than deleted, and now asserts the new pairing plus that `component/1.0`
+stays *registered*. It does: every figure in this file measured against 1.0 is
+still reproducible by naming it in full.
+
+**The reason is the correctness argument, not the evaluation.** 1.0 consumes the
+API's per-90 rates as published, so one minute played can yield 270 defensive
+contributions per 90 — this entry's own headline defect. rate-shrinkage.md makes
+that case without reference to any gameweek and it would stand if GW2 had gone
+the other way, which is exactly why the switch is not conditional on the
+scoreboard. What GW2 supplies is the removal of a contradiction: against 1.0,
+1.1-price wins Spearman(all) 0.551 vs 0.536, Spearman(played) 0.359 vs 0.269 and
+RMSE(played) 3.036 vs 3.148, and loses RMSE(all) 2.411 vs 2.405 — by 0.006.
+Pinned to `~/fpl-pinned/gw2-pre-deadline.json` (sha256 `593f60c2e356…`),
+`gw2-fixtures.json` (`fbd4457e5c81…`) and `gw2-live.json` (`afdaf81a6fcd…`),
+model versions `component/1.0+banded` `fb431918c08c` and
+`component/1.1-price+banded` `24c305e2025c`, per FU-40.
+
+**What the switch does not establish, stated so it is not read as more than it
+is.** The parameters are still **chosen, not measured** — the paragraph above on
+§9.2, §5 and §4.3 is unaffected by this branch and nothing in GW2 fits any `M`.
+Price versus position is still **unresolved**: the Spearman(played) gap is 0.012
+against the 0.02 threshold that was fixed in advance, on one gameweek, with no
+error bars. Making 1.1-price the default is not a finding that price
+conditioning beats position conditioning; it is a choice of one of the two
+shrunken variants over the unshrunken one, and the pair remains a pair. **FU-50**
+fixes the criteria for settling it before the GW4/GW5 data exists.
 
 `[gap: the only evaluation available is GW1, which leaks — the flat baseline
 scores a perfect 0.000 because points_per_game after one gameweek *is* that
@@ -2644,6 +2682,13 @@ about 0.006 in opposite directions on the two metrics. **None of that is
 evidence either way.** The first honest comparison is the first gameweek whose
 deadline post-dates a capture, and until then neither 1.1 variant should be
 quoted as better or worse than 1.0.]`
+
+*[Closed 2026-09-01: that comparison is GW2, run against a capture taken 16h57m
+before the deadline. It reverses the GW1 ordering — 1.1-price now beats 1.0 on
+three of the four metrics — which is what the gap predicted would happen once the
+leak was removed, and is the reason the GW1 figures above must not be cited. The
+successor caveat is not that the comparison is missing but that there is exactly
+one of it, on one gameweek, with no error bars.]*
 
 `[gap: rate-shrinkage.md §9.3 is the standing caveat and survives this commit —
 the change is more internally consistent but not measurably better, and must not
@@ -2697,6 +2742,11 @@ say whether shrinkage helps, and its first leak-free run is still pending (READM
 Known limitations). Shrinking the rates would be principled and unmeasured, which
 is the state the whole model is already in — but a change made in that state should
 at least be recorded as such, not presented as an improvement.
+
+*[The leak-free run happened on 2026-09-01, against GW2. It says shrinkage helps
+on three of four metrics and costs 0.006 of RMSE(all). That is one gameweek, so
+the sentence above still governs: the change was made on the correctness
+argument and is recorded as such, not presented as a measured improvement.]*
 
 ---
 
@@ -3030,3 +3080,183 @@ every match had finished, and the last whistle was ~20:50Z the previous evening,
 readings sit in the post-whistle, pre-lockdown window where movement is expected. The
 figures are left as written; this is a tightening of what they prove, not a correction of
 them.]`
+
+---
+
+## FU-50 — Pre-registration for the GW4/GW5 model decisions
+
+**This entry is a written commitment, not a feature.** Nothing here is to be built.
+There is no rule engine, no criteria file, no `--criteria` flag, and no code change
+of any kind implied by this entry. It is a decision rule written down before the data
+exists, so that the decision can be made against it afterwards rather than around it.
+The only artefact is this text.
+
+**Filed from:** `task/default-1.1-and-preregistration`, 2026-09-01, alongside the
+switch of the default to `component/1.1-price`.
+
+### Why this exists: the GW2 rule was underspecified, and it showed
+
+The rule fixed in advance for GW2 was *"1.1 replaces 1.0 only if it wins on both
+Spearman and RMSE"*. When it was written there was one Spearman column and one RMSE
+pair. By the time it was applied there were two of each, because `spearman_played`
+was added on `task/spearman-played` after the rule was set and RMSE had always been
+reported over two populations without the rule saying which it meant. The result was
+a rule that returned different answers depending on a reading nobody had fixed:
+
+| criterion | winner | margin |
+|---|---|---|
+| Spearman (all) | 1.1-price | 0.015 |
+| Spearman (played) | 1.1-price | 0.090 |
+| RMSE (all) | **1.0** | 0.006 |
+| RMSE (played) | 1.1-price | 0.112 |
+
+Three of four favoured 1.1-price and the fourth favoured 1.0 by 0.006. Under one
+reading the rule said "split, 1.0 stays"; under another it said "1.1 wins outright".
+**A pre-registered rule that can be read two ways is not pre-registered**, because
+the choice of reading is made after the result is visible, which is the exact
+failure the pre-registration was meant to prevent. The default did in the end move,
+but on the correctness argument in FU-47 and rate-shrinkage.md rather than on the
+metrics — which is the only reason the ambiguity did not decide anything.
+
+Everything below therefore names the metric, the population and the margin.
+
+### 1. Price versus position
+
+**Criterion.** `component/1.1-price` replaces `component/1.1-position` as the
+registered default, or vice versa, only if **Spearman restricted to players who
+appeared (`spearman_played`)** differs by **more than 0.02** in the same direction
+**in each of two separately-evaluated gameweeks**. Otherwise the pair stays a pair
+and 1.1-price remains default by incumbency, not by evidence.
+
+**Why `spearman_played` and not the others.** The two variants differ in exactly one
+thing — whether xG and xA shrink toward a price-conditioned or a position-only prior
+— and a test in `tests/test_variants.py` asserts that is the only difference. That
+difference acts on attacking returns among players who feature. `spearman_all` is
+dominated by the played/didn't-play split, which neither variant addresses and which
+is identical between them; including it would dilute the signal with a population
+where the two are near-identical by construction. RMSE is a magnitude metric and
+these variants are being asked to rank, which is what the optimiser consumes.
+
+**Why 0.02.** It is the threshold that was already fixed for GW2 and it should not
+move now that a figure exists — 0.012 was observed, and revising the threshold after
+seeing it would be the precise vice this entry exists to prevent. It is a chosen
+number with no error-bar justification, and it stays chosen.
+
+**One population, not both.** `spearman_all` is to be reported as it always is, and
+is explicitly **not** a criterion here. Recording both and deciding on one is the
+point: the discarded column stays visible so a later reader can see it was discarded
+deliberately rather than never computed.
+
+### 2. One gameweek or two: two, and this is the most important clause
+
+**No criterion in this entry may be satisfied by a single gameweek.** Each requires
+the same direction and the same margin in **two gameweeks evaluated independently**
+— GW4 and GW5, or any later pair. A result in one and a reversal in the other is a
+null result, not a tie-break to be resolved by picking the larger margin.
+
+The argument is that every measurement this project has produced so far carries the
+same caveat, and it has never once been discharged. GW1 was a leak. GW2 is one
+observation with no error bars, and the gaps carrying its conclusions were 0.015,
+0.012, 0.005 and 0.006 — all of them small enough that a single gameweek's noise is
+a live explanation, and none of them accompanied by any estimate of what that noise
+is. The GW2 evaluation reversed the GW1 ordering of 1.0 and 1.1 completely; a third
+gameweek reversing GW2 would be entirely unsurprising, and nothing in the record
+would distinguish that from signal.
+
+Two is chosen over three or five because it is the weakest requirement that can
+detect a reversal at all, and a requirement nobody meets is not a standard but an
+excuse to decide informally. Two consecutive agreeing gameweeks is not statistical
+power — it is a coin flip's worth of confirmation — and it is stated here as a floor,
+not as sufficiency.
+
+**Blanks and doubles disqualify a gameweek from the pair.** GW2 had ten fixtures and
+every team playing once, so nothing in it tested the fixture-count term. A gameweek
+with a blank or a double confounds the rate comparison with a fixture-count effect
+neither variant is being judged on. Check the fixture list before counting a
+gameweek toward a pair; if GW4 or GW5 has one, use the next clean gameweek and say
+so.
+
+### 3. Tuning the `M` parameters
+
+**Criterion: do not tune them, on any evidence available at GW4 or GW5.** The `M`
+constants stay at their present chosen values, and no branch should propose fitting
+them on this timescale.
+
+rate-shrinkage.md §4.3 does not report that the parameters are hard to estimate; it
+reports that they are **unidentifiable on this data**. Gamma-Poisson method of
+moments returns *negative* excess variance for xG in all three outfield positions,
+for xA in midfield, and for saves — observed between-player spread is smaller than
+Poisson sampling noise alone predicts, so the estimator returns "shrink infinitely",
+which would flatten every forward to the same 0.469 xG90. The single plausible cell
+(dc DEF, M ≈ 131) sits beside dc MID at M ≈ 2, an artefact of one outlier inflating
+a variance to 536. Two more gameweeks change the exposure per player from roughly
+one match to roughly three. That does not fix a negative variance estimate; it
+scales it.
+
+**What would make them fittable, stated so the condition is checkable rather than
+vague.** All three of:
+
+1. **Exposure.** Six to eight gameweeks of accumulated minutes, which is
+   rate-shrinkage.md's own figure in its closing gap and is not second-guessed here.
+   The quantity that matters is minutes per player, not gameweeks elapsed — a
+   rotation-heavy squad accumulates far less. State the median minutes per player in
+   the eligible population when the estimate is attempted.
+2. **A positive excess-variance estimate.** The estimator must return finite,
+   positive `beta` for **at least xG and xA in every outfield position**, not one
+   cell in isolation. A single identifiable cell beside an unidentifiable one is the
+   dc DEF/dc MID artefact again, and is to be read as failure, not partial success.
+3. **Outlier resistance.** The dc MID cell was destroyed by one player. Re-run the
+   estimate with the single largest contributor to each cell's variance removed; if
+   `beta` moves by more than a factor of two, the cell is not estimated, it is
+   fitted to an individual. Report both figures.
+
+Until all three hold, the constants remain `[assumption: no empirical basis]` and
+are to be described that way in every quotation of any figure derived from them.
+Meeting them replaces chosen constants with measured ones and removes most of
+rate-shrinkage.md §9.2 — which is the prize, and the reason to state the condition
+rather than drift toward tuning by feel.
+
+### 4. These are not to be re-read against a result
+
+**The criteria above are fixed as of 2026-09-01 and are not to be reinterpreted,
+narrowed, widened, or have their metric or population swapped once a GW4 or GW5
+figure is visible.** If a result lands at 0.019 on `spearman_played`, the answer is
+"no change", not a discussion of whether 0.02 was ever the right threshold. If
+`spearman_all` disagrees with `spearman_played`, the answer is `spearman_played`,
+because that is what this entry says, and the disagreement is to be reported rather
+than used.
+
+The criteria **may** be changed, but only in a commit that lands **before** the
+gameweek it would apply to is settled, and that says what it is changing and why in
+terms that do not reference any figure from that gameweek. A change made after the
+data exists is not a revision of the rule; it is the result choosing the rule.
+
+If a criterion turns out to be badly specified — as GW2's was — the correct response
+is to record that it was badly specified, decline to decide on it, and pre-register a
+better one for the following gameweek. **Deciding anyway, on a rule discovered to be
+ambiguous, is the failure mode.** GW2 escaped it only because an independent
+correctness argument carried the decision; that will not always be true.
+
+`[gap: this entry pre-registers criteria for two decisions — price versus position,
+and whether to tune `M`. It does **not** pre-register a criterion for the comparison
+that matters most, which is whether any component variant beats `naive/1.0` and the
+flat baseline. At GW2 naive beat `component/1.0` on Spearman(all) 0.619 vs 0.536 and
+on Spearman(played) 0.330 vs 0.269, and `component/1.1-price` beat naive on
+Spearman(played) 0.359 vs 0.330 while losing Spearman(all) 0.551 vs 0.619. What
+should follow from a repeat of that at GW4 and GW5 is not written down anywhere,
+and writing it would mean pre-committing to what happens if the model loses —
+including the possibility that the honest answer is to stop projecting and ship the
+control. That is a harder commitment than the two above and is deliberately not
+smuggled in here as a third clause.]`
+
+`[gap: "two gameweeks evaluated independently" is not defined operationally beyond
+"run the evaluation twice against two settled gameweeks". Whether the two runs must
+use different pre-deadline captures (they will, in practice) and whether a
+re-evaluation of the same gameweek after a stat correction counts as a second
+observation (it must not) are unaddressed. Neither is likely to bite before GW5.]`
+
+`[gap: no criterion here has an error-bar justification. 0.02, "two gameweeks", "six
+to eight gameweeks" and "a factor of two" are all chosen numbers, in a project whose
+standing complaint is that its constants are chosen numbers. The defence is only
+that choosing them *before* the data is a different act from choosing them after,
+and that is the whole and only claim this entry makes for them.]`

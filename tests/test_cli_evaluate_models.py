@@ -128,7 +128,7 @@ def test_the_default_model_set_is_unchanged_by_the_flag(
     """Adding `--model` must not change what a bare `plan evaluate` scores.
 
     Mutation: dropping `naive/1.0` from `_DEFAULT_EVALUATE_MODELS`, or
-    defaulting to `("component/1.0",)`, fails here.
+    defaulting to `("component/1.1-price",)`, fails here.
     """
     _install(monkeypatch, bootstrap_snapshot)
     cli.evaluate_plan(event=EVENT, model=None, snapshot_path=None)
@@ -136,7 +136,7 @@ def test_the_default_model_set_is_unchanged_by_the_flag(
 
     assert "baseline/flat-ppg" in out
     assert "naive/1.0" in out
-    assert "component/1.0+banded" in out
+    assert "component/1.1-price+banded" in out
     # The fixture variant is registered but must never be scored by default.
     assert "fixture-minsub205" not in out
 
@@ -154,7 +154,8 @@ def test_the_short_aliases_still_resolve(
     _install(monkeypatch, bootstrap_snapshot)
     cli.evaluate_plan(event=EVENT, model=["component", "naive"], snapshot_path=None)
     out = capsys.readouterr().out
-    assert "component/1.0+banded" in out
+    # `component` resolves to whichever variant is default, currently 1.1-price.
+    assert "component/1.1-price+banded" in out
     assert "naive/1.0" in out
 
 

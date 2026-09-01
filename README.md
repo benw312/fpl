@@ -19,10 +19,10 @@ projection models rank it first, and names where the dissenters placed it. On th
 run pasted below it says UNSTABLE — one model of three, the other two ranking that
 move 18th and 16th. That is the tool working, not failing.
 
-It is not an autopilot, and the projections underneath it have never been
-validated against realised points. The search is exact about what it is given;
-what it is given is a model whose every constant was chosen by hand rather than
-fitted to data. Optimising precisely over an unvalidated objective produces a
+It is not an autopilot, and the projections underneath it have been scored
+against exactly one gameweek, which is not validation. The search is exact about
+what it is given; what it is given is a model whose every constant was chosen by
+hand rather than fitted to data. Optimising precisely over an unvalidated objective produces a
 precise answer to the wrong question, which is why the run prints an UNVALIDATED
 banner above every result and why [Known limitations](#known-limitations) is near
 the top of this file rather than the bottom.
@@ -44,6 +44,11 @@ squad ledger — `fpl squad create` writes one — and searches from the next op
 deadline.
 
 Below is the middle of one real run, pinned to a capture so it can be re-measured:
+
+The run below was captured before the default model moved from `component/1.0`
+to `component/1.1-price` (2026-09-01), so its banner names the older variant.
+It is left as it was actually produced rather than edited to match the current
+default, which would make it a transcript of a run nobody performed.
 
 ```
 $ fpl plan optimise squad.json --snapshot ~/.fpl-cli/archive/2026-08-28/
@@ -206,9 +211,16 @@ still does not pin.
 
 ## Known limitations
 
-- **The projections have never been validated against realised points.** This is
-  the limitation the others are downstream of. Everything the optimiser prints is
-  conditional on a model that has not been shown to beat a flat baseline.
+- **The projections have been scored against one gameweek, and one gameweek is
+  not validation.** This is the limitation the others are downstream of.
+  Everything the optimiser prints is conditional on a model that has been
+  measured once, on GW2, with no error bars and nothing to check it against.
+  The default model is `component/1.1-price`; on that single gameweek it beat
+  the flat baseline on both RMSE columns and on rank correlation restricted to
+  players who appeared, and lost to it on rank correlation over all players and
+  on MAE over all players. The default is what it is on a correctness argument
+  rather than on that result — see **Why `component/1.1-price` is the default**
+  below.
 - **Every constant in the minutes model was chosen, not fitted.** Seven settings
   — the shrinkage constant, the start priors (one per position), minutes per
   start, substitute appearance probability, minutes per substitute, the
@@ -218,7 +230,26 @@ still does not pin.
   rate in `domain/strength.py` are flagged the same way. All are constructor
   arguments rather than baked-in behaviour, so they are falsifiable once there is
   data to falsify them against; none has been.
-- **The one measurement that exists is not evidence.** At GW1,
+- **Why `component/1.1-price` is the default, and what that does not mean.**
+  The reason is correctness, not the scoreboard. `component/1.0` consumes the
+  API's per-90 rates exactly as published, so a player with one minute of
+  football to their name can present a rate like 270 defensive contributions
+  per 90, and that is not a defensible input to an optimiser whatever any
+  evaluation says. `component/1.1-price` shrinks seven such rates toward a
+  prior pooled from the snapshot. `docs/plans/rate-shrinkage.md` makes that
+  argument without reference to any gameweek, and it would stand if GW2 had
+  come out the other way. What GW2 adds is only that the measurements no longer
+  point against it: **against `component/1.0`**, 1.1-price wins Spearman over
+  all players, Spearman over players who appeared, and RMSE over players who
+  appeared, and loses RMSE over all players by 0.006. **Its parameters are chosen, not measured** — the prior
+  strengths and sources in `domain/variants.py` were picked to be reasonable,
+  not fitted to anything (`rate-shrinkage.md` §9.2). And **price versus
+  position is unresolved**: `component/1.1-position` is registered beside it,
+  the Spearman(played) gap between them is 0.012 against a 0.02 threshold, on
+  one gameweek, with no error bars. `component/1.0` stays registered so every
+  figure measured against it can still be reproduced. FU-50 fixes the criteria
+  for settling price versus position before the GW4/GW5 data exists.
+- **The GW1 measurement was not evidence, and is superseded.** At GW1,
   `ComponentProjection` scores Spearman **0.707** against the baseline's 1.000 and
   RMSE 2.938 against its 0.000 (pinned to `~/.fpl-cli/archive/2026-08-28/`,
   measured 2026-08-28). The baseline wins because it leaks: `points_per_game`
@@ -228,7 +259,11 @@ still does not pin.
   moves with the snapshot it is computed from — the same command against the live
   cache the same day gives 0.700 — which is a second reason not to read anything
   into it. The first honest run is the first gameweek whose deadline post-dates a
-  capture.
+  capture — **that was GW2, evaluated 2026-09-01** against a capture taken
+  16h57m before the deadline, and the baseline scored RMSE 2.943 / Spearman
+  0.613 rather than the 0.000 / 1.000 it scored at GW1. The leak is gone. The
+  GW1 figures above are kept because they are quoted elsewhere, not because
+  they mean anything.
 - **At this stage of the season the model ranks largely on start probability.**
   This is the most useful thing to know about the output, and it is sharper than
   "unvalidated". Until FU-47 the per-90 rates were consumed exactly as the API

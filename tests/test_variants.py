@@ -575,15 +575,23 @@ def test_dc_and_saves_are_never_price_conditioned() -> None:
         assert rates.rates["saves"].prior_source == "position"
 
 
-def test_component_v1_remains_the_default_and_11_is_not_registered_as_one() -> None:
-    """1.1 becomes default only if the GW2 evaluation supports it, and that
-    decision is not this branch's.
+def test_component_11_price_is_the_default_and_10_stays_registered() -> None:
+    """The default moved to 1.1-price on task/default-1.1-and-preregistration.
 
-    Mutation: adding a 1.1 variant to cli._DEFAULT_EVALUATE_MODELS, or changing
-    the `component` alias to point at 1.1, fails here.
+    This test previously asserted the opposite — that 1.0 remained default until
+    the GW2 evaluation supported a change. It is inverted rather than deleted
+    because the pairing it guards is unchanged: exactly one component variant is
+    the default, and `component/1.0` must stay *registered* whichever that is.
+    Every figure measured before this branch is quoted against 1.0, and
+    unregistering it would make them unreproducible.
+
+    Mutation: pointing the `component` alias back at 1.0, or dropping 1.0 from
+    the registry, fails here.
     """
     from fpl_cli import cli  # noqa: PLC0415
 
-    assert cli._MODEL_ALIASES["component"] == "component/1.0"
-    assert "component/1.0" in cli._DEFAULT_EVALUATE_MODELS
-    assert not any(name.startswith("component/1.1") for name in cli._DEFAULT_EVALUATE_MODELS)
+    assert cli._MODEL_ALIASES["component"] == "component/1.1-price"
+    assert "component/1.1-price" in cli._DEFAULT_EVALUATE_MODELS
+    assert "component/1.0" not in cli._DEFAULT_EVALUATE_MODELS
+    # Still resolvable by full name, which is how the comparison is re-run.
+    assert variants.get("component/1.0").name == "component/1.0"
