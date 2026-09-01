@@ -178,7 +178,12 @@ def evaluation_table(evaluations: list[ModelEvaluation]) -> Table:
     table.add_column("MAE (all)", justify="right")
     table.add_column("RMSE (played)", justify="right")
     table.add_column("MAE (played)", justify="right")
+    # Two Spearman columns, headed to match the RMSE/MAE pairs beside them.
+    # `spearman_all` keeps the bare "Spearman" heading it has always had, so a
+    # figure quoted from an older run still lines up with the column it came
+    # from.
     table.add_column("Spearman", justify="right")
+    table.add_column("Spearman (played)", justify="right")
     for evaluation in evaluations:
         table.add_row(
             evaluation.model_name,
@@ -189,6 +194,7 @@ def evaluation_table(evaluations: list[ModelEvaluation]) -> Table:
             f"{evaluation.rmse_played:.3f}",
             f"{evaluation.mae_played:.3f}",
             f"{evaluation.spearman_all:.3f}",
+            f"{evaluation.spearman_played:.3f}",
         )
     return table
 
