@@ -134,7 +134,7 @@ EvaluateModelsOption = Annotated[
     list[str] | None,
     typer.Option(
         "--model",
-        help="Registered variant to score. Repeatable; default naive/1.0, component/1.0, official-ep/1.0.",
+        help="Registered variant to score. Repeatable; default naive/1.0, component/1.1-price, official-ep/1.0.",
     ),
 ]
 
@@ -651,11 +651,19 @@ def _ordinal(n: int) -> str:
 
 
 # The short names the CLI has always taken, mapped to registered variants. Both
-# forms resolve: `--model component` is `component/1.0`, and a variant can also
-# be named in full, which is how FU-47's variants will be selected without a new
-# alias each time.
+# forms resolve: `--model component` is the default component variant, and a
+# variant can also be named in full, which is how FU-47's variants are selected
+# without a new alias each time.
+#
+# `component` moved from `component/1.0` to `component/1.1-price` on
+# task/default-1.1-and-preregistration. The reason is correctness, not the
+# evaluation: 1.0 consumes the API's per-90 rates as published, so one minute
+# played yields a rating like 270 defensive contributions per 90, which is not
+# a defensible input to anything. 1.0 stays registered — it is the comparison
+# point every measurement so far is quoted against, and unregistering it would
+# make those figures unreproducible.
 _MODEL_ALIASES: dict[str, str] = {
-    "component": "component/1.0",
+    "component": "component/1.1-price",
     "naive": "naive/1.0",
     "official-ep": "official-ep/1.0",
 }
@@ -1241,9 +1249,11 @@ def _report_live_provenance(result: LiveEventResult) -> None:
     )
 
 
-# The models evaluated when `--model` is not given: exactly what this command
-# scored before it took the flag, so the default run is unchanged.
-_DEFAULT_EVALUATE_MODELS: tuple[str, ...] = ("naive/1.0", "component/1.0", "official-ep/1.0")
+# The models evaluated when `--model` is not given. `component/1.1-price`
+# replaced `component/1.0` here when it became the default, so the default run
+# scores the model the rest of the CLI actually uses. `component/1.0` is still
+# registered and still scored by naming it, which is how the two are compared.
+_DEFAULT_EVALUATE_MODELS: tuple[str, ...] = ("naive/1.0", "component/1.1-price", "official-ep/1.0")
 
 
 @plan_app.command("evaluate")

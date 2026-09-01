@@ -2628,6 +2628,15 @@ and nothing else. The evidence for price is Spearman 0.458 (MID xG90) from a
 single gameweek, thinner than the plan's other measurements. This is what the
 registry was built for; settle it by evaluation, not argument.
 
+*[Still open after GW2, and after 1.1-price became the default on 2026-09-01.
+The GW2 gap is 0.005 on Spearman(all) and 0.012 on Spearman(played), both inside
+the 0.02 threshold, so the evaluation did not settle it and the pair is still a
+pair. 1.1-price was made default over 1.0, not over 1.1-position. FU-50 fixes the
+criteria for the next attempt.]*
+
+*[Superseded 2026-09-01 by `task/default-1.1-and-preregistration`. Left as
+written; the correction follows it.]*
+
 **`component/1.0` is unchanged and remains the default.** Projections are
 byte-identical to pre-branch `main` across all 3080 rows —
 sha256 `c3812c8cae30c609b41243f3a26dcc49450c8b03993604ffb6129470037a7412`,
@@ -2635,6 +2644,35 @@ pinned to `~/fpl-pinned/gw2-pre-deadline.json` and `~/fpl-pinned/gw2-fixtures.js
 (captured 2026-08-28T07:26:38Z). 1.1 becomes the default only if a leak-free
 evaluation supports it, and a test fails if the `component` alias or
 `plan evaluate`'s default set starts pointing at it.
+
+**The default is now `component/1.1-price`.** The `component` alias and
+`_DEFAULT_EVALUATE_MODELS` both point at it; the test quoted above was inverted
+rather than deleted, and now asserts the new pairing plus that `component/1.0`
+stays *registered*. It does: every figure in this file measured against 1.0 is
+still reproducible by naming it in full.
+
+**The reason is the correctness argument, not the evaluation.** 1.0 consumes the
+API's per-90 rates as published, so one minute played can yield 270 defensive
+contributions per 90 — this entry's own headline defect. rate-shrinkage.md makes
+that case without reference to any gameweek and it would stand if GW2 had gone
+the other way, which is exactly why the switch is not conditional on the
+scoreboard. What GW2 supplies is the removal of a contradiction: against 1.0,
+1.1-price wins Spearman(all) 0.551 vs 0.536, Spearman(played) 0.359 vs 0.269 and
+RMSE(played) 3.036 vs 3.148, and loses RMSE(all) 2.411 vs 2.405 — by 0.006.
+Pinned to `~/fpl-pinned/gw2-pre-deadline.json` (sha256 `593f60c2e356…`),
+`gw2-fixtures.json` (`fbd4457e5c81…`) and `gw2-live.json` (`afdaf81a6fcd…`),
+model versions `component/1.0+banded` `fb431918c08c` and
+`component/1.1-price+banded` `24c305e2025c`, per FU-40.
+
+**What the switch does not establish, stated so it is not read as more than it
+is.** The parameters are still **chosen, not measured** — the paragraph above on
+§9.2, §5 and §4.3 is unaffected by this branch and nothing in GW2 fits any `M`.
+Price versus position is still **unresolved**: the Spearman(played) gap is 0.012
+against the 0.02 threshold that was fixed in advance, on one gameweek, with no
+error bars. Making 1.1-price the default is not a finding that price
+conditioning beats position conditioning; it is a choice of one of the two
+shrunken variants over the unshrunken one, and the pair remains a pair. **FU-50**
+fixes the criteria for settling it before the GW4/GW5 data exists.
 
 `[gap: the only evaluation available is GW1, which leaks — the flat baseline
 scores a perfect 0.000 because points_per_game after one gameweek *is* that
@@ -2644,6 +2682,13 @@ about 0.006 in opposite directions on the two metrics. **None of that is
 evidence either way.** The first honest comparison is the first gameweek whose
 deadline post-dates a capture, and until then neither 1.1 variant should be
 quoted as better or worse than 1.0.]`
+
+*[Closed 2026-09-01: that comparison is GW2, run against a capture taken 16h57m
+before the deadline. It reverses the GW1 ordering — 1.1-price now beats 1.0 on
+three of the four metrics — which is what the gap predicted would happen once the
+leak was removed, and is the reason the GW1 figures above must not be cited. The
+successor caveat is not that the comparison is missing but that there is exactly
+one of it, on one gameweek, with no error bars.]*
 
 `[gap: rate-shrinkage.md §9.3 is the standing caveat and survives this commit —
 the change is more internally consistent but not measurably better, and must not
@@ -2697,6 +2742,11 @@ say whether shrinkage helps, and its first leak-free run is still pending (READM
 Known limitations). Shrinking the rates would be principled and unmeasured, which
 is the state the whole model is already in — but a change made in that state should
 at least be recorded as such, not presented as an improvement.
+
+*[The leak-free run happened on 2026-09-01, against GW2. It says shrinkage helps
+on three of four metrics and costs 0.006 of RMSE(all). That is one gameweek, so
+the sentence above still governs: the change was made on the correctness
+argument and is recorded as such, not presented as a measured improvement.]*
 
 ---
 
@@ -3030,3 +3080,4 @@ every match had finished, and the last whistle was ~20:50Z the previous evening,
 readings sit in the post-whistle, pre-lockdown window where movement is expected. The
 figures are left as written; this is a tightening of what they prove, not a correction of
 them.]`
+
