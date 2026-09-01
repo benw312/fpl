@@ -3216,11 +3216,76 @@ Meeting them replaces chosen constants with measured ones and removes most of
 rate-shrinkage.md §9.2 — which is the prize, and the reason to state the condition
 rather than drift toward tuning by feel.
 
-### 4. These are not to be re-read against a result
+### 4. Does the component model earn its complexity? — the control clause
 
-**The criteria above are fixed as of 2026-09-01 and are not to be reinterpreted,
-narrowed, widened, or have their metric or population swapped once a GW4 or GW5
-figure is visible.** If a result lands at 0.019 on `spearman_played`, the answer is
+**Criterion.** If the **best** component variant fails to beat `naive/1.0` on
+**`spearman_played`** across **two clean gameweeks**, the component model is not
+earning its complexity, and **`naive/1.0` becomes the default** until it does.
+
+"Best" means best on `spearman_played` in that gameweek, chosen per gameweek rather
+than fixed in advance — the component family gets its strongest showing on each
+occasion, so a loss under this clause cannot be blamed on having backed the wrong
+variant. "Beat" means strictly greater, with no margin: unlike the price-versus-
+position clause this is not asking whether two close things differ, it is asking
+whether the complicated thing clears the simple thing at all, and a tie does not
+clear it. "Clean" carries §2's meaning — no blanks, no doubles.
+
+**Naive and baseline are one result, not two.** `naive/1.0` and
+`baseline/flat-ppg` are near-identical predictors: at GW2 they scored
+`spearman_played` 0.330 and 0.331, `spearman_all` 0.619 and 0.613, and identical
+0.260 on the restricted p_start population, with identical error-by-component rows
+for all seven terms neither decomposes. Treating "component lost to both" as two
+independent confirmations would be double-counting one fact. The clause is written
+against `naive/1.0` alone for that reason, and `baseline/flat-ppg` continues to be
+reported as the floor rather than used as a second test.
+
+**This is a live possibility, not a formality, and the GW2 numbers say so.**
+`component/1.0` — the default until 2026-09-01 — lost to persistence on **every
+population tested**: `spearman_all` 0.536 against naive's 0.619, `spearman_played`
+0.269 against 0.330, `p_start>0.5` 0.406 against 0.547, and `p_start>0.5 & played`
+0.231 against 0.260. It was last or near-last on all four. Only shrinkage reversed
+it, and only on one of the four: `component/1.1-price` takes `spearman_played` to
+0.359 against naive's 0.330 while still losing `spearman_all` 0.551 to 0.619. So
+the component family's entire claim to beat its own control currently rests on **one
+metric, in one gameweek, by 0.029**, having been comprehensively behind a fortnight
+earlier. A repeat that goes the other way is an ordinary outcome, not a surprise.
+
+**Why `spearman_played` and not `spearman_all` or RMSE.** `spearman_all` is
+dominated by the played/didn't-play split, which persistence gets close to free —
+that is the confound `task/spearman-played` was written to expose, measured at
+0.282–0.289 for naive and baseline against 0.192–0.199 for the 1.1 variants.
+Judging the component model on a metric it loses mostly for reasons of population
+composition would be as unfair as judging it on one it wins for the same reason.
+RMSE is excluded because component wins it decisively and always has — it is the
+better-calibrated model and the worse-ordering one, and a criterion built from the
+metric it already wins would be a formality.
+
+**The honest weakness in this criterion, stated rather than buried.** The optimiser
+does not consume a ranking of players; it sums projected points over a squad and a
+horizon and ranks *paths*. `spearman_played` is a proxy for that objective, not the
+objective. A model that orders players worse but calibrates magnitudes far better
+could in principle produce better transfer plans while failing this clause — and
+component is exactly that shape of model. The counter is that nothing in this repo
+measures plan quality end to end, and choosing a criterion we cannot compute over
+one we can is how a decision gets deferred indefinitely. **The proxy is accepted
+knowingly.** If someone builds a plan-quality measurement before GW4, that is a
+better criterion and §5's revision route is open to it — before the gameweek, not
+after.
+
+**What "naive becomes the default" means operationally.** The `component` alias and
+`_DEFAULT_EVALUATE_MODELS` point at `naive/1.0`; every component variant stays
+registered and re-measurable; `plan optimise`'s robustness line still compares
+three models, so the component variants keep dissenting visibly rather than
+disappearing. It is a demotion, not a deletion, and it reverses the moment the
+clause is met in the other direction across two clean gameweeks.
+
+### 5. These are not to be re-read against a result
+
+**The criteria above are fixed — §§1–3 as of 2026-09-01, §4 as of 2026-09-02 — and
+are not to be reinterpreted, narrowed, widened, or have their metric or population
+swapped once a GW4 or GW5 figure is visible.** This clause governs §4 exactly as it
+governs the others: the control clause was written before the GW4/GW5 answer was
+known, and "component lost but only just" is not a reading it admits. If a result lands at 0.019 on `spearman_played`, the answer is
 "no change", not a discussion of whether 0.02 was ever the right threshold. If
 `spearman_all` disagrees with `spearman_played`, the answer is `spearman_played`,
 because that is what this entry says, and the disagreement is to be reported rather
@@ -3237,6 +3302,12 @@ better one for the following gameweek. **Deciding anyway, on a rule discovered t
 ambiguous, is the failure mode.** GW2 escaped it only because an independent
 correctness argument carried the decision; that will not always be true.
 
+*[Closed 2026-09-02 by §4 above, on the same branch as the minutes-model plan. The
+gap is left as written because its last sentence is the point: the clause was
+deliberately not smuggled into the original entry, and was then written as its own
+commit while the GW4/GW5 answer is still unknown — which is the only condition under
+which it could be written honestly. The original text follows.]*
+
 `[gap: this entry pre-registers criteria for two decisions — price versus position,
 and whether to tune `M`. It does **not** pre-register a criterion for the comparison
 that matters most, which is whether any component variant beats `naive/1.0` and the
@@ -3248,6 +3319,12 @@ and writing it would mean pre-committing to what happens if the model loses —
 including the possibility that the honest answer is to stop projecting and ship the
 control. That is a harder commitment than the two above and is deliberately not
 smuggled in here as a third clause.]`
+
+`[gap: §4 judges the component family on `spearman_played` alone, and a model that
+loses it while winning RMSE decisively — which is component's exact shape — is
+demoted under this clause despite being the better-calibrated projector. That is a
+deliberate choice with a real cost, argued in §4, and it is recorded here as a gap
+rather than only as a justification because the argument could be wrong.]`
 
 `[gap: "two gameweeks evaluated independently" is not defined operationally beyond
 "run the evaluation twice against two settled gameweeks". Whether the two runs must
