@@ -2827,3 +2827,124 @@ here.]`
 they say the branch was never *taken on this data*, not that it is unreachable in
 principle. The same six-day, one-season caveat as the paragraph above applies to all
 of it.]`
+
+---
+
+## FU-49 — `plan evaluate` warns that the actuals are provisional and scores them anyway
+
+**Deferred from:** the GW2 evaluation of 2026-09-01, which stopped at its own pre-flight
+check. Filed rather than fixed because that session was a measurement task and this is a
+command-surface decision with three defensible answers, none of them obviously right.
+
+**The defect.** `evaluate_plan` calls `_report_live_provenance(live_result)`
+(`cli.py:1300`) and then, on the next executable line, `actuals_from_live_event`
+(`cli.py:1303`) and the full scoring run. Nothing between them consults
+`live_result.provenance`. `_report_live_provenance` (`cli.py:1209-1241`) is exactly what
+its name says — a reporter. It prints, in yellow, that the actuals are not final and
+"do not quote it as one", and returns `None` in both branches. The command then produces
+every table it would have produced for a settled gameweek.
+
+So the write path is gated and the read path is not. `SnapshotService.load_event_live`
+(`snapshots.py:373`) persists a payload only when `finished and data_checked` — Decision 6,
+unchanged since it was written — and the third bullet of FU-43's refuse/warn/refetch
+section deliberately *serves* a live fetch of an in-flight gameweek, marked unsettled,
+on the grounds that it is the freshest data in existence and there is nothing to fall
+back to. That reasoning is still right for the **service**. What was never decided is
+what the **caller** should do with a payload it has just been told is provisional, and
+the answer it currently implements is "everything, in full, under a warning".
+
+**Why it went unnoticed, which is the interesting half.** FU-43 closed the pinned
+service's half of this: `PinnedSnapshotService.load_event_live` (`snapshots.py:662`)
+refuses an unsettled or unrecorded payload outright, with a message naming the file, the
+flags and the remedy. That entry's second gap states plainly that "in normal operation
+the reader's `unsettled` branch is unreachable from this build's own writes" — and read
+it as justification for the reader checking rather than assuming. It is also, read the
+other way, the reason nobody looked at the unpinned caller: the write gate means no
+unsettled payload is ever *cached*, so the only way to reach an unsettled
+`LiveEventResult` on the unpinned path is a **live fetch during an in-flight gameweek**.
+Every test constructs the state directly. Every ordinary run either has a settled
+gameweek or has no payload at all.
+
+That is a narrow window, and it is the worst possible one: an in-flight gameweek is
+precisely when an impatient operator runs `plan evaluate` to see how the models did. The
+hole is unreachable except by the person most motivated to reach it.
+
+**The evidence, from 2026-09-01.** GW2's ten fixtures all report `finished: true` as of
+`2026-08-31T19:00:00Z`, the last kickoff. The event does not: `finished=false,
+data_checked=false`, `is_current=true`, still true in a live sync at
+`2026-09-01T10:23:54Z` (archived `2026-09-01T102354Z`, adhoc). The gameweek is played and
+unsettled, which is the exact state this entry is about.
+
+It is not merely an unflipped flag. `average_entry_score` for GW2 across the archives:
+
+| capture | GW2 `average_entry_score` |
+|---|---|
+| `archive/2026-08-29/` | 18 |
+| `archive/2026-08-30/` | 29 |
+| `archive/2026-08-31/` | 66 |
+| `archive/2026-09-01/` | 79 |
+| `archive/2026-09-01T102354Z/` | **81** |
+
+The last two are ten hours apart with **zero fixtures outstanding** — +2 points of
+league-average score after every match had finished. Bonus and stat corrections were
+landing throughout, and they fall disproportionately on high scorers, who are exactly the
+players a projection model is judged by. A run at any point in that table would have
+produced six complete model tables — Spearman, RMSE, error-by-category, error-by-component
+— under a yellow warning, against actuals that were still moving underneath it.
+
+**The options, not chosen.**
+
+1. **Hard refusal**, matching `PinnedSnapshotService`. Consistent with the pinned half and
+   with FU-43's argument that a warned-past wrong number still gets quoted. The refusal
+   costs nothing structurally — event-live is loaded before any projection runs
+   (`cli.py:1273`), so nothing has been computed or printed and the remedy is waiting.
+   Against it: FU-43's third bullet argued the unpinned service should serve in-flight
+   data because it is the only answer available, and a caller that refuses to do anything
+   with it makes that decision moot. It also removes a genuinely useful capability — a
+   mid-gameweek indication is worth having, as long as nobody mistakes it for a result.
+2. **`--allow-provisional` opt-in.** Refuse by default, with the flag naming what it
+   permits. The operator who wants an in-flight indication types the word "provisional",
+   which is hard to forget having typed, and the flag appears in shell history and in any
+   command pasted into a plan or a commit message — so under FU-40 the provenance travels
+   with the invocation rather than only with the console output. Against it: another flag
+   on a command that FU-13 already wants `--json` on, and it does not stop the *output*
+   being quoted once produced.
+3. **Leave it as a warning.** Zero change, and the warning is already well written.
+
+**A warning above a full table is the weakest of the three, and that should be recorded
+even though the choice is open.** The number is what gets copied — into a plan, a commit
+message, an entry in this file — and the warning does not travel with it. This is the same
+argument FU-43 used to make `PinnedSnapshotService` refuse rather than warn ("a warned-past
+wrong number still gets quoted"), and FU-41 used about fixtures. The asymmetry is that the
+argument was accepted for the pinned path and never applied to the unpinned one, which is
+the substance of this entry. Recording that is not the same as choosing option 1: options 1
+and 2 both act on it, and the case for 3 is that an in-flight indication has real value and
+the operator asking for it is not the same person who will quote it six weeks later. Ben
+decides.
+
+**Related, not blocking.** FU-13 wants `--json` on `plan evaluate`. If it lands first, the
+provenance belongs in that payload under FU-40 whichever option is chosen here, and option
+3 becomes materially more defensible — machine-readable provenance *does* travel with the
+number in a way a console warning does not.
+
+`[gap: the fixture schema in this dataset carries eight keys — `event`, `finished`, `id`,
+`kickoff_time`, `team_a`, `team_a_score`, `team_h`, `team_h_score`. There is no
+`finished_provisional`, no `minutes` and no `started`, so fixture-level provisionality is
+not readable here even if a finer-grained gate were wanted. Whether those fields are
+absent from the upstream API or dropped by `Fixture` on parse is not established — this
+was read off the cached payloads, not off a live response body. Any option above must gate
+on the *event* flags, which is what all three assume.]`
+
+`[gap: the `average_entry_score` figures above are the league average, not a model error
+measurement. They establish that scores were still moving, which is all this entry claims
+of them. What is *not* measured is how much the model rankings themselves would have
+shifted between a provisional run and a settled one — that would need both runs, and the
+settled one does not exist yet. The bonus-falls-on-high-scorers argument for why the shift
+would be biased rather than merely noisy is inherited from FU-43, where it is also
+asserted rather than measured.]`
+
+`[gap: "unreachable except by a live fetch during an in-flight gameweek" is reasoning over
+the two services' code paths, not a coverage run. A cache written by an older build, copied
+from another machine, or hand-edited reaches the same branch — the cases FU-43's envelope
+exists for — and the unpinned caller treats those identically, since it reads
+`provenance.state` not at all.]`
