@@ -41,6 +41,7 @@ from fpl_cli.domain.projections import (
     ComponentProjection,
     DEFCON_THRESHOLDS,
     MinutesModelConfig,
+    MinutesStructureConfig,
     NaiveProjection,
     OfficialEpProjection,
     DEFAULT_BONUS_SHRINKAGE_MINUTES,
@@ -92,6 +93,11 @@ class ModelVariant:
     name: str
     family: str
     minutes: MinutesModelConfig = field(default_factory=MinutesModelConfig)
+    # minutes-model.md §7's finding, acted on: rows 1-10 cannot be expressed by
+    # a `MinutesModelConfig`, and seven more flat fields here would be the shape
+    # the plan explicitly rejected. A second config object, exactly as
+    # `RateShrinkageConfig` is for the rate side.
+    structure: MinutesStructureConfig = field(default_factory=MinutesStructureConfig)
     defcon_thresholds: Mapping[str, int] = field(default_factory=lambda: dict(DEFCON_THRESHOLDS))
     strength: StrengthConfig | None = None
     rates: RateShrinkageConfig = field(default_factory=RateShrinkageConfig)
@@ -109,8 +115,20 @@ class ModelVariant:
         return f"{self.name}+{self.strength.name}" if self.strength is not None else self.name
 
     def as_dict(self) -> dict[str, Any]:
-        """Every constant, in a form that serialises deterministically."""
-        return {
+        """Every constant, in a form that serialises deterministically.
+
+        `structure` is **omitted when it is the identity**, which is the one
+        conditional in this method and needs its reason on the record. Including
+        it unconditionally would move all six digests pinned in
+        `tests/test_variants.py` — and those digests are cited by
+        minutes-model.md and fu-53-minutes-ceiling.md as the provenance of
+        published figures (FU-40). Re-pinning six of them to record a field none
+        of those six sets would break every one of those citations to save an
+        `if`, and would train exactly the habit the digest test's own comment
+        warns against. A variant whose structure is the identity **is** the
+        pre-1.2 model, and its digest correctly says so.
+        """
+        payload: dict[str, Any] = {
             "name": self.name,
             "family": self.family,
             "minutes": {
@@ -133,6 +151,9 @@ class ModelVariant:
             },
             "rates": self.rates.as_dict(),
         }
+        if not self.structure.is_identity:
+            payload["structure"] = self.structure.as_dict()
+        return payload
 
     @property
     def digest(self) -> str:
@@ -224,11 +245,23 @@ def build(
             fixtures_stale=fixtures_stale,
             fixtures_fetched_at=fixtures_fetched_at,
             minutes_config=variant.minutes,
+            minutes_structure=variant.structure,
             defcon_thresholds=dict(variant.defcon_thresholds),
             rate_config=variant.rates,
             version=variant.version,
         )
     if variant.family == "naive":
+        # Deliberately not passed the structure config. `NaiveProjection` is the
+        # control (FU-50 §4) and must stay the thing it is being compared
+        # against; giving it the component model's minutes work would remove the
+        # comparison. A variant setting a non-identity structure on family
+        # `naive` is refused rather than silently ignored.
+        if not variant.structure.is_identity:
+            raise ValueError(
+                f"Variant {variant.name!r} is family 'naive' but sets a minutes structure. "
+                "naive/1.0 is the control and does not consume one; register it as a "
+                "component variant, or leave the structure at the identity."
+            )
         return NaiveProjection(snapshot, fixtures, minutes_config=variant.minutes, version=variant.version)
     if variant.family == "official-ep":
         return OfficialEpProjection(snapshot, fixtures, version=variant.version)
@@ -361,6 +394,74 @@ COMPONENT_V11_POSITION = register(
             "Registered beside 1.1-price rather than chosen against it: the price "
             "evidence is rho = 0.458 from a single gameweek (rate-shrinkage.md §3.2), "
             "thinner than the plan's other measurements. Settle it by evaluation."
+        ),
+    )
+)
+
+
+# --- component/1.2: the minutes structure (minutes-model.md §6.1 S1-S6) ------
+#
+# **1.2 is not the default and must not become one on this branch.**
+# `component/1.1-price` stays default; 1.2 is registered alongside it and proves
+# itself at GW3 or it does not. FU-50 §2's two-gameweek rule governs any
+# decision to promote it, and §5 forbids re-reading the criteria against a
+# result.
+#
+# **What is on, and what is registered but off.**
+#
+#   S1 horizon_availability = per_event        on
+#   S2 this_round_source    = this_then_next   on   (49 players differ)
+#   S3 news_return_dates    = True             on   (7 dated, 6 inside a horizon)
+#   S4 departed_policy      = zero             on   (44 departed)
+#   S5 Availability structure                  on   (unconditional, not a knob)
+#   S6(a) start_prior_source = ownership_conditioned   on
+#   S6(b) start_evidence     = count           OFF — identity
+#   FU-51 return_ramp_events = 0               OFF — identity
+#
+# **S6(b) is off because the plan declines to choose its functional form, and
+# choosing one here would be the thing FU-50 §3 forbids.** minutes-model.md §9:
+# "three shapes are plausible ... §2.5's three buckets cannot distinguish them,
+# and choosing on that data would be fitting to three points". Rows 8-10 are
+# implemented and registrable so a later variant can hold a shape and be
+# measured against this one; 1.2 sets the identity, which makes no claim.
+#
+# **FU-51's ramp is off for the same reason and by instruction.** 45 minutes and
+# one gameweek are `[assumption: no empirical basis]` constants; FU-51 states
+# `return_ramp_events = 0` reproduces S3 without the ramp, and that is what is
+# set here. The ramp is a separate variant question.
+#
+# **S6(a) introduces no constant, and that took a correction to §7.** Row 6 asks
+# for an `OWN_BAND_M` in *minutes*, 450-1800, mirroring rate-shrinkage's
+# `BAND_M = 900`. The unit is wrong for a start rate and the number cannot be
+# carried across — see `MinutesStructureConfig.own_band_prior_appearances`. The
+# knob exists; 1.2 leaves it at None, which reuses the existing `shrinkage_k`.
+# The band edges are §2.4's own strata. The priors themselves are pooled from
+# the snapshot, which **removes** four hardcoded values: measured on the pinned
+# GW2 capture, `start_priors` GKP 0.85 / DEF 0.65 / MID 0.55 / FWD 0.55 against
+# a pooled GKP 0.294 / DEF 0.424 / MID 0.341 / FWD 0.288.
+#
+# Every constant in `MinutesModelConfig` is untouched (§6.2), and the rate
+# shrinkage is `component/1.1-price`'s exactly — 1.2 differs from it in the
+# minutes term and nothing else, which is what
+# `test_12_differs_from_11_price_only_in_the_minutes_structure` asserts.
+
+COMPONENT_V12 = register(
+    ModelVariant(
+        name="component/1.2",
+        family="component",
+        strength=StrengthConfig(),
+        rates=_rate_config(attack_source="price_conditioned"),
+        structure=MinutesStructureConfig(
+            horizon_availability="per_event",
+            this_round_source="this_then_next",
+            news_return_dates=True,
+            departed_policy="zero",
+            start_prior_source="ownership_conditioned",
+        ),
+        note=(
+            "minutes-model.md S1-S6(a) on component/1.1-price's rates. S6(b) and "
+            "FU-51's ramp are registered but at the identity: both need a constant "
+            "the plan declines to choose. Not the default."
         ),
     )
 )

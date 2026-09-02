@@ -134,7 +134,10 @@ EvaluateModelsOption = Annotated[
     list[str] | None,
     typer.Option(
         "--model",
-        help="Registered variant to score. Repeatable; default naive/1.0, component/1.1-price, official-ep/1.0.",
+        help=(
+            "Registered variant to score. Repeatable; default naive/1.0, "
+            "component/1.1-price, component/1.2, official-ep/1.0."
+        ),
     ),
 ]
 
@@ -1253,7 +1256,19 @@ def _report_live_provenance(result: LiveEventResult) -> None:
 # replaced `component/1.0` here when it became the default, so the default run
 # scores the model the rest of the CLI actually uses. `component/1.0` is still
 # registered and still scored by naming it, which is how the two are compared.
-_DEFAULT_EVALUATE_MODELS: tuple[str, ...] = ("naive/1.0", "component/1.1-price", "official-ep/1.0")
+#
+# `component/1.2` joins the default run without becoming the default *model*:
+# the `component` alias above still resolves to `component/1.1-price`, which is
+# what `plan optimise` and `players project` use. It is here so that GW3 scores
+# 1.2 against the same capture and the same actuals as everything else, in one
+# run — comparing two runs compares two runs (this command's own docstring).
+# Whether it is promoted is FU-50 §2's two-gameweek question, not this branch's.
+_DEFAULT_EVALUATE_MODELS: tuple[str, ...] = (
+    "naive/1.0",
+    "component/1.1-price",
+    "component/1.2",
+    "official-ep/1.0",
+)
 
 
 @plan_app.command("evaluate")

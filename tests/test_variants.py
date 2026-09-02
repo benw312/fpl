@@ -50,7 +50,17 @@ EXPECTED_DIGESTS = {
     "component/1.0-fixture-minsub205": "bd7ee99cd0aa",
     "component/1.1-price": "24c305e2025c",
     "component/1.1-position": "877dd43d6607",
+    "component/1.2": "4f479b2253cc",
 }
+
+# `component/1.2` added a `structure` field to `ModelVariant` and **no digest
+# above moved**. That is not luck: `as_dict` omits an identity
+# `MinutesStructureConfig`, precisely so the six digests pinned before it —
+# which minutes-model.md and fu-53-minutes-ceiling.md cite as the provenance of
+# published figures — keep meaning what those documents say they mean. The
+# alternative was re-pinning six digests to record a field none of the six sets.
+# Verified alongside it: `component/1.1-price` projects byte-identically across
+# this branch, sha256 over all 616 rows on ~/fpl-pinned/gw2-pre-deadline.json.
 
 EXPECTED_VERSIONS = {
     "component/1.0": "component/1.0+banded",
@@ -59,6 +69,7 @@ EXPECTED_VERSIONS = {
     "component/1.0-fixture-minsub205": "component/1.0-fixture-minsub205+banded",
     "component/1.1-price": "component/1.1-price+banded",
     "component/1.1-position": "component/1.1-position+banded",
+    "component/1.2": "component/1.2+banded",
 }
 
 
@@ -208,6 +219,7 @@ def _fields(variant: variants.ModelVariant) -> dict:
         "name": variant.name,
         "family": variant.family,
         "minutes": variant.minutes,
+        "structure": variant.structure,
         "defcon_thresholds": variant.defcon_thresholds,
         "strength": variant.strength,
         "rates": variant.rates,

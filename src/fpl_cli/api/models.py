@@ -25,6 +25,12 @@ class Player(BaseModel):
     can_transact: bool = True
     removed: bool = False
     chance_of_playing_next_round: int | None = None
+    # Minutes-model inputs added by component/1.2 (minutes-model.md §2.2).
+    # `this_round` differs from `next_round` for 49 of 616 players on the pinned
+    # GW2 capture, and is the correct field for the nearest gameweek — which is
+    # the whole of S2. `selected_by_percent` is float-as-string like `form`.
+    chance_of_playing_this_round: int | None = None
+    selected_by_percent: str = "0.0"
 
     # Projection inputs (docs/plans/projections-v1.md). Previously dropped
     # silently by extra="ignore" above.

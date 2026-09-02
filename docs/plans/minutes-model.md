@@ -5,6 +5,26 @@ the branch that writes it.** The deliverable is §7's enumeration, which is what
 makes the work implementable, and §8's tests, which are specified to be written
 without further design.
 
+> **Implemented 2026-09-02 on `task/component-1.2`, registered as `component/1.2`.
+> This document is left as written** — it is the design, and rewriting a plan to
+> match what was built destroys the record of what was decided in advance. Three
+> corrections the build forced, each filed rather than edited in above:
+>
+> - **S6(b) is built but left at the identity.** §6.1's claim that S6 introduces
+>   no chosen constant is false for rows 8-10, as §7 and §9 of this document both
+>   say. `start_evidence = "count"` in 1.2. **FU-54.**
+> - **§7 row 6's unit is wrong.** `OWN_BAND_M` is specified in minutes and must be
+>   in appearances; the number cannot be carried across from `BAND_M`. The knob is
+>   `own_band_prior_appearances`, defaulting to `shrinkage_k`. **FU-55.**
+> - **§8.8 found a live defect**: a published `chance_of_playing` outside 0-100
+>   made `p_start`, `p60`, `p1` and `xmins` negative and flipped the sign of
+>   `xp_total`. Fixed. **FU-56.**
+>
+> S1-S5 and S6(a) went in as specified and introduce no chosen constant; S6(a)
+> **removes** four. FU-51's ramp is registered at `return_ramp_events = 0`, its own
+> identity setting. §8.12 is not written: it covers §4.3(c), which is not built.
+> Results in [component-1.2-results.md](component-1.2-results.md).
+
 **Every figure below is measured on `~/fpl-pinned/gw2-pre-deadline.json`**
 (sha256 `593f60c2e356c4e94205f10248dfd834f4797ad6c736ea73b239da610d84ffcf`,
 captured 2026-08-28T00:32:59Z, 16h57m before GW2's deadline), with outcomes from

@@ -3598,3 +3598,114 @@ model's existing structure*. It says nothing about whether a better minutes mode
 would help `naive/1.0`, which also multiplies by availability, and therefore nothing
 about whether it would change the FU-50 §4 control comparison — which is the
 comparison that decides whether the component model survives at all.]`
+
+---
+
+## FU-54 — S6(b)'s functional form is a chosen constant, and the plan says not to choose it
+
+**Filed from:** `task/component-1.2`, 2026-09-02, while implementing
+[minutes-model.md](minutes-model.md) §6.1's S1-S6.
+
+**§6.1 claims S6 "adds no `[assumption]` constant". For S6(b) that is false, and
+§7 and §9 of the same document both say so.** §7 row 10 lists
+`partial_start_weight` as "float, 0.0-1.0" with a plausible range, which is the
+signature of a chosen constant; §9's first gap states outright that the functional
+form is "named as a variant knob (§7 rows 8-10) but not chosen", that three shapes
+are plausible, and that "§2.5's three buckets cannot distinguish them, and choosing
+on that data would be fitting to three points".
+
+**So `component/1.2` implements rows 8-10 and leaves them at the identity.**
+`start_evidence = "count"`, and `partial_start_weight` defaults to 1.0, at which
+`minutes_weighted` is arithmetically identical to `count`. The knobs exist so a
+later variant can hold a shape and be measured against 1.2; nothing on this branch
+picks one. FU-50 §3 forbids fitting on this timescale and the argument transfers
+without modification.
+
+**What is left on the table, measured.** §2.5's spread is 20% / 76% / 92% start-again
+rates across GW1 minutes of <60, 60-84 and 85-90 among the 220 who started — the
+strongest per-player discriminator in the payload that the model still discards.
+S6(a) does not touch it: ownership conditions the *prior*, and this conditions the
+*evidence*.
+
+**Condition to revisit.** The three shapes — a hard threshold, a linear ramp between
+two minute values, and a continuous `minutes/90` weight — become distinguishable
+when `starts` has range, which needs the six-to-eight gameweeks of exposure FU-50 §3
+already names. At that point the choice is an evaluation between registered variants
+rather than an argument, which is what §7's enumeration exists to make possible.
+
+`[gap: registering three variants and picking the winner on one gameweek would be
+the same error in a better costume. Whatever settles this must meet FU-50 §2's
+two-gameweek rule, and the three shapes are close enough that the margins will
+probably be inside the noise the rule exists to catch.]`
+
+---
+
+## FU-55 — minutes-model.md §7 row 6 has the wrong unit, and the number cannot be carried across
+
+**Filed from:** `task/component-1.2`, 2026-09-02. **Corrected in passing rather
+than deferred** — recorded here because the plan's table still says otherwise and a
+later reader will hit it.
+
+**The defect.** §7 row 6 specifies `OWN_BAND_M` as "float, **minutes**, 450-1800",
+described as mirroring rate-shrinkage.md's `BAND_M = 900`. The unit is wrong.
+`BAND_M` weights a prior for a per-90 *rate*, whose exposure is measured in minutes.
+An ownership-conditioned prior weights a prior for a *start probability*, whose
+exposure is measured in appearances — which is exactly the distinction
+`shrink_rate`'s docstring already draws and instructs the reader not to collapse
+("`MinutesModelConfig.shrinkage_k` is deliberately in *matches* … Do not unify
+them"). Carried across literally, 900 appearances is twenty-four seasons.
+
+**What was done instead.** The knob is registered as
+`own_band_prior_appearances`, in appearances, and defaults to `None` meaning
+"reuse `shrinkage_k`". That introduces no new number — `shrinkage_k = 4.0` already
+exists and §6.2 forbids changing it, but reusing it is not changing it — and it
+delivers §8.7's thin-band guard for free: a band of one player carries 1/5 of its
+own weight and 4/5 of the position prior. The knob remains settable so a later
+variant can hold an independent value and be compared, which is §7's purpose.
+
+**This is the difference between S6(a) and S6(b).** S6(a) turned out to be
+implementable with no chosen constant once the unit was corrected, and it in fact
+**removes** four: `start_priors` GKP 0.85 / DEF 0.65 / MID 0.55 / FWD 0.55 are
+replaced by priors pooled from the snapshot, which on the pinned GW2 capture come
+out at GKP 0.294 / DEF 0.424 / MID 0.341 / FWD 0.288. The hardcoded values are
+roughly double the rate observed in the payload they purport to describe, and
+§4.2's 119 players clearing 0.5 on the prior alone are the direct consequence.
+S6(b) had no such escape — see FU-54.
+
+`[gap: whether `shrinkage_k` is the *right* band weight is not established, only
+that it is an existing one in the right unit. It was chosen for a per-player prior,
+not a per-band one, and there is no reason beyond parsimony to think one value
+suits both. Settling it means the same evaluation FU-54 needs.]`
+
+---
+
+## FU-56 — a published percentage outside 0-100 inverted the whole projection
+
+**Filed from:** `task/component-1.2`, 2026-09-02. **Fixed on the same branch**, as
+the fix and the test that prevents its recurrence are one concern.
+
+**The defect, pre-existing and present on `main` until this branch.**
+`_availability` divided `chance_of_playing_next_round` by 100 and returned it
+unguarded. `p_start` carried a `min(1.0, ...)` clip, which guarded the upper end of
+one field. Nothing guarded the lower end of anything. A published `chance` of -50
+therefore gave `p_start`, `p60`, `p1` and `xmins` all negative — minus twenty
+expected minutes for the player measured — and, because every rate-driven component
+is scaled by `frac = xmins / 90`, an `xp_total` with the sign of its scoring rates
+flipped. A negative projection sorts to the bottom of `players project` and is a
+transfer the optimiser will never make, so the failure is silent.
+
+**Found by** minutes-model.md §8.8, which lists "`chance_of_playing` outside 0-100"
+among the absurd inputs `p_start` must survive. The test was written from the plan
+and failed on the first run.
+
+**The fix** is `_as_probability`, clamping to [0, 1] at the single point a
+percentage enters the minutes model. No projected number moves on any real capture:
+all three pre-1.2 component variants were verified byte-identical over 3,080 rows
+(616 players × GW2-GW6) against `~/fpl-pinned/gw2-pre-deadline.json` before and
+after.
+
+**No such value has been observed.** FU-48's 6,788 player-observations across 11
+captures publish 0, 25, 50, 75 or 100 and nothing else. This is a guard against a
+field the undocumented API is free to change, in the spirit of CLAUDE.md's rule
+that the API may change and the app must stay usable — not a response to an
+observed payload.
