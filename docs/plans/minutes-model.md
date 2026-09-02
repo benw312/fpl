@@ -565,6 +565,17 @@ population, and `starts` is binary on this capture, so every stratification here
 exactly two levels of the strongest available signal. The measurements are
 descriptive, not inferential, and no confidence interval accompanies any of them.]`
 
+`[gap — CLOSED 2026-09-02 by FU-53, see fu-53-minutes-ceiling.md. The original text
+follows. Measured on the same pinned capture: substituting realised appearance for
+the modelled one and leaving every scoring rate untouched moves
+`component/1.1-price`'s `spearman_played` from 0.359 to **0.564, +0.205**, and
+collapses the Zeros error from +1.317 to +0.210. §1's structural argument is now a
+measured one and the prize is large. Two qualifications belong here rather than only
+there: it is a **ceiling**, and §4.2's 119 players with no player-specific evidence
+bound the achievable share well below it; and the Haulers error survives the oracle
+almost intact (−5.438 → −4.112), so nothing in §6.1's S1–S6 will address the largest
+signed error in §1's table.]`
+
 `[gap: no attempt is made to quantify what fixing the minutes model would be worth.
 The `p_start > 0.5` population is 31% wrong; whether correcting that moves
 `spearman_played` by 0.05 or 0.005 is unknown, and §1's argument that minutes is the
