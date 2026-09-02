@@ -299,12 +299,16 @@ has broadly lost the ability to identify starters.
   the pressure on it structurally" now reads differently: S6(a) as built *increases*
   the pressure, because a lower prior makes the 20% evidence weight bind harder.
 
-`[gap: one gameweek, and the arithmetic in §1 is specific to `appearances = 1`. The
-0.375 bound loosens as gameweeks accumulate — at `appearances = 3` a player with 3
-starts needs only `prior > 0.167` — so some of this defect dissolves on its own by
-GW4 or GW5 without anything being changed. How much is not estimated here, and a
-fix designed against the GW2 arithmetic could be solving a problem that is already
-receding.]`
+`[gap: one gameweek, and the arithmetic in §1 is specific to `appearances = 1`.
+**Corrected 2026-09-02 by FU-60 — the first version of this gap said 0.167, which is
+the per-start evidence weight `1/(a+k)` at `a = 2` and not a prior bound at all.**
+The bound is `prior > 0.5 + (0.5a − s)/k` for `s` starts in `a` appearances. It
+loosens only for a player who starts *every* appearance: 0.375, 0.250, 0.125, 0.000
+at `a` = 1 to 4. For one with a single start it tightens: 0.375, 0.500, 0.625. So the
+defect recedes for nailed starters — the MID `<1%` band clears 0.5 at `a = 3`, which
+is the GW4 evaluation — and deepens for rotation players. A fix designed against the
+GW2 arithmetic is chasing a target moving in both directions at once. FU-60 fixes
+what a GW3 or GW4 result may be read to mean in light of this.]`
 
 `[gap: §2 shows band conditioning hurt the `<1%` stratum and §1's table shows it
 helped every other one — DEF 5–15% and `>15%` reach 0.821 and 0.808 against a flat
