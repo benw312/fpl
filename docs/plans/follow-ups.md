@@ -3709,3 +3709,125 @@ captures publish 0, 25, 50, 75 or 100 and nothing else. This is a guard against 
 field the undocumented API is free to change, in the spirit of CLAUDE.md's rule
 that the API may change and the app must stay usable — not a response to an
 observed payload.
+
+---
+
+## FU-57 — the ownership prior is marginal over `starts`, where the signal is an interaction
+
+**Filed from:** `task/component-1.2-recall`, 2026-09-02. Diagnosis in
+[component-1.2-recall.md](component-1.2-recall.md).
+
+**The defect.** minutes-model.md §2.4 measures the ownership signal *stratified by
+`starts`*: among players with one start behind them, realised GW2 start rates run
+76% → 84% → 86% → 100% across the four ownership bands. `build_start_priors`
+conditions the prior on ownership **marginally over `starts`**, then re-introduces
+`starts` as evidence at `1/(1+k) = 20%` weight. In the `<1%` band the population is
+dominated by players who never start — MID `<1%` holds 202 players of whom 157 have
+`starts = 0` — so the band prior pools to 0.223 and encodes *"a randomly chosen
+`<1%`-owned midfielder rarely starts"*. True, and irrelevant to a `<1%`-owned
+midfielder who started last week, whose realised rate is 0.756.
+
+**What it cost, measured.** At `appearances = 1` and `shrinkage_k = 4`, one start is
+worth exactly 0.2 of probability, so `p_start` clears 0.5 only when the prior exceeds
+0.375. All four `<1%` band priors fall below that (GKP 0.095, DEF 0.235, MID 0.225,
+FWD 0.070), and **84 of the 94 starters `component/1.2` rates below 0.5 sit in one
+of those four cells**. `component/1.1-price`'s flat priors all exceeded 0.375, which
+is the whole of its 88% recall — a prior above the bar for everyone, not knowledge.
+
+**Why there is no fix inside a single snapshot.** Within one finished gameweek every
+`starts = 1` player has a start rate of exactly 1.0, so a prior conditioned on the
+`starts` stratum is degenerate and carries no information. Separating "started once
+out of one" from "starts most weeks" needs a second observation per player, which is
+the **per-gameweek start series of minutes-model.md §4.3(c)** — differenced captures,
+§2.6. That work was deferred in §6.3 on cost grounds and had no measured motivation;
+it now has one, and this is the strongest argument yet for building it.
+
+**Introduces no chosen constant.** The prior stays derived from data; only the
+conditioning set changes. The costs are §4.3(c)'s own: a storage concern reading the
+archive during projection, FU-43's finality gate, a policy for players absent from
+earlier captures, and a fresh-install fallback.
+
+`[gap: the arithmetic is specific to `appearances = 1`. The 0.375 bound loosens as
+gameweeks accumulate — at three appearances a player with three starts needs only
+`prior > 0.167` — so part of this defect dissolves by GW4 or GW5 with nothing
+changed. How much is not estimated, and a fix designed against the GW2 arithmetic
+may be solving a receding problem.]`
+
+`[gap: band conditioning hurt the `<1%` stratum and helped every other one — DEF
+5-15% and `>15%` reach 0.821 and 0.808 against a flat 0.65. S6(a)'s net effect on
+`spearman_played` is measured (0.359 -> 0.394) but not decomposed, so how much came
+from the bands it helped against the one it hurt is unknown.]`
+
+---
+
+## FU-58 — the prior's population, and a boolean the API already publishes
+
+**Filed from:** `task/component-1.2-recall`, 2026-09-02. Two findings from the same
+measurement, both structural and neither introducing a constant.
+
+### 1. The prior population should be the one the validator accepts
+
+`build_start_priors` pools over all 616 elements. 45 of them have
+`can_select = False` or `removed = True` — `domain/rules.py:57`'s definition of
+unselectable, all `status='u'`, none of whom started GW2. A player the validator
+rejects cannot be in a squad, cannot be transferred in and cannot start, so
+including them puts a structural zero into an estimate of a behavioural rate. **The
+population the prior describes should be the population it is applied to**, and the
+repo already has that definition for every other purpose.
+
+**This is a correctness argument and must be adopted as one, because the numbers do
+not carry it.** Excluding them moves the position priors by +0.016 to +0.045 and the
+`<1%` band priors by +0.014 to +0.030 — for MID `<1%`, `p_start` goes 0.380 → 0.391
+against a realised 0.756, closing 3% of the gap and rescuing none of FU-57's 84
+players. The suspicion recorded in component-1.2-results.md §6, that this
+contamination was the likely cause of the recall loss, is **refuted** and should not
+be carried forward.
+
+### 2. S4 parses prose for a boolean the payload publishes
+
+`has_departed` regexes `news` for transfer and loan phrasings and finds 44 players.
+`can_select = False or removed = True` finds those same 44 **plus one** — Uche,
+`status='u'`, news `"has returned to Getafe CF"`, a phrasing the anchors miss, who
+did not start GW2. The boolean is published by the API, already parsed onto
+`Player`, needs no pattern, cannot drift as FPL rewords its templates, and is what
+the squad validator already trusts. **S4 should read it instead.** Strictly simpler,
+one more player caught, no constant.
+
+`[gap: `can_select`/`removed` and the news shape are not the same claim. The boolean
+says "not selectable now", which includes a player who has left and may include
+other states this capture happens not to contain. The regex says "has left the
+league". They agree on 44 of 45 here, which is one capture; if they diverge later
+the boolean is still the right input for the *prior population*, but S4's `zero`
+policy is a statement about permanence and might not be.]`
+
+---
+
+## FU-59 — `shrinkage_k` is implicated by measurement, and stays where it is
+
+**Filed from:** `task/component-1.2-recall`, 2026-09-02. **Filed to be left alone**,
+in the shape FU-50 §3 asks for: state the condition, do not act.
+
+`shrinkage_k = 4.0` sets the bound in FU-57 — with `appearances = 1` it makes one
+start worth 0.2 of probability and puts the clearing threshold at `prior > 0.375`.
+minutes-model.md §6.2 already named it "the one most obviously implicated by §4.2"
+and forbade changing it. That judgement is unchanged and this entry does not reopen
+it: one gameweek, `starts` binary, no error bars, and FU-50 §3's argument applies
+without modification.
+
+**One thing in §6.2 now reads differently and should be corrected in the record.**
+It argued that S6 "reduces the pressure on `shrinkage_k` structurally — a prior
+conditioned on ownership is a better prior at the same weight". As built, S6(a)
+**increases** the pressure: a better prior is also a *lower* prior for most of the
+population, and a lower prior makes the 20% evidence weight bind harder rather than
+less. The structure-first argument still stands — FU-57's conditioning fix is
+structural and would reduce the pressure genuinely — but the specific claim about
+S6(a) was wrong.
+
+**Condition to revisit:** FU-50 §3's three conditions, read for minutes, exactly as
+minutes-model.md §6.3 already states them. Nothing here shortens them.
+
+`[gap: part of this recedes without intervention. The bound is `prior > (0.5(a+k)-1)/k`
+for a player who has started every appearance, which at `a = 3, k = 4` is 0.167 —
+so the same priors that fail at GW2 succeed by GW4. Whether `shrinkage_k` looks
+implicated at all once exposure accumulates is unknown, and measuring that before
+proposing any change to it is the cheap order of operations.]`

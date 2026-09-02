@@ -172,6 +172,16 @@ the true count to the other. The 31%→10% figure is real and is the metric the 
 named, but a reader who saw only that number would not know that 94 real starters
 now sit below 0.5 where 26 did before.
 
+> **Correction, 2026-09-02 (`task/component-1.2-recall`).** The direction above is
+> right and the magnitude is overstated. `p_start > 0.5` is §4.2's diagnostic cut,
+> not a decision boundary — nothing in the code compares `p_start` to 0.5, and the
+> optimiser consumes it as a continuous multiplier. Threshold-free against the 220
+> realised starts: 1.2's **expected** starter count is 188.6, short by 14%, against
+> 1.1-price's 292.3, long by 33%; Brier 0.1310 against 0.1727 (1.2 better), log loss
+> 0.5254 against 0.5016 (1.2 worse, which is the diagnosable defect showing up).
+> "Under-calling by a third" is a threshold artefact. See
+> [component-1.2-recall.md](component-1.2-recall.md) §5.
+
 `[gap: whether over-calling or under-calling is worse for the thing the tool
 actually does is not established here. `plan optimise` sums projected points over a
 squad and a horizon; a suppressed real starter is a transfer never recommended,
@@ -320,6 +330,14 @@ is the nearest event, where the return-date path is deliberately not consulted.
 Their effect shows in `plan optimise`, which nothing here measures. The §5
 provenance table for GW4 is the only evidence in this document that S3 fires at
 all.]`
+
+`[gap — DIAGNOSED 2026-09-02, component-1.2-recall.md. The original text follows,
+and its guess was wrong: the departed-player contamination is real but small
+(+0.014 to +0.030 on the `<1%` band priors) and rescues none of the 84. The cause is
+that the ownership prior is pooled marginally over `starts` while §2.4's signal is
+an interaction — at `appearances = 1` and `shrinkage_k = 4` a single start clears
+0.5 only if the prior exceeds 0.375, and all four `<1%` band priors fall below it.
+FU-57, FU-58, FU-59.]`
 
 `[gap: the recall collapse in §4 — 220 real starters, 194 caught before and 126
 after — is reported but not diagnosed. Whether it is the pooled position priors
