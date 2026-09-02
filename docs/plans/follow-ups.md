@@ -3486,6 +3486,39 @@ consumer built on this should not assume `history` is non-empty.]`
 
 ## FU-53 — bound the prize before building the minutes work
 
+**Status: closed — measured** — `task/fu-53-sensitivity` (2026-09-02). Result and
+method in [fu-53-minutes-ceiling.md](fu-53-minutes-ceiling.md); harness at
+`tools/fu53_minutes_oracle.py`, committed rather than left as a procedure because the
+figure has to be reproduced on a second gameweek and a re-implementation would not be
+comparable with the first.
+
+**The answer.** A perfect minutes model, with every scoring rate left exactly as the
+model produced it, moves `component/1.1-price`'s `spearman_played` on GW2 from
+**0.359 to 0.564, +0.205** — four times the 0.05 threshold pre-registered before the
+run. The Zeros error collapses from +1.317 to +0.210 (84%). **Minutes is the binding
+constraint on this evidence, and the case for reprioritising minutes-model.md's
+S1–S6 away on grounds of a small prize is not available.** It remains a ceiling: §4.2
+measured that the model has no player-specific evidence at all for 119 of the 332
+players it puts over `p_start > 0.5`, and no structure manufactures evidence that is
+not in the payload.
+
+Three findings the entry did not ask for, all in the results document: the Haulers
+error survives a perfect minutes model almost intact (−5.438 → −4.112, so minutes
+work will *not* fix the place this entry suggested the effort might belong instead);
+the Blanks error gets 50% **worse** (+0.744 → +1.109), because some of the model's
+present accuracy there is a minutes error cancelling a scoring-rate over-prediction;
+and, discharging this entry's third gap, a perfect minutes model moves `naive/1.0`'s
+`spearman_played` by **+0.001** — the entire prize lands on the component side of the
+FU-50 §4 control comparison and none of it on the control's. That last is recorded as
+information and is explicitly **not** a re-reading of FU-50 §4, which §5 forbids: the
+criterion is a real model across two clean gameweeks, and an oracle is not a model.
+
+The first gap below is answered — all three substitutions were computed and reported
+(+0.163, +0.165, +0.205), with `full` chosen as the headline for reasons argued
+before the run. The second stands unchanged: this is one gameweek, and the decision
+to commit substantial effort should meet FU-50 §2 on a second settled clean gameweek
+first.
+
 **Deferred from:** [minutes-model.md](minutes-model.md) §9, which names this as the
 analysis it does not perform, and which is the entry's own largest weakness: it
 proposes six structural changes (S1–S6) and **none of them has a measured upside**.
