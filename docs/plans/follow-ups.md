@@ -3513,11 +3513,13 @@ FU-50 §4 control comparison and none of it on the control's. That last is recor
 information and is explicitly **not** a re-reading of FU-50 §4, which §5 forbids: the
 criterion is a real model across two clean gameweeks, and an oracle is not a model.
 
-The first gap below is answered — all three substitutions were computed and reported
-(+0.163, +0.165, +0.205), with `full` chosen as the headline for reasons argued
-before the run. The second stands unchanged: this is one gameweek, and the decision
-to commit substantial effort should meet FU-50 §2 on a second settled clean gameweek
-first.
+**Two of the three gaps below are discharged by the measurement and are marked as
+such inline; the one-gameweek gap stands.** The substitution ambiguity is answered by
+computing all three variants (+0.163, +0.165, +0.205) and choosing `full` on reasons
+fixed before the run. The `naive/1.0` question is answered at +0.001. What is not
+answered, and is not answerable from GW2, is whether any of this replicates: the
+decision to commit substantial effort should meet FU-50 §2 on a second settled clean
+gameweek first.
 
 **Deferred from:** [minutes-model.md](minutes-model.md) §9, which names this as the
 analysis it does not perform, and which is the entry's own largest weakness: it
@@ -3555,6 +3557,18 @@ player-specific evidence at all for 119 of 332 players, and no amount of structu
 manufactures evidence that is not in the payload. The number this produces is the
 ceiling, and the realistic share of it is unknown.
 
+`[gap — DISCHARGED 2026-09-02 by the run itself. The gap asked for the variant to be
+stated and said reporting more than one would be better than choosing; all three were
+computed and all three are reported. `p_only` +0.163, `xmins_only` +0.165, `full`
++0.205 on `component/1.1-price`'s `spearman_played`. `full` is the headline, on
+reasons fixed before the numbers existed: no change in minutes-model.md §6.1 touches
+one half of the minutes term alone, and the two partial substitutions describe
+players who cannot exist (certainly starting yet expected to play 34 minutes;
+certainly playing 90 yet starting with probability 0.52). The gap's own worry that
+"the difference is not obviously small" is confirmed — but the difference is between
+the partials and `full`, not between the partials, which land within 0.002 of each
+other because they largely substitute the same information. Original text follows.]`
+
 `[gap: substituting realised appearance is not a single well-defined operation. A
 player who came off the bench has a realised `p1` of 1.0 and a realised `p_start` of
 0.0, and `xmins` is known exactly — so "perfect minutes" could mean substituting the
@@ -3566,6 +3580,18 @@ with the figure, and reporting more than one would be better than choosing.]`
 this file, and FU-50 §2's two-gameweek rule applies to any *decision* taken on it —
 including the decision to stop work on minutes, which is one of the outcomes this
 analysis exists to enable.]`
+
+`[gap — DISCHARGED 2026-09-02 by the run itself. It was cheap to answer, so it was
+answered: `naive/1.0` has a separable minutes term in `_availability`, the oracle was
+applied to it too, and it moves `naive/1.0`'s `spearman_played` from 0.330 to
+**0.331, +0.001**, against +0.205 for `component/1.1-price`. Naive gains on
+`spearman_all` (0.619 → 0.728) and nothing on the metric FU-50 §4 names. On this one
+gameweek the entire minutes prize therefore lands on the component side of the
+control comparison and none of it on the control's. **This is information, not a
+re-reading of FU-50 §4**, which §5 forbids: that criterion is a real model across two
+clean gameweeks and an oracle is not a model. It is recorded because a reader
+deciding how to spend effort should know that minutes work is not a rising tide
+lifting the control too. Original text follows.]`
 
 `[gap: the analysis bounds the prize from fixing minutes *within the component
 model's existing structure*. It says nothing about whether a better minutes model
