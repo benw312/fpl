@@ -3337,3 +3337,205 @@ to eight gameweeks" and "a factor of two" are all chosen numbers, in a project w
 standing complaint is that its constants are chosen numbers. The defence is only
 that choosing them *before* the data is a different act from choosing them after,
 and that is the whole and only claim this entry makes for them.]`
+
+---
+
+## FU-51 — a return date says a player is available, not that he plays ninety minutes
+
+**Deferred from:** [minutes-model.md](minutes-model.md) §6.1, item S3, which proposes
+parsing `Expected back <date>` out of `news` and lifting availability from 0.0 at
+that date. Filed rather than folded into S3 because it is a second, separable claim:
+S3 fixes *when* a player becomes available, and this fixes *what availability means*
+in the gameweek he returns.
+
+**The defect S3 would introduce if filed alone.** `_availability` returns a scalar
+that multiplies `p_start`, and `p_start` then drives `p60`, `p1` and `xmins`. So
+lifting a returning player from 0.0 to 1.0 does not merely mark him selectable — it
+asserts he is as likely to start, and to play as many minutes, as a player who has
+been fit throughout. On the pinned capture that would promote Doku from 0.0 across
+GW3–GW7 to a full projection from GW4, which is wrong in the opposite direction to
+today's error and wrong about a player expensive enough to matter.
+
+Returning players are eased back: a bench role, a half, a substitute appearance with
+the start the following week. The projection should reflect that the club has told
+us *when he is available*, which is all a return date is, and not read it as a claim
+about minutes.
+
+**The value chosen, and it is chosen.** For the **first gameweek on or after the
+return date**, expected minutes are capped at **45**, with availability at 1.0 and
+normal behaviour from the following gameweek. Forty-five is a half: unambiguous,
+conservative, and deliberately clear of the 60-minute appearance-point threshold, so
+the cap does not sit on a knife-edge where a rounding difference flips two points.
+One gameweek of ramp, not two, because a longer ramp is a stronger claim about
+recovery than the data supports.
+
+**This number is not tuned and must not be.** It is a `[assumption: no empirical
+basis]` constant of exactly the kind FU-50 §3 and minutes-model.md §6.2 forbid
+fitting on the data now available, and it belongs in minutes-model.md §7's
+enumeration as a registered knob — `return_ramp_minutes` (float, minutes, 20–90) and
+`return_ramp_events` (int, 0–3, where 0 reproduces S3 without this entry) — so that
+a variant can hold it and a later evaluation can compare against it rather than
+argue about it.
+
+**Scope.** Seven players carry a parseable return date on the pinned capture, six of
+them returning inside a five-gameweek horizon. This entry therefore governs a handful
+of players per gameweek — but they are the expensive injured ones a transfer plan is
+about, which is the same argument minutes-model.md §3.3 makes for S3 itself.
+
+`[gap: whether minutes on return are predictable from the length of the absence — a
+three-week hamstring against a three-month knee — is the question this entry
+sidesteps with a flat 45. It is plausible that they are, and it would replace the
+constant with a function. Establishing it needs historical injury spells joined to
+subsequent per-gameweek minutes, across many players and several seasons. **This
+project holds no such data and cannot obtain it from the FPL API**: `news` is
+overwritten in place, so an absence's length is only recoverable from a dense capture
+archive, and this machine's archive begins 2026-08-25. FU-52's `element-summary`
+history does not carry it either — it records minutes played, not why they were
+missed. Recorded as an open question with no route to answering it from current
+sources, not as deferred work.]`
+
+`[gap: the cap is specified as expected minutes, but the minutes model's output is a
+distribution over start/sub/no-appearance, not a single figure. Whether 45 is imposed
+by capping `xmins`, by forcing the substitute path, or by scaling `p_start` changes
+which components move — a capped `xmins` with an uncapped `p_start` still awards a
+full clean-sheet probability, which would be incoherent. minutes-model.md §7 rows
+8–10 face the same class of question and it is not settled there either.]`
+
+---
+
+## FU-52 — signals that need an endpoint this client does not call
+
+**Deferred from:** [minutes-model.md](minutes-model.md) §2, which enumerates unused
+signal *within* `bootstrap-static` and stops there. The signals below are not in that
+payload at any depth. **Filing only — the model change is not designed here.**
+
+**The four wanted.** Share of available minutes played last season; share across the
+last five gameweeks spanning the season boundary; goals and assists last season;
+clean sheets last season. All four address minutes-model.md §4.2's finding that
+`p_start` has no player-specific evidence for 119 of the 332 players it rates likely
+to start, because after one gameweek `starts ∈ {0, 1}` and the position prior decides.
+Last season is the obvious place to look for evidence that this season has not yet
+produced.
+
+**The endpoint: `/api/element-summary/{element_id}/`, and it is reachable without
+credentials.** Probed 2026-09-02 against the live API through this repo's own
+`FplTransport`; HTTP 200, no authentication, no cookie. It returns three arrays:
+
+| Key | Contents | Rows observed |
+|---|---|---|
+| `fixtures` | that player's *remaining* fixtures, with `difficulty`, `is_home`, `event` | 36 |
+| `history` | **per-gameweek** rows for the **current** season — `round`, `minutes`, `starts`, `clean_sheets`, `goals_scored`, `assists`, `defensive_contribution`, `bps`, `value`, `selected`, `was_home`, `opponent_team` | 2 (GW1, GW2) |
+| `history_past` | **per-season totals** for prior seasons — `season_name`, `minutes`, `starts`, `clean_sheets`, `goals_scored`, `assists`, `defensive_contribution`, `total_points`, `start_cost`, `end_cost` | 1–5, player-dependent |
+
+**Three of the four are available; one is not.**
+
+- *Share of available minutes last season* — **available.** `history_past.minutes`
+  for `season_name == "2025/26"`, over 3420 (38 × 90). A full-season regular reads
+  3420 exactly, which was observed, so the denominator is right.
+- *Goals and assists last season* — **available**, `history_past`.
+- *Clean sheets last season* — **available**, `history_past`.
+- *Share across the last five gameweeks spanning the season boundary* — **not
+  available.** `history` is current-season only and `history_past` is season
+  aggregates. There is no per-gameweek history for a completed season anywhere in the
+  public API; it is reset each year. Spanning the boundary at gameweek granularity
+  would require having captured last season's `history` while it was live, which this
+  project did not exist to do. **This one is not deferred work, it is unobtainable
+  from current sources** — the nearest tractable substitute is last season's aggregate
+  share beside this season's per-gameweek history, which is a different signal and
+  should not be described as the same one.
+
+**Defensive contributions have almost no history, as suspected — measured.**
+`history_past.defensive_contribution` is **0 for every season before 2024/25** across
+the players probed (element 100: 0 in 2020/21 and 2022/23, then 49 in 2024/25 and 8
+in 2025/26). The stat postdates most of the archive. `starts` has a similar though
+shorter hole: 0 for 2021/22 where `minutes` is 2160, so it is unpopulated rather than
+genuinely zero, and appears usable from 2022/23. `minutes`, `clean_sheets`,
+`goals_scored` and `assists` are populated back to 2020/21 in every row seen.
+
+**So clean sheets and goals/assists are the tractable starting point for defenders**,
+exactly as the deferral supposed, and any use of `defensive_contribution` history
+must handle two seasons of data and a hard zero before that — a zero that means
+"not recorded" and must never be read as "none".
+
+**The cost, which is the reason this is a filing and not a plan.** `element-summary`
+is **one request per player**: 616 requests for the current population against three
+for a full `sync` today. That changes the client's shape — rate limiting, partial
+failure, a cache keyed per player, and a capture format that FU-41's manifest does
+not cover. It is a transport and storage question at least as much as a modelling one,
+and bundling it with a minutes-model change would produce a branch nobody can review.
+
+`[gap: probed on three elements (1, 20, 100), not on the full population. The field
+lists above are from those responses; a player with no prior season returns an empty
+`history_past`, which was observed for element 20 (one row), but the fully-empty case
+was not. Field presence is assumed uniform across elements on the strength of three
+samples.]`
+
+`[gap: nothing here establishes that last season's minutes share predicts this
+season's starts. It is a plausible signal and it is obtainable; whether it carries
+information beyond `selected_by_percent`, which minutes-model.md §2.4 measured and
+which is free, is unknown and is the first thing any design pass should test. Two
+seasons of squad turnover, promoted clubs, and players new to the league bound how
+much of the population it can even cover.]`
+
+`[gap: the 2025/26 rows appear in `history_past` alongside 2026/27 in `history`, so
+"last season" is unambiguous today. Whether the API's season rollover leaves a window
+where both are stale or the current season is absent is not established, and a
+consumer built on this should not assume `history` is non-empty.]`
+
+---
+
+## FU-53 — bound the prize before building the minutes work
+
+**Deferred from:** [minutes-model.md](minutes-model.md) §9, which names this as the
+analysis it does not perform, and which is the entry's own largest weakness: it
+proposes six structural changes (S1–S6) and **none of them has a measured upside**.
+
+**The measurement.** Substitute realised appearance for predicted appearance and
+re-score. For each player in a settled gameweek, replace the model's `p_start` with
+the outcome — 1.0 if the player started, and the corresponding treatment for the
+substitute and non-appearance paths — leave every other term of the component model
+untouched, and run `plan evaluate` as normal. The resulting figures are what the
+current model would score **with a perfect minutes model and nothing else changed**.
+The gap between that and the real `component/1.1-price` row is the entire prize
+available from FU-51, minutes-model.md S1–S6, and any successor.
+
+**Why it is worth doing first.** minutes-model.md §1 argues from three measurements
+that minutes is the binding constraint, and the argument is structural: every
+downstream term is multiplied by `p_start`, so a minutes error scales the whole
+projection. That establishes the constraint *binds*; it does not establish how much
+is behind it. If the perfect-minutes ceiling moves `spearman_played` from 0.359 to
+0.60, the work is clearly worth its cost. If it moves it to 0.38, the six structural
+changes are correct in principle and nearly worthless in practice, and the effort
+belongs somewhere else — most obviously the haulers, where the signed error is −5.43
+and no proposal currently addresses it.
+
+**It is cheap.** It needs no new endpoint, no new constant, no change to any model:
+one evaluation-only projection wrapper substituting known outcomes, scored through
+the existing harness against `~/fpl-pinned/gw2-pre-deadline.json`,
+`gw2-fixtures.json` and `gw2-live.json`. It is closer in size to
+`flat_points_per_game_projections` than to any of the six changes it would be
+justifying.
+
+**It is an upper bound, not a forecast**, and must be reported as one. No achievable
+minutes model is perfect; minutes-model.md §4.2 shows the model currently has no
+player-specific evidence at all for 119 of 332 players, and no amount of structure
+manufactures evidence that is not in the payload. The number this produces is the
+ceiling, and the realistic share of it is unknown.
+
+`[gap: substituting realised appearance is not a single well-defined operation. A
+player who came off the bench has a realised `p1` of 1.0 and a realised `p_start` of
+0.0, and `xmins` is known exactly — so "perfect minutes" could mean substituting the
+three probabilities, or substituting `xmins` alone, or both. These give different
+ceilings and the difference is not obviously small. The variant chosen must be stated
+with the figure, and reporting more than one would be better than choosing.]`
+
+`[gap: one gameweek again. A ceiling measured on GW2 alone inherits every caveat in
+this file, and FU-50 §2's two-gameweek rule applies to any *decision* taken on it —
+including the decision to stop work on minutes, which is one of the outcomes this
+analysis exists to enable.]`
+
+`[gap: the analysis bounds the prize from fixing minutes *within the component
+model's existing structure*. It says nothing about whether a better minutes model
+would help `naive/1.0`, which also multiplies by availability, and therefore nothing
+about whether it would change the FU-50 §4 control comparison — which is the
+comparison that decides whether the component model survives at all.]`
