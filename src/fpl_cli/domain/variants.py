@@ -466,6 +466,49 @@ COMPONENT_V12 = register(
     )
 )
 
+# --- component/1.2-availability: 1.2 with S6(a) removed (FU-60 §6) -----------
+#
+# **The decomposition variant.** `component/1.2` changes six things at once, so a
+# GW3 result about it says the bundle is better and apportions no credit. This
+# holds S1-S5 — every one of which is an *availability* change, which is where the
+# name comes from — and drops S6(a), the ownership-conditioned start prior. Scored
+# beside 1.2 against one capture and one set of actuals, it separates "the
+# availability fixes work" from "the ownership prior works".
+#
+# **Defined mechanically, not restated.** The structure is
+# `replace(COMPONENT_V12.structure, start_prior_source="position")` rather than a
+# fresh `MinutesStructureConfig`, so it differs from 1.2 in exactly one field by
+# construction and cannot drift from it if 1.2's other fields ever move. Nothing in
+# it is tunable: `"position"` is the pre-1.2 behaviour and the only alternative the
+# enum offers. The same property is what makes registering it after GW3 kicked off
+# defensible — see FU-60 §6.
+#
+# **Named for what it contains, not for the axis.** The registry's existing
+# convention would suggest `component/1.2-position`, by analogy with
+# `component/1.1-position`. That is rejected: `-position` there names the *rate*
+# prior source (xG/xA), and reusing the suffix for the *start* prior source would
+# give one word two meanings in one registry. `component/1.2-availability` says
+# which half of 1.2 this is.
+#
+# **Not a candidate for default.** `component/1.1-price` remains default. This
+# exists to decompose a result, and FU-60 §6 fixes in advance what each of the three
+# possible orderings means.
+
+COMPONENT_V12_AVAILABILITY = register(
+    ModelVariant(
+        name="component/1.2-availability",
+        family="component",
+        strength=StrengthConfig(),
+        rates=_rate_config(attack_source="price_conditioned"),
+        structure=replace(COMPONENT_V12.structure, start_prior_source="position"),
+        note=(
+            "component/1.2 with S6(a) removed: the availability fixes S1-S5 on "
+            "component/1.1-price's rates, with the pre-1.2 position start priors. "
+            "Registered to decompose 1.2's result, not as a candidate default."
+        ),
+    )
+)
+
 
 # --- A test fixture, not a candidate model -----------------------------------
 #

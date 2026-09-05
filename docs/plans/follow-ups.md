@@ -4036,9 +4036,106 @@ registry during the window in which 1.2 is meant to be stable, and this entry's
 scope is a written commitment. **The trade-off is real and the call is not made
 here.**
 
+*[Acted on 2026-09-05, late, as `component/1.2-availability`. §6.1 records the
+lateness and §6.2 fixes the three-way reading. The paragraph above is left standing
+because it is the record of what was recommended and when.]*
+
+### 6.1 The decomposition variant was registered late — the record
+
+**`component/1.2-availability` is registered on `task/component-1.2-decomposed`,
+2026-09-05. It was recommended in §6 above at commit `2545af1`
+(2026-09-02T19:02Z) and intended to land before GW3's deadline on
+2026-09-04T17:30Z. It did not. This is recorded as late rather than presented as
+on time.**
+
+**What is true at the time of registration, checkably:**
+
+- **GW3 has kicked off and is not settled.** The 2026-09-05 canonical capture has
+  GW3 `is_current=true`, `finished=false`, `data_checked=false`. **No GW3 result
+  exists**, so none can have been seen.
+- **The GW3 evaluation snapshot is unaffected.** It is the 2026-09-04 canonical
+  capture, `captured_at` 2026-09-04T00:01:59Z, 17h28m before the deadline — chosen
+  by `select_archived_snapshot` without intervention, and secured before this
+  branch existed. Registering a variant today does not touch which capture GW3 is
+  projected from.
+- **The variant has nothing in it to choose.** It is
+  `replace(COMPONENT_V12.structure, start_prior_source="position")` — mechanically
+  derived from 1.2, differing in one field, and `"position"` is the only other
+  value `START_PRIOR_SOURCES` admits. There is no parameter, no threshold and no
+  band edge to have been picked with a figure in view, because there is nothing to
+  pick.
+
+**Whether this satisfies FU-50 §5 is a judgement, and it is left to the reader
+rather than asserted.** §5's rule is *"a commit that lands before the gameweek it
+would apply to is settled"*. GW3 is not settled, so on the rule's literal wording
+this qualifies. Against that: §5's purpose is that the result must not choose the
+rule, and GW3 being *in progress* means partial scores are visible in a way they
+were not on 2026-09-02. **They were not consulted — but a later reader has only an
+assertion for that, which is precisely why the mechanical definition above carries
+the argument and the assertion does not.** A variant with a tunable constant
+registered in this window would not be defensible on the same grounds; this one is
+defensible because there was no choice available to contaminate.
+
+`[gap: "no settled result exists" is not the same as "nothing is knowable". GW3
+fixtures have been played and provisional points are visible in the live payload
+and on the FPL site. The claim being made is that they were not looked at, and it
+is unfalsifiable. The mitigation is structural — nothing in the variant could have
+been set differently in response to them — not evidentiary.]`
+
+`[gap: the same lateness would be materially worse for FU-57 or FU-58, which do
+have choices in them. §7's freeze stands unchanged and is not weakened by this
+registration.]`
+
+### 6.2 The three-way GW3 reading, fixed now
+
+Four models are now in the default evaluate run and a fifth is the baseline. **That
+does not change §1's criterion**, which is a single pairwise comparison —
+`component/1.2` against `component/1.1-price`, on `spearman_played`, strictly
+greater, in each of GW3 and GW4. "Which model came top" is a tempting reading and is
+**not** the criterion. Scoring more models raises the chance that one of them looks
+good by noise, which is exactly why only the pre-registered pairwise comparison
+decides anything.
+
+`component/1.2-availability` **has no criterion of its own and cannot become default
+under this entry.** It is a diagnostic. Promoting it on a GW3 figure would be the
+result choosing the rule, in the plainest possible form.
+
+The four orderings, read in advance:
+
+| At GW3 | Reading, fixed 2026-09-05 |
+|---|---|
+| **A.** 1.2 > 1.2-availability, and 1.2 > 1.1-price | The bundle wins and S6(a) contributes on top of S1-S5. One leg of §1's pair is met; GW4 still required. Nothing else changes. |
+| **B.** 1.2-availability > 1.2, both > 1.1-price | §1 is **unaffected**: 1.2 beat 1.1-price, so the leg is met on its own terms. But S6(a) is subtracting, corroborating FU-57 on independent data. Raises FU-57's priority; does **not** promote 1.2-availability. |
+| **C.** 1.2-availability > 1.1-price ≥ 1.2 | S1-S5 work and S6(a) is the whole of 1.2's problem — the strongest possible reading in FU-57's favour. §1's leg **fails**; see below. 1.2-availability still needs its own pre-registration. |
+| **D.** Neither 1.2 nor 1.2-availability clears 1.1-price | 1.1-price stays default. §1's leg fails. The correctness argument for S1-S5 survives a metric loss (minutes-model.md §9 anticipated exactly this), but nothing is promoted. |
+
+**A tie between 1.2 and 1.2-availability**, in any of the above, means S6(a) is
+doing nothing measurable and 1.2's effect *is* S1-S5. That is a clean answer to the
+question the variant was registered to ask, and it is worth as much as either
+direction.
+
+**Closing the serial-testing hole, which FU-50 §2 left open.** §1 names the pair as
+GW3 and GW4. **If 1.2 fails either leg it does not become default under this entry,
+and any later attempt requires a fresh pre-registration naming its gameweeks before
+they are settled.** FU-50 §2's "or any later pair" language permits rolling the
+window forward until two consecutive wins appear, which is serial testing and
+inflates the false-positive rate it exists to control. That was not noticed when
+FU-50 was written and is tightened here — a change to this entry's own rule, made
+before any figure exists, which §8 permits and which a change made afterwards would
+not be.
+
+**Promoting `component/1.2-availability`, should cases B or C make it attractive,
+requires its own entry** with its own metric, population and named gameweeks,
+written before those gameweeks settle. It is registered, it will be scored every
+run, and none of that entitles it to the default.
+
 ### 7. Stability: 1.2 does not change between registration and evaluation
 
 **FU-57 and FU-58 are not to be implemented before the GW3/GW4 pair completes.**
+This is unchanged by §6.1's late registration of `component/1.2-availability`: that
+variant adds a model to the run, it does not alter `component/1.2`, which projects
+byte-identically across the branch that registers it (§7's own requirement,
+verified below).
 Both are correct and both change `p_start`. Landing either mid-pair means the
 variant evaluated at GW4 is not the variant evaluated at GW3, the pair is not two
 observations of one model, and the criterion above becomes unsatisfiable in
@@ -4047,6 +4144,26 @@ own pre-registered criterion, or it waits.
 
 This applies to `component/1.2` alone. `component/1.1-price` is likewise frozen for
 the duration, having been verified byte-identical across the 1.2 branch.
+
+**Re-verified on `task/component-1.2-decomposed`, 2026-09-05**, against
+`~/fpl-pinned/gw2-pre-deadline.json` (sha256 `593f60c2e356…`) and
+`gw2-fixtures.json` (sha256 `fbd4457e5c81…`), every field of every projection for
+616 players across GW2-GW6 — 3,080 rows each, cited per FU-40:
+
+| variant | sha256 over 3,080 rows |
+|---|---|
+| `component/1.0` | `2c86597274501b371998c994006a585ccf1f0ead36d60ff00b1e152580a432a1` |
+| `component/1.1-price` | `cffdbc9ef56bd8fc82f2daedfcf95580da5f4ae78487be6fa39c62bd02a18593` |
+| `component/1.1-position` | `f072abdd437646346d54ff2ab55989e3298a233644080d933463f467a64d7928` |
+| `component/1.2` | `bc26937cdf9699a643532551f775d4a03ae9bf6614d82c0847ddbeb3e547d7f8` |
+| `component/1.0-fixture-minsub205` | `7a607f38f4de4cd9ec1da80fb24586a2a178716c73e902b387fe4bcfa0e870f1` |
+| `naive/1.0` | `317fe64bd49cb929c04e116d21e71df07e9c773c196529735a7ece02caafa308` |
+| `official-ep/1.0` (GW2 only, 616 rows) | `455798fbdeb96af9e2b0c7553e441cd77dd8859445e097a99cadde001ba35ea0` |
+
+All seven identical to `main`. `component/1.2-availability` hashes to
+`dd320d8c20d17e137bf00634a7889493009ce3040581aff35041e3de6c2e8ee1`, distinct from
+both its neighbours — two names for one model would make §6.2's reading
+meaningless.
 
 ### 8. Not to be re-read against a result
 

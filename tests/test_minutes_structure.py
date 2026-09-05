@@ -780,3 +780,97 @@ def test_the_ramp_is_inert_at_zero_events() -> None:
         snapshot, _fixtures(3, 4), replace(_S3_STRUCTURE, return_ramp_events=0)
     ).project([1], [3, 4])
     assert with_ramp_off == explicit_zero
+
+
+# --- component/1.2-availability: the decomposition variant (FU-60 §6) ---------
+
+
+def test_12_availability_differs_from_12_in_exactly_one_field() -> None:
+    """It exists to decompose 1.2's result, so any difference between the two
+    must be attributable to S6(a) and to nothing else.
+
+    The direct analogue of `test_the_two_11_variants_differ_only_in_the_attack_
+    prior_source`, and the reason the variant is built with `replace` rather than
+    a fresh config: it cannot drift from 1.2 if 1.2's other fields ever move.
+
+    Mutation: giving it a different `rates`, `minutes`, `defcon_thresholds` or any
+    second structure field fails here.
+    """
+    twelve = variants.get("component/1.2")
+    availability = variants.get("component/1.2-availability")
+
+    assert availability.rates == twelve.rates
+    assert availability.minutes == twelve.minutes
+    assert availability.defcon_thresholds == twelve.defcon_thresholds
+    assert availability.strength == twelve.strength
+
+    differing = {
+        field
+        for field in twelve.structure.__dataclass_fields__
+        if getattr(twelve.structure, field) != getattr(availability.structure, field)
+    }
+    assert differing == {"start_prior_source"}
+    assert twelve.structure.start_prior_source == "ownership_conditioned"
+    assert availability.structure.start_prior_source == "position"
+
+
+def test_12_availability_keeps_every_availability_fix() -> None:
+    """S1-S5 are the point of it. A variant that dropped one would decompose
+    something other than S6(a).
+
+    Mutation: flipping any of the four structure fields below to its identity
+    value fails, and so does making the whole structure the identity — which
+    would silently make this `component/1.1-price` under a new name.
+    """
+    structure = variants.get("component/1.2-availability").structure
+    assert structure.horizon_availability == "per_event"  # S1
+    assert structure.this_round_source == "this_then_next"  # S2
+    assert structure.news_return_dates is True  # S3
+    assert structure.departed_policy == "zero"  # S4
+    assert not structure.is_identity
+    # S6(b) and FU-51's ramp stay off here too, for the reasons FU-54 gives.
+    assert structure.start_evidence == "count"
+    assert structure.return_ramp_events == 0
+
+
+def test_12_availability_actually_moves_projections_against_both_neighbours() -> None:
+    """Two names for one model would make the three-way GW3 reading meaningless.
+
+    It must differ from `component/1.2` (or S6(a) does nothing) **and** from
+    `component/1.1-price` (or S1-S5 do nothing), on the same population.
+
+    Mutation: registering it with `start_prior_source='ownership_conditioned'`
+    makes it identical to 1.2 and fails the first assertion; registering it with
+    an identity structure makes it 1.1-price and fails the second.
+    """
+    players = [
+        _player(1, status="a", starts=1, minutes=90, selected_by_percent="0.4"),
+        _player(2, status="a", starts=0, selected_by_percent="30.0", element_type=2),
+        _player(3, status="a", chance_of_playing_this_round=0, chance_of_playing_next_round=100),
+    ]
+    snapshot = _snapshot(*players, next_event=3)
+    fixtures = _fixtures(3)
+    identifiers = [p.id for p in players]
+
+    def project(name: str) -> dict[int, float]:
+        model = variants.build(variants.get(name), snapshot, fixtures)
+        return {pid: pr.p_start for (pid, _), pr in model.project(identifiers, [3]).items()}
+
+    availability = project("component/1.2-availability")
+    assert availability != project("component/1.2")
+    assert availability != project("component/1.1-price")
+
+
+def test_12_availability_is_not_the_default() -> None:
+    """`component/1.1-price` stays default; this is a diagnostic, not a candidate.
+    It is in the default *evaluate* list so GW3 scores all three against one
+    capture, which is a different thing.
+
+    Mutation: pointing the `component` alias at it fails.
+    """
+    from fpl_cli import cli  # noqa: PLC0415
+
+    assert cli._MODEL_ALIASES["component"] == "component/1.1-price"
+    assert "component/1.2-availability" in cli._DEFAULT_EVALUATE_MODELS
+    assert "component/1.2" in cli._DEFAULT_EVALUATE_MODELS
+    assert "component/1.1-price" in cli._DEFAULT_EVALUATE_MODELS
