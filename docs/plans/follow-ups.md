@@ -3749,9 +3749,14 @@ earlier captures, and a fresh-install fallback.
 
 `[gap: the arithmetic is specific to `appearances = 1`. The 0.375 bound loosens as
 gameweeks accumulate — at three appearances a player with three starts needs only
-`prior > 0.167` — so part of this defect dissolves by GW4 or GW5 with nothing
-changed. How much is not estimated, and a fix designed against the GW2 arithmetic
-may be solving a receding problem.]`
+`prior > 0.125` — so part of this defect dissolves by GW4 with nothing
+changed. **Corrected 2026-09-02 (FU-60): an earlier version of this gap said 0.167,
+which is not a prior bound at all but the per-start evidence weight `1/(a+k)` at
+`a = 2`.** The bound is `prior > 0.5 + (0.5a - s)/k`, and it falls only for a player
+who starts *every* appearance; for a player with one start in `a` it rises (0.375,
+0.500, 0.625 at `a` = 1, 2, 3). How much dissolves is therefore specific to nailed
+starters, and a fix designed against the GW2 arithmetic may be solving a receding
+problem for them and a worsening one for everyone else.]`
 
 `[gap: band conditioning hurt the `<1%` stratum and helped every other one — DEF
 5-15% and `>15%` reach 0.821 and 0.808 against a flat 0.65. S6(a)'s net effect on
@@ -3826,8 +3831,253 @@ S6(a) was wrong.
 **Condition to revisit:** FU-50 §3's three conditions, read for minutes, exactly as
 minutes-model.md §6.3 already states them. Nothing here shortens them.
 
-`[gap: part of this recedes without intervention. The bound is `prior > (0.5(a+k)-1)/k`
-for a player who has started every appearance, which at `a = 3, k = 4` is 0.167 —
-so the same priors that fail at GW2 succeed by GW4. Whether `shrinkage_k` looks
-implicated at all once exposure accumulates is unknown, and measuring that before
-proposing any change to it is the cheap order of operations.]`
+`[gap: part of this recedes without intervention, and the arithmetic here was
+**wrong in the first version of this entry and is corrected by FU-60**. The bound is
+`prior > 0.5 + (0.5a - s)/k` for a player with `s` starts in `a` appearances. For one
+who starts every appearance it falls — 0.375, 0.250, 0.125, 0.000 at `a` = 1 to 4 —
+so the `<1%` band priors that fail at GW2 succeed for nailed starters by GW4. For a
+player with one start in `a` it *rises*: 0.375, 0.500, 0.625. The earlier text gave
+0.167, which is the per-start evidence weight `1/(a+k)` at `a = 2` and not a prior
+bound. Whether `shrinkage_k` looks implicated at all once exposure accumulates is
+unknown, and measuring that before proposing any change to it is the cheap order of
+operations.]`
+
+---
+
+## FU-60 — Pre-registration: component/1.2 against component/1.1-price
+
+**This entry is a written commitment, not a feature.** Nothing here is to be built.
+No code change of any kind is implied. It is a decision rule written down before the
+data exists, so that the decision can be made against it afterwards rather than
+around it — FU-50's shape, applied to the variant registered on
+`task/component-1.2`.
+
+**Filed:** 2026-09-02 on `task/fu-60-preregistration`. **GW3's deadline is
+2026-09-04T17:30Z**, so this predates the first gameweek it governs, which is what
+FU-50 §5 requires: *"a commit that lands before the gameweek it would apply to is
+settled, and that says what it is changing and why in terms that do not reference
+any figure from that gameweek."* No GW3 figure exists. A canonical capture for
+2026-09-02 is already in `~/.fpl-cli/archive/`, so the leak-free pre-deadline
+snapshot the GW3 evaluation needs is secured independently of anything done later
+this week.
+
+### 1. The criterion
+
+**`component/1.2` replaces `component/1.1-price` as the registered default if and
+only if it scores strictly higher on `spearman_played` in two clean gameweeks
+evaluated independently.** No margin. A tie does not clear. One win and one
+reversal is a null result, not a tie-break — FU-50 §2, unchanged.
+
+**"Clean" carries FU-50 §2's meaning:** no blanks, no doubles. On the fixture list
+in the GW2 capture, GW3, GW4, GW5 and GW6 are all ten fixtures with every team
+playing once. `[gap: that list is eight days old and postponements happen. Check the
+fixture list at each evaluation, as FU-50 §2 already instructs.]`
+
+**The pair is GW3 and GW4**, and §4 below explains why GW3's inclusion is not
+incidental but load-bearing. If GW3 turns out not to be clean, the pair falls back
+to GW4 and GW5 and §4's self-control is lost — record that it was lost rather than
+proceeding as though it were not.
+
+### 2. Why `spearman_played`, and why it is the conservative choice
+
+Agreed, and for a stronger reason than consistency with FU-50 §§1 and 4.
+
+The obvious objection is that `spearman_played` is restricted to players who
+appeared, while 1.2's entire change is to the term deciding *who appears* — so it
+judges a minutes change on the population where the minutes question has already
+been answered. **FU-53 refutes that.** The oracle measured that substituting perfect
+minutes moves `spearman_played` by **+0.205** for `component/1.1-price`. A metric
+with that much headroom from the minutes term alone is not a population where the
+minutes term is inert; `p_start` scales every component for players who *did* play,
+so mispricing a starter at 0.38 damages the played-only ordering directly.
+
+It is nonetheless the **conservative** of the two available readings, and that is a
+feature rather than a cost. At GW2, 1.2 gained more on `spearman_all` (0.551 →
+0.604, +0.053) than on `spearman_played` (0.359 → 0.394, +0.035). Judging it on the
+smaller of its two gains means a win here is a stronger result than a win on the
+metric that flatters it.
+
+`spearman_all` is to be **reported and is explicitly not a criterion**, FU-50 §1's
+rule: the discarded column stays visible so a later reader can see it was discarded
+deliberately rather than never computed.
+
+### 3. Why no margin — agreed, but not for the reason offered
+
+The proposal is that 1.2 carries an independent correctness argument, so the
+question is whether it clears rather than whether two close things differ. That
+conclusion is right and the premise needs qualifying, because the qualification
+changes what a narrow win means.
+
+**1.2 is not a pure correctness improvement.** S1-S5 are category-error fixes and
+stand on argument alone: a next-round field applied to five rounds, a
+machine-readable return date ignored, players who have left the league carried
+through every projection. S6(a) is different. minutes-model.md §6.1 says of it, in
+its own words, that it *"adds a shape that could be wrong"* — and **FU-57 has since
+measured that the shape is wrong**, in a specific way: the ownership prior is pooled
+marginally over `starts` where §2.4's signal is an interaction between the two, and
+84 of 94 missed starters are the consequence.
+
+So 1.2 bundles four clean correctness fixes with one structural change now known to
+be partly mis-specified. That rules out the weaker rule this might otherwise have
+justified — *adopt on correctness unless the metric objects* — because part of the
+correctness argument has already been undermined. It equally rules out a margin:
+demanding 1.2 prove itself *better by a threshold* is the price-versus-position
+situation, where neither variant had an argument and evaluation had to carry the
+whole decision. Here evaluation carries part of it.
+
+**Strictly greater, no margin, is the rule that matches that.**
+
+### 4. What a GW3 or GW4 result means: the target is moving, in both directions
+
+**The arithmetic, corrected.** FU-57 and FU-59 first stated this bound wrongly and
+are corrected in the same commit as this entry. For a player with `s` starts in `a`
+appearances at availability 1.0:
+
+```
+    p_start = (s + k·prior) / (a + k)  >  0.5   ⟺   prior > 0.5 + (0.5a − s)/k
+```
+
+| `a` | evaluated at | bound, nailed (`s = a`) | bound, one start (`s = 1`) |
+|---|---|---|---|
+| 1 | GW2 | 0.375 | 0.375 |
+| 2 | **GW3** | **0.250** | 0.500 |
+| 3 | **GW4** | **0.125** | 0.625 |
+| 4 | GW5 | 0.000 | 0.750 |
+
+**It recedes only for nailed starters, and tightens for rotation players.** The MID
+`<1%` band prior of 0.225 leaves a nailed midfielder at 0.380 (GW2, fails), 0.483
+(GW3, fails), **0.557 (GW4, clears)**. DEF `<1%` follows one gameweek behind
+identically; GKP and FWD `<1%` do not clear until GW5. So **GW3 is evaluated with
+FU-57's defect essentially intact and GW4 with it partly dissolved.**
+
+**And the two models converge, at a rate fixed by `k`.** S6(a) is the only part of
+1.2 that touches the prior, and the difference it makes is exact and independent of
+`s`:
+
+```
+    Δp_start = k·(prior₁·₂ − prior₁·₁) / (a + k)
+```
+
+For MID `<1%` that is 0.260 at GW2, 0.217 at GW3, 0.186 at GW4, 0.163 at GW5 — 83%,
+71% and 62% of the GW2 separation, half gone by GW6. **The comparison loses
+discriminating power with every gameweek**, which inverts the usual instinct that
+waiting for more data makes a comparison better. S1-S5's availability fixes do not
+decay, so what erodes is specifically the part under dispute.
+
+**How to distinguish a structural win from data accumulation — the answer is
+partial and the limits are stated.**
+
+1. **Requiring GW3 in the pair is what makes it separable.** At GW3, `a = 2`, no
+   `<1%` band has cleared, and the S6(a) separation is still 83% of GW2's. A GW3 win
+   therefore *cannot* be attributed to accumulation, because at GW3 accumulation has
+   not yet happened. A pair of {GW3, GW4} is self-controlling in a way {GW4, GW5} is
+   not. **This is the substantive reason the pair is specified as GW3 and GW4 rather
+   than left to FU-50 §2's "any later pair".**
+2. **Report the mechanism directly, per gameweek**: the count of available players
+   with `s = a` (started every finished gameweek) whose `p_start ≤ 0.5`, under both
+   variants. That is FU-57's defect measured rather than inferred. If it collapses
+   between GW3 and GW4 while `spearman_played` rises, accumulation is the live
+   explanation for the GW4 movement specifically.
+3. **What this cannot do.** A GW4 result *on its own* cannot be separated into
+   structure and accumulation, and neither can a {GW4, GW5} pair. If GW3 is
+   unusable, the honest position is that the criterion was met on a moving target
+   and the reading is weakened — say so, do not launder it.
+
+### 5. If 1.2 wins `spearman_played` and loses log loss — the reading, fixed now
+
+**At GW2 it did exactly that**: `spearman_played` 0.394 against 0.359 (1.2 better),
+Brier 0.1310 against 0.1727 (1.2 better), log loss 0.5254 against 0.5016 (1.2
+**worse**). Fixing this reading in advance is the whole reason this clause exists,
+and it is the GW2 failure FU-50 was written about, one metric family further out.
+
+**The reading: `spearman_played` decides. A log loss reversal does not block
+adoption.** FU-50 §5's precedent transfers directly — *"If `spearman_all` disagrees
+with `spearman_played`, the answer is `spearman_played` … and the disagreement is to
+be reported rather than used."* Brier and log loss are named in this entry as
+**diagnostics of the minutes term** and are not criteria. No threshold on either may
+be introduced once a figure is visible; introducing one would be the result choosing
+the rule.
+
+**What the disagreement is used for instead, since it is informative.** Brier
+improving while log loss worsens is a specific signature — better aggregate
+calibration with confident errors concentrated on a subgroup — and that subgroup is
+FU-57's 84 players. So:
+
+- The log loss delta is recorded each gameweek as **the tracked size of FU-57's
+  residual**. It is a measurement, not a gate.
+- If it widens from GW2's 0.0238 at GW3, that raises FU-57's priority. It still does
+  not block adoption.
+- If it narrows between GW3 and GW4 **with no code change**, that is direct evidence
+  for §4's recession hypothesis, obtained free.
+
+**The cost of this rule, stated rather than buried.** A model can win rank
+correlation while being worse calibrated, and the optimiser consumes magnitudes, not
+ranks. FU-50 §4 already accepted that proxy knowingly and gave the reason —
+"choosing a criterion we cannot compute over one we can is how a decision gets
+deferred indefinitely". The same acceptance is made here, with the same eyes open.
+
+### 6. If 1.2 loses
+
+`component/1.1-price` remains default by incumbency. **1.2 stays registered and
+re-measurable** — FU-50 §4's principle, "a demotion, not a deletion".
+
+A loss does not falsify S1-S5's correctness argument, and minutes-model.md §9
+already anticipated this outcome in terms: *"The claim made here is that they fix
+category errors … not that they will move Spearman. They may not."* The live
+question would then be whether S6(a) is the part that loses, which is answerable
+only by a variant holding S1-S5 with `start_prior_source = "position"`.
+
+**A recommendation this entry deliberately does not act on.** Registering that
+decomposition variant *now*, before GW3, would let all three be scored against one
+capture and one set of actuals in a single run — the same argument that justified
+building 1.2 before GW3 rather than after. Registered after GW3, it waits for GW4
+and can never be compared on GW3 at all. Against that: it is a code change to the
+registry during the window in which 1.2 is meant to be stable, and this entry's
+scope is a written commitment. **The trade-off is real and the call is not made
+here.**
+
+### 7. Stability: 1.2 does not change between registration and evaluation
+
+**FU-57 and FU-58 are not to be implemented before the GW3/GW4 pair completes.**
+Both are correct and both change `p_start`. Landing either mid-pair means the
+variant evaluated at GW4 is not the variant evaluated at GW3, the pair is not two
+observations of one model, and the criterion above becomes unsatisfiable in
+principle. Any fix lands as a **new registered variant** with its own name and its
+own pre-registered criterion, or it waits.
+
+This applies to `component/1.2` alone. `component/1.1-price` is likewise frozen for
+the duration, having been verified byte-identical across the 1.2 branch.
+
+### 8. Not to be re-read against a result
+
+FU-50 §5 governs this entry exactly as it governs FU-50's own clauses. The metric,
+the population, the absence of a margin, the log loss reading and the composition of
+the pair are fixed as of 2026-09-02 and are not to be reinterpreted, narrowed,
+widened or swapped once a GW3 figure is visible. If this criterion turns out to be
+badly specified, the correct response is to record that, decline to decide on it,
+and pre-register a better one for a later pair.
+
+`[gap: every criterion here inherits FU-50's closing gap unchanged — "two
+gameweeks", "strictly greater" and the choice of `spearman_played` are chosen, and
+the only defence is that they were chosen before the data. This entry adds one
+number of its own, the GW3/GW4 pair, and that at least has an argument behind it
+(§4.1) rather than being a bare choice.]`
+
+`[gap: §4's decay analysis assumes the band priors themselves stay near their GW2
+values as `starts` accumulates. Pooled rates are scale-invariant if roughly the same
+players start each week, which is why the MID `<1%` band pools to ~0.223 at any `a`
+under that assumption — but rotation, injuries and the transfer window all violate
+it, and nothing here measures how much. The decay rate `k/(a+k)` is exact; the
+prior values it is applied to are not.]`
+
+`[gap: this entry compares 1.2 to 1.1-price and says nothing about 1.2 against
+`naive/1.0`. FU-50 §4's control clause is unchanged and applies to the best
+component variant per gameweek, which from GW3 may be 1.2. Nothing here alters that
+clause, and a reader should not infer that beating 1.1-price discharges it — the
+component family still has to clear its own control.]`
+
+`[gap: the two-gameweek rule was written for variants differing in a parameter.
+1.2 changes six things at once, so a win says the bundle is better and does not
+apportion credit among S1, S2, S3, S4, S5 and S6(a) — and §6's decomposition
+variant, which would apportion it, is recommended and not registered. A win here is
+a decision to ship a bundle, not evidence about any member of it.]`
