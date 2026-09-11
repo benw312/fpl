@@ -4467,3 +4467,55 @@ is not operationally defined. Whether a rolling fit counts as out-of-sample when
 same underlying players appear in both windows is exactly the sort of question
 FU-50 §2's own closing gap flags about "two gameweeks evaluated independently", and
 it has the same unresolved character here.]`
+
+---
+
+## FU-66 — `squad.json` has not moved since GW1, and every `plan optimise` run inherits that
+
+**Filed from:** `task/fu-66-stale-ledger`, 2026-09-11. Noticed twice while measuring
+something else — during the FU-63 optimiser probe and again while setting up its
+free-transfer state — and filed rather than fixed, because it is Ben's team data and
+not a repo defect.
+
+**Measured**, against `~/.fpl-cli/archive/2026-09-11`: the ledger replays to
+**event 1, bank 0, 0 free transfers, 15 holdings**. Three gameweeks are finished in
+that capture. So the ledger records the genesis squad and nothing since.
+
+**What follows mechanically.** `apply_transfers` accrues
+`free_transfers_per_event = 1` per event stepped, capped at 5. Optimising GW4 from a
+state at event 1 therefore starts with the **bank at or near the cap**, whatever the
+real team has banked. Two consequences, both measured in
+[fu-63-optimiser-sensitivity.md](fu-63-optimiser-sensitivity.md) §1:
+
+- `hit_points` is 0 on every path, so the optimiser is choosing among transfer counts
+  that all appear free;
+- combined with FU-64, both terms that are denominated in real points are inert, so
+  the search is maximising raw xP with no cost side at all.
+
+**If the real squad has changed since GW1, every `plan optimise` recommendation to
+date has started from the wrong 15 players, at the wrong prices, with the wrong
+bank.** That is a larger error than anything in the projection model and no amount of
+FU-57 or FU-60 work touches it.
+
+**This is not a bug report against the code.** `Ledger`, `replay` and
+`apply_transfers` do exactly what they are asked; nothing has asked them to know
+about transfers that were never recorded. `fpl plan simulate` exists to apply a
+transfers plan to a ledger, and `squad create` writes one — the machinery is there
+and unused.
+
+**What would close it.** Either record the real transfers into `squad.json` so the
+ledger tracks the team, or decide the ledger is a fixture for testing and stop
+reading `plan optimise`'s output as advice about the actual squad. **Both are fine;
+the current position — a stale ledger being read as live — is the one that is
+not.**
+
+`[gap: nothing here establishes that the real squad HAS changed since GW1. If no
+transfers have been made, the ledger is correct and the only issue is the free
+transfer bank, which would then also be correct. The entry is written from what the
+file says, not from knowledge of the team.]`
+
+`[gap: there is no staleness check anywhere. A ledger whose last event is several
+gameweeks behind the snapshot's finished count is detectable in one line, and
+`plan optimise` could say so rather than silently proceeding. Whether that belongs
+as a warning, a refusal, or nothing at all is a UX decision this entry does not
+take — and it is the only part of this that is a code change.]`
