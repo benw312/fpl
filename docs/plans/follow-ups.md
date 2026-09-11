@@ -4129,6 +4129,28 @@ requires its own entry** with its own metric, population and named gameweeks,
 written before those gameweeks settle. It is registered, it will be scored every
 run, and none of that entitles it to the default.
 
+### 6.3 Leg 1 result — GW3, recorded 2026-09-11
+
+**Leg 1 is met.** `component/1.2` 0.348 against `component/1.1-price` 0.316 on
+`spearman_played`, **+0.032**, strictly greater. GW3 clean (10 fixtures, every team
+once), settled (`finished`, `data_checked`), projected from the 2026-09-04 canonical
+capture 17h28m before the deadline. Full figures and provenance in
+[gw3-evaluation.md](gw3-evaluation.md), cited per FU-40.
+
+**§6.2's Case A**: 1.2 (0.348) > 1.2-availability (0.319) > 1.1-price (0.316). The
+decomposition is lopsided — **S6(a) contributes +0.029 and S1-S5 contribute
++0.003** — but a single-event evaluation can only see S2 of the five, so that is not
+evidence S1-S5 fail. §5's log loss clause **did not fire**: unlike GW2, 1.2 wins
+Brier and log loss as well, the tracked FU-57 residual moving from −0.0238 to
++0.0848. FU-57's defect is nonetheless alive and large: 1.2 suppresses 48 players
+below 0.5 who had started every gameweek and started this one, against 1 for
+1.2-availability. It won anyway.
+
+**Nothing is promoted.** §1 requires both legs. Leg 2 is GW4, deadline
+2026-09-12T12:30Z; `fpl-sync.timer` next fires 2026-09-12T00:03Z and was verified
+healthy on 2026-09-11, so the pre-deadline capture is secured. GW4's fixture list is
+to be re-checked for blanks and doubles before it counts.
+
 ### 7. Stability: 1.2 does not change between registration and evaluation
 
 **FU-57 and FU-58 are not to be implemented before the GW3/GW4 pair completes.**
