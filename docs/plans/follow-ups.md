@@ -4326,9 +4326,19 @@ and netted against model xP:
 - `DEFAULT_FT_VALUE = 1.5` (`optimizer.py:48`) — a banked free transfer;
 - `_hit_points` — the 4-point charge per extra transfer.
 
-At a 13.6% low scale a 4-point hit costs 4.63 model-points and a banked transfer is
-worth 1.74, so the optimiser **under-takes hits and over-values holding**. The
-magnitude is not estimated here in transfers or in points.
+At a 13.6% low scale a 4-point hit costs 4.63 model-points, so the optimiser
+under-takes hits.
+
+*[Amended 2026-09-11 on `task/fu-63-optimiser-sensitivity`, after the measurement
+this entry's own gap asked for. **The hit half is confirmed; the "over-values
+holding" half is withdrawn.** `ft_value` contributes nothing: all 204 paths in the
+test terminate with zero free transfers, so `_terminal_value` is identically 0 and
+the constant cannot influence any ranking. Filed as FU-64. On the hit channel the
+measurement found a flip point at `alpha = 0.96`, so the recommendation is genuinely
+scale-sensitive — but the 13.6% correction moves *away* from that boundary and
+changes nothing in that instance. What makes it a live risk is the ratio: a 4% margin
+against a 13.6% bias, 3.4x larger. See
+[fu-63-optimiser-sensitivity.md](fu-63-optimiser-sensitivity.md).]*
 
 **This must not be fixed by a calibration multiplier.** That would be a fitted
 constant of exactly the kind FU-50 §3 forbids on this timescale, and it would paper
@@ -4341,8 +4351,61 @@ own pre-registration and several more gameweeks.
 directional rather than measured. A player wrongly given p_start does not contribute
 symmetrically to the two totals, and no decomposition is offered.]`
 
+`[gap — ADDRESSED 2026-09-11, fu-63-optimiser-sensitivity.md; original text follows.
+Worth doing: it confirmed the hit channel, quantified the margin at 4% against a
+13.6% bias, and refuted the ft-value half of the claim above. It also cost two wasted
+runs before the experiment was arranged so either channel could act at all — with a
+full free-transfer bank, which is what `squad.json` currently implies, neither
+can.]`
+
 `[gap: the ft-value and hit-cost consequence is argued from the arithmetic and is
 not demonstrated. Nobody has run the optimiser under a scaled xP and counted how
 many recommendations change. That is cheap and would turn an argument into a
 measurement — and it is a small piece of the plan-quality measurement FU-50 §4
 says does not exist.]`
+
+---
+
+## FU-64 — `DEFAULT_FT_VALUE` may be a constant that cannot affect any decision
+
+**Filed from:** `task/fu-63-optimiser-sensitivity`, 2026-09-11. Measurement in
+[fu-63-optimiser-sensitivity.md](fu-63-optimiser-sensitivity.md) §3.
+
+**Measured.** Optimising GW4-GW6 from a one-free-transfer state over 204 paths,
+**every path terminates with zero free transfers**. The set of terminal
+`free_transfers` values across all 204 is `{0}`, so `_terminal_value` returns 0.000
+for every path and `DEFAULT_FT_VALUE = 1.5` (`optimizer.py:48`) contributes nothing
+to the ranking of any path against any other.
+
+`_terminal_value` is not broken — handed a held state it returns 3.175 as designed.
+The search simply never produces one. It spends the whole bank on every path: even
+the HOLD path makes three transfers over GW5-GW6, because "HOLD" names an empty
+*first move*, not an empty plan.
+
+**Why that is probably general rather than specific to this state.** The terminal
+value binds only when no available transfer is worth more than 1.5 points over the
+remaining horizon. With 600+ candidates and a multi-gameweek horizon, some transfer
+almost always clears that. If so, `ft_value` is a constant nobody can tune into
+relevance, and the `--ft-value` surface — if one exists — promises control it does
+not deliver.
+
+**What to do, in order.** First establish whether it is general: sweep squads,
+horizons and bank depths and count paths with non-zero terminal value. That is a
+measurement, not a change. Only then decide between (a) leaving it, documented as
+inert, (b) raising it, which is choosing a constant and needs FU-50 §3's treatment,
+or (c) concluding the terminal-value term is the wrong shape for expressing the value
+of a banked transfer.
+
+**Related presentation point, not filed separately.** `OptimiseResult.hold` is the
+best path whose *first move* is empty, and it may transfer freely thereafter. A
+reader seeing "HOLD" recommended could reasonably believe the plan is to do nothing
+for the horizon. Worth a word in the output wherever that is rendered.
+
+`[gap: one squad, one horizon, one bank depth. The inference that this is general
+rests on an argument about candidate pools, not on a sweep. The sweep is cheap and
+is the first step above.]`
+
+`[gap: if `ft_value` is genuinely inert, then the optimiser has no representation of
+the option value of a banked transfer at all, and every plan it produces is
+implicitly "spend everything". Whether that is wrong is a modelling question this
+entry does not settle — it may simply be correct that banking is rarely optimal.]`
