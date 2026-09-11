@@ -4220,3 +4220,129 @@ component family still has to clear its own control.]`
 apportion credit among S1, S2, S3, S4, S5 and S6(a) — and §6's decomposition
 variant, which would apportion it, is recommended and not registered. A win here is
 a decision to ship a bundle, not evidence about any member of it.]`
+
+---
+
+## FU-61 — the Haulers row is a selection-on-outcome artefact, and nothing says so
+
+**Filed from:** `task/haulers-decomposition`, 2026-09-11. Analysis in
+[haulers-decomposition.md](haulers-decomposition.md).
+
+**The problem.** `evaluation_category_table` buckets on **realised** points and is
+printed in every `plan evaluate` run with no caveat. The Haulers bucket (actual ≥ 5)
+has been read three times in this repo — minutes-model.md §1, FU-53, and
+gw3-evaluation.md §5 — as "the largest signed error, unaddressed by any proposal".
+It is largely an artefact of the bucketing.
+
+Hauling is a tail event. Conditioning on the outcome and then measuring signed error
+asks a conditional mean to have predicted the upper tail of its own distribution.
+Measured on `component/1.2` at GW3, the model's prediction across the bucket is
+nearly flat — 2.41, 2.68, 3.04 for actual bands 5-8, 9-12 and 13+ — so the error is
+essentially the outcome minus a constant. And `naive/1.0`, which **over**-predicts
+total points by 5.8%, posts a *better* Haulers error (−4.36) than component (−5.03):
+component looks worse on this row largely because it is the less over-predicting
+model.
+
+**What to do.** Not a model change. Either annotate the category table where it is
+rendered, or report beside it the calibration-by-predicted-bin view that does not
+select on the outcome (haulers-decomposition.md §3). The second is more work and is
+the diagnostic that actually localises error; the first is a line of prose and stops
+the row being misread again.
+
+**What not to do.** Delete the row. Bucketing on the outcome is the survey's own
+OpenFPL yardstick (`evaluation.py`'s `CATEGORIES`), it is comparable across models,
+and it is informative *between* models scored on the same bucket. It is only the
+absolute magnitude that misleads.
+
+`[gap: the same argument applies with reversed sign to the Zeros bucket, which
+selects on players who returned nothing and therefore flatters any model that
+predicts low. Nothing here quantifies that, and the 31%-wrong headline in
+minutes-model.md §1 rests on a related but distinct cut (`p_start > 0.5`), which
+selects on the prediction and is not affected.]`
+
+---
+
+## FU-62 — the component model's predictions are compressed into [0, 5.7]
+
+**Filed from:** `task/haulers-decomposition`, 2026-09-11.
+
+**Measured** on the pinned GW2 and GW3 captures: `component/1.2` has predicted
+standard deviation 0.95 and 1.12 against realised 2.60 and 2.40, and maxima of 4.36
+and 5.68 against realised 23 and 15. `component/1.1-price` is tighter still (0.89,
+1.01). Across 652 players at GW3, **three** are projected above 5.
+
+**This is not straightforwardly a defect.** `Var(E[Y|X]) ≤ Var(Y)` always, so a
+well-calibrated conditional expectation of a heavy-tailed outcome *should* be
+compressed. `naive/1.0`'s dispersion of 2.22 is mostly noise — it is last week's
+score — and is not the target.
+
+**What it costs.** The model cannot express a captaincy-grade pick. Its whole output
+lives in a band narrower than the gap between a blank and a return, so the
+difference between the best and fourth-best option is a few tenths and is flipped by
+small errors. Every consumer that ranks — `players project`, the optimiser's choice
+among near-equal paths — operates on that compressed scale.
+
+**The open question, which this filing does not answer:** is the dispersion as large
+as the information in the payload permits? Answering it means either a variance
+decomposition, or a second model with access to the same fields and more spread,
+scored against the same actuals. Until then "compressed" is a description, not a
+diagnosis.
+
+`[gap: dispersion and calibration are different properties and a model can be
+compressed and perfectly calibrated at once. haulers-decomposition.md §3 finds
+`component/1.2` roughly calibrated within its range, so there is no evidence here
+that the compression is *also* a bias — only that the range is narrow.]`
+
+---
+
+## FU-63 — a stable aggregate scale bias, and the two constants it bites
+
+**Filed from:** `task/haulers-decomposition`, 2026-09-11.
+
+**Measured**, total predicted points against total realised, over the whole
+projected population:
+
+| | GW2 | GW3 |
+|---|---|---|
+| `component/1.1-price` | +20.2% | +12.3% |
+| `component/1.2` | **−13.5%** | **−13.6%** |
+| `naive/1.0` | +5.7% | +5.8% |
+
+1.2 under-predicts by the same amount twice, across a population that grew 616 → 652
+and an entirely different fixture set. That is systematic, not noise.
+
+**It is substantially the minutes term, which raises FU-57's value.** The two
+component variants differ only in the minutes term and sit either side of zero. At
+GW3, 1.2 predicts 192.0 starters against 220 realised (−12.7%) against a
+total-points error of −13.6%. FU-57 was filed as a recall problem; it is also this.
+
+**Why it mostly does not matter.** `spearman_played` is rank-based and the
+optimiser's argmax over paths is invariant to a uniform scale. Every criterion in
+FU-50 and FU-60 is blind to this by construction, correctly.
+
+**Where it does.** Two constants in the objective are denominated in *real* points
+and netted against model xP:
+
+- `DEFAULT_FT_VALUE = 1.5` (`optimizer.py:48`) — a banked free transfer;
+- `_hit_points` — the 4-point charge per extra transfer.
+
+At a 13.6% low scale a 4-point hit costs 4.63 model-points and a banked transfer is
+worth 1.74, so the optimiser **under-takes hits and over-values holding**. The
+magnitude is not estimated here in transfers or in points.
+
+**This must not be fixed by a calibration multiplier.** That would be a fitted
+constant of exactly the kind FU-50 §3 forbids on this timescale, and it would paper
+over the minutes defect that produces it rather than fixing it. The route is FU-57.
+If a scale correction is ever wanted on its own merits it needs its own entry, its
+own pre-registration and several more gameweeks.
+
+`[gap: the +12.3%/+20.2% arm for 1.1-price does not track its starter over-call
+(+26%) nearly as well as 1.2's arms track each other, so the minutes attribution is
+directional rather than measured. A player wrongly given p_start does not contribute
+symmetrically to the two totals, and no decomposition is offered.]`
+
+`[gap: the ft-value and hit-cost consequence is argued from the arithmetic and is
+not demonstrated. Nobody has run the optimiser under a scaled xP and counted how
+many recommendations change. That is cheap and would turn an argument into a
+measurement — and it is a small piece of the plan-quality measurement FU-50 §4
+says does not exist.]`
