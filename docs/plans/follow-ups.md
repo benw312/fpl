@@ -4409,3 +4409,61 @@ is the first step above.]`
 the option value of a banked transfer at all, and every plan it produces is
 implicitly "spend everything". Whether that is wrong is a modelling question this
 entry does not settle — it may simply be correct that banking is rarely optimal.]`
+
+---
+
+## FU-65 — a calibrated variant needs a criterion that is not Spearman
+
+**Filed from:** `task/rank-calibration-plan`, 2026-09-11. Design in
+[rank-calibration.md](rank-calibration.md), which deliberately declines to write this
+criterion itself.
+
+**Why it cannot wait until there is something to evaluate.** A calibrated variant
+remaps `xp_total` through a strictly monotone function, which **preserves ranks
+exactly**. `spearman_played` and `spearman_all` are therefore unchanged — not
+approximately, by construction. Every criterion this project has pre-registered
+decides on `spearman_played`: FU-50 §1, FU-50 §4 and FU-60 §1. **All of them are
+blind to this class of change.**
+
+So a calibrated variant could be built, shipped and evaluated without a single
+existing number moving, and the metric that judged it would necessarily be chosen
+after the work existed. That is the failure FU-50 was written about, arriving by a
+route FU-50 did not anticipate.
+
+**What the criterion has to be built from.** The channels a monotone remap can move:
+
+- **RMSE and MAE**, over all and over played — the natural home, since calibration
+  is a magnitude claim and these are the magnitude metrics;
+- **the error-by-category table** — but see FU-61, which establishes that its
+  Haulers row selects on the outcome and cannot be read as a model property;
+- **optimiser recommendations**, through `_hit_points`, measured in
+  fu-63-optimiser-sensitivity.md at a flip point of `alpha = 0.96` with the decision
+  4% from the boundary.
+
+**Not** Brier or log loss: those are computed on `p_start`, which a calibration of
+`xp_total` does not touch.
+
+**The hard part, stated so whoever writes it does not have to rediscover it.** RMSE
+is the metric the component family already wins decisively and always has
+(FU-50 §4's own words), so a criterion built from it risks being the formality that
+entry warns against. A criterion that is *only* "RMSE improves" would be met by
+construction — fitting a monotone map to minimise squared error is what isotonic
+regression does. **The criterion must therefore be out-of-sample and pre-committed
+to a specific window**, or it tests nothing.
+
+**Sequencing.** rank-calibration.md §6 argues this should not be built yet at all:
+most of the miscalibration has an identified structural cause in FU-57, and fitting
+a map now would fit a curve to a known bug and need refitting the moment FU-57 lands.
+This entry exists so that the criterion is written *before* anyone reaches step 3 of
+that sequence, not to signal that step 3 is imminent.
+
+`[gap: no criterion is proposed here either — this entry names the constraints one
+must satisfy and stops. Writing it is a separate commit that must land before any
+calibrated variant is registered, and before the gameweeks it would be judged on are
+settled, per FU-50 §5.]`
+
+`[gap: "out-of-sample and pre-committed to a specific window" is the right shape but
+is not operationally defined. Whether a rolling fit counts as out-of-sample when the
+same underlying players appear in both windows is exactly the sort of question
+FU-50 §2's own closing gap flags about "two gameweeks evaluated independently", and
+it has the same unresolved character here.]`
