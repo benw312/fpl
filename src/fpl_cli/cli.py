@@ -136,7 +136,8 @@ EvaluateModelsOption = Annotated[
         "--model",
         help=(
             "Registered variant to score. Repeatable; default naive/1.0, "
-            "component/1.1-price, component/1.2, official-ep/1.0."
+            "component/1.1-price, component/1.2, component/1.2-availability, "
+            "official-ep/1.0."
         ),
     ),
 ]
@@ -1263,10 +1264,16 @@ def _report_live_provenance(result: LiveEventResult) -> None:
 # 1.2 against the same capture and the same actuals as everything else, in one
 # run — comparing two runs compares two runs (this command's own docstring).
 # Whether it is promoted is FU-50 §2's two-gameweek question, not this branch's.
+#
+# `component/1.2-availability` joins it for the same reason and a sharper one:
+# it is 1.2 with S6(a) removed, and it decomposes 1.2's result only if all three
+# are scored against one capture and one set of actuals. Registered after GW3
+# kicked off — see FU-60 §6 for why that is defensible and how it is recorded.
 _DEFAULT_EVALUATE_MODELS: tuple[str, ...] = (
     "naive/1.0",
     "component/1.1-price",
     "component/1.2",
+    "component/1.2-availability",
     "official-ep/1.0",
 )
 

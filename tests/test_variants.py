@@ -51,6 +51,7 @@ EXPECTED_DIGESTS = {
     "component/1.1-price": "24c305e2025c",
     "component/1.1-position": "877dd43d6607",
     "component/1.2": "4f479b2253cc",
+    "component/1.2-availability": "c6143ceb6826",
 }
 
 # `component/1.2` added a `structure` field to `ModelVariant` and **no digest
@@ -70,6 +71,7 @@ EXPECTED_VERSIONS = {
     "component/1.1-price": "component/1.1-price+banded",
     "component/1.1-position": "component/1.1-position+banded",
     "component/1.2": "component/1.2+banded",
+    "component/1.2-availability": "component/1.2-availability+banded",
 }
 
 
