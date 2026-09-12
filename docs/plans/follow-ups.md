@@ -55,7 +55,21 @@ and FU-13's premise was falsified by it.
   *landed* to say which half.
 - **No entry was found closed in code but unmarked**, the failure this pass exists
   to catch. FU-13 is the near miss: its headline claim was false and its Status
-  line absent.
+  line absent. *[**This held on 2026-08-28 and has failed twice since.** `c0951aa`
+  closed **FU-15** on 2026-08-30 and `72a69f6` closed **FU-21** on 2026-09-02;
+  neither was marked. Both were found on 2026-09-12 — the first by someone going to
+  fix the README and finding it already fixed, the second by grepping the rest of
+  the table's stated bases once the first had shown the table could be wrong. Marked
+  now. The bullet is left as the pass found it per the convention above. The
+  correction is not that the pass was careless: it is that **a finding of this shape
+  expires on the next merge**, because it is a statement about one commit and reads
+  as a property of the file. **Coverage of the 2026-09-12 sweep, so it is not read as
+  more than it was:** thirteen of the twenty-two rows below were re-checked — the
+  twelve whose stated basis is mechanically greppable (FU-4, 5, 6, 12, 14, 20, 21,
+  25, 29, 31, 39, 42), plus FU-15 by hand. **Two of those thirteen were wrong**
+  (FU-15, FU-21, both closed and unmarked) and **two more had bases that no longer
+  said what they meant** (FU-20, FU-29). The remaining nine rows are unverified since
+  2026-08-28. Trust the table's *outcome* column only as far as its date.]*
 - Thirteen open entries cite line numbers or symbols that have moved. Bodies
   corrected in place; the corrections are marked so the original claim is still
   legible.
@@ -89,16 +103,16 @@ the source and the defect is still there.
 | FU-12 | Still open, **lines corrected** | `from rich import print` at `cli.py:12`, still mixed with `console.print` |
 | FU-13 | Open, **narrowed** by `task/fu-19-18-13` | Retitled and scoped to `plan evaluate` and `plan simulate`; explicitly not wanted on four others |
 | FU-14 | Still open, **body corrected** | `plan optimise` landed; `squad import`/`export`, `players show`, `squad show` still absent |
-| FU-15 | Still open, **lines corrected** | README Commands block still lists three commands, still documents the legacy squad shape |
+| FU-15 | **Closed** by `c0951aa`, two days *after* this pass | Marked 2026-09-12. The pass's finding below is wrong as a general claim and was right on its date |
 | FU-17 | **Closed** by `task/fu-17-club` (2026-09-12) | `BadParameter` now raised and the accepted club names listed; the short-name mismatch it exposed is filed as FU-68 |
 | FU-18 | **Closed** by `task/fu-19-18-13` | Stays one file; section comments added and a 600-line split threshold recorded |
 | FU-19 | **Closed** by `task/fu-19-18-13` | Block corrected, and `tests/test_claude_md_structure.py` now fails when block and tree disagree |
-| FU-20 | Still open, **lines corrected** | `_build_schedule` still private (`projections.py:219`); no `fixture_count` |
-| FU-21 | Still open, **lines corrected** | `chance_of_playing_this_round` still parsed nowhere |
+| FU-20 | Still open, **basis corrected 2026-09-12** | `_build_schedule` still private; still no *accessor*. `fixture_count` now exists as a local in the naive loop (`projections.py:1154, 1203`), which this row's "no `fixture_count`" would now read as false — it was never the claim |
+| FU-21 | **Closed** by `72a69f6`, five days *after* this pass | Marked 2026-09-12. Parsed at `api/models.py:32`, read at `projections.py:611-613` under `component/1.2` only |
 | FU-22 | Still open, **body corrected** | `--output` exists but writes a transfers plan, not a `SquadPlan` — trigger unmet |
 | FU-25 | Still open, body accurate | `DEFAULT_FT_VALUE = 1.5` still a constant (`optimizer.py:48`); no estimator |
 | FU-27 | Still open (won't-do), **symbols corrected** | `_xi_structure`/`_XiStructure` renamed public by FU-26; `ranked` tuples still built |
-| FU-29 | Still open, body accurate | No `"--schedule"` string in `cli.py` |
+| FU-29 | Still open, **basis corrected 2026-09-12** | No `--schedule` *option*. The string now appears at `cli.py:831` — inside the warning that names FU-29 as the reason the search is capped — so the original grep-shaped basis no longer distinguishes the flag from the apology for its absence |
 | FU-30 | Still open, **lines corrected** | `simulate_plan` still takes no `--model` (`cli.py:384`) |
 | FU-31 | Still open, **body corrected** | No `--beam`/`--first-moves`/`--max-cells`; default is now 800M, not 400M |
 | FU-34 | Decided, not implemented — unchanged | No re-check needed; the entry records a decision, not a code claim |
@@ -585,6 +599,27 @@ or a named-squad store ever appears.
 
 ## FU-15 — The README "Commands" section is stale
 
+**Status: closed** — `c0951aa`, *"Rewrite the README for the tool as it now is
+(FU-15)"* (2026-08-30), recorded in [handoff-2026-08-30.md](handoff-2026-08-30.md) §8
+and **not marked here until 2026-09-12**. See the note in the header: an entry closed
+in the source and unmarked in this file is the one thing the reconciliation pass
+exists to catch, and this one was closed two days after the pass ran.
+
+Checked in the source, not in the handoff's claim:
+
+- The Commands table lists **all eight** commands, against the three this entry was
+  filed for.
+- The legacy squad shape is gone. No `"players"`-array description survives anywhere
+  in the file; `fpl squad create`'s output is described as a transfer ledger, which
+  is what it writes.
+- The *"first slice supports…"* sentence this entry's **Also stale** clause names is
+  gone with the rewrite.
+- **The defect cannot recur.** `tests/test_claude_md_structure.py` checks the table
+  against the Typer app's own `registered_commands`/`registered_groups`, and checks
+  the prose count ("Eight commands.") too. There is no second hand-maintained list
+  to drift — which is a stronger close than "someone updated the README", and is why
+  this entry closes rather than being reopened on the next command added.
+
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
 `README.md:40-45` lists three commands (`sync`, `players list`,
@@ -930,6 +965,31 @@ second caller genuinely needs the legs.
 ---
 
 ## FU-21 — `chance_of_playing_this_round` is never parsed
+
+**Status: closed** — `72a69f6`, *"Implement the minutes structure as component/1.2"*
+(2026-09-02), **not marked here until 2026-09-12**. Found by the same sweep that
+found FU-15's unmarked close; see the header.
+
+**Where the fix diverges from the entry, which is the part worth reading.** The
+headline claim — the field is never parsed — is closed outright:
+`api/models.py:32` parses it, as minutes-model.md §2.2's S2. The *consequence* the
+entry draws is closed **only under `component/1.2`**. `_availability`
+(`projections.py:611-613`) reads it in one branch gated on
+`structure.this_round_source == "this_then_next"` and on the event being the nearest
+one; under the identity structure that branch is unreachable, which is precisely what
+keeps `component/1.1-price` byte-identical. **`component/1.1-price` is still the
+default**, so on a default run today the field is parsed and not consumed.
+
+That is a close, not a partial one: the entry asks for the signal to exist and the
+field to be read, and both now happen. Whether the *default* model sees it is FU-60's
+pair to decide, not this entry's — and it is registered there, so nothing is lost by
+closing here.
+
+The entry's "Relevant when" clause was also answered rather than deferred: S2 fires
+on the nearest gameweek only, and the measured effect is in
+[gw3-evaluation.md](gw3-evaluation.md) §2 — 66 of 652 players differ between the two
+fields at GW3, 23 once nulls fall through to the `next_round` path, and S2 is the
+sole contributor to S1–S5's +0.003.
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md) §8, while diagnosing FU-11.
 
