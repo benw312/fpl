@@ -36,22 +36,51 @@ convention binds from here.
 entry in that range was checked against the source at that commit, not against the
 commit log.
 
-**FU-50 to FU-67 have not been through that process** — they were written between
+**The open-entry table below was separately re-verified on 2026-09-12** — all 25
+rows, against the source. **That is weaker than a reconciliation and must not be
+read as one:** it checks what each *row* claims, which is a one-line summary, not
+the entry body behind it. An entry whose table row is right can still have a body
+that has drifted, and thirteen such bodies are known to (see the citation paragraph
+below). The distinction is the whole reason the 2026-08-28 date above is still the
+one that governs.
+
+**FU-50 to FU-68 have not been through that process** — they were written between
 2026-09-01 and 2026-09-12 and cite the source as it stood when each was filed. Spot-
 checked 2026-09-12 (`8b58674`): the citations in the entries added this session
 resolve correctly (`domain/rules.py:57`, `optimizer.py:48`).
 
 **The pre-FU-50 citations have drifted again, and the amount is measured rather than
-guessed.** Of 62 line-number citations in this file, **13 now point at a blank line,
-a bare docstring delimiter, or past the end of the file** — `cli.py:1021`,
-`domain/projections.py:218` and `cli.py:1273` among them. `task/component-1.2` added
-roughly 550 lines to `domain/projections.py` alone, which is most of the cause.
+guessed.** Re-measured 2026-09-12: of **103** distinct `file.py:line` citations in
+this file, **14 point at a blank line or a bare delimiter** — `cli.py:50, 64, 303,
+344, 454, 638`, `domain/projections.py:218, 219`, `projections.py:219` (the same line
+cited a second way, counted separately because a reader has to resolve both spellings),
+`domain/squad.py:68, 140`, `optimizer.py:184, 321`, `tests/test_optimizer.py:237`.
+That is the whole list and it comes to 14. None is past end of file.
+`task/component-1.2` added roughly 550 lines to `domain/projections.py`, which
+remains most of the cause.
+
+*[The earlier figure here was "13 of 62", and it named `cli.py:1021`,
+`domain/projections.py:218` and `cli.py:1273` as examples. Only the middle one
+belongs: `cli.py:1021` and `:1273` both land on substantive lines and so were never
+in this count. They are real drift of the **other** kind — `:1021` is cited three
+times as `_report_live_provenance`, which is at `:1229`, and `:1273` is cited for
+`_DEFAULT_EVALUATE_MODELS`, which is at `:1280`. The examples were right about the
+entries being wrong and wrong about which measure catches them.]*
+
+**Three of the fourteen were moved into blank lines on 2026-09-12 by this repo's own
+`task/fu-17-club`**, which added eight lines to `cli.py` — `:344`, `:454` and `:638`.
+All three were already pointing at unrelated code before that commit, so nothing
+correct was broken; an eight-line change simply converted "wrong but substantive"
+into "visibly wrong", which is the only reason they are now countable. That is the
+mechanism this paragraph describes, observed live in the space of one morning.
 
 That check is weaker than a reconciliation: it establishes only that a cited line is
-*substantive*, not that it says what the entry claims, so 49 is an upper bound on
-how many are right. **A full re-reconciliation is deferred, not done**, and this
-paragraph exists so nobody reads the 2026-08-28 line above and believes the file is
-current. The recurring nature of this is itself recorded in the 2026-08-28 block
+*substantive*, not that it says what the entry claims, so 89 is an upper bound on
+how many are right — and the `cli.py:1021` case above shows the gap between the
+bound and the truth is not small. `domain/projections.py:219` is cited for
+`_build_schedule`, which is at `:933`. **A full re-reconciliation is deferred, not
+done**, and this paragraph exists so nobody reads the 2026-08-28 line above and
+believes the file is current. The recurring nature of this is itself recorded in the 2026-08-28 block
 below, which found thirteen drifted citations by the same measure — the same number,
 two weeks and one large refactor later.
 
@@ -86,13 +115,22 @@ and FU-13's premise was falsified by it.
   now. The bullet is left as the pass found it per the convention above. The
   correction is not that the pass was careless: it is that **a finding of this shape
   expires on the next merge**, because it is a statement about one commit and reads
-  as a property of the file. **Coverage of the 2026-09-12 sweep, so it is not read as
-  more than it was:** thirteen of the twenty-two rows below were re-checked — the
-  twelve whose stated basis is mechanically greppable (FU-4, 5, 6, 12, 14, 20, 21,
-  25, 29, 31, 39, 42), plus FU-15 by hand. **Two of those thirteen were wrong**
-  (FU-15, FU-21, both closed and unmarked) and **two more had bases that no longer
-  said what they meant** (FU-20, FU-29). The remaining nine rows are unverified since
-  2026-08-28. Trust the table's *outcome* column only as far as its date.]*
+  as a property of the file. **The 2026-09-12 sweep ran in two passes and is now
+  complete: all 25 rows below were re-checked against the source that day.** Pass 1
+  took the thirteen whose basis is mechanically greppable (FU-4, 5, 6, 12, 14, 20,
+  21, 25, 29, 31, 39, 42, plus FU-15 by hand): **two were wrong** — FU-15 and FU-21,
+  both closed and unmarked — and **two more had bases that no longer said what they
+  meant** (FU-20, FU-29). Pass 2 took the remaining nine by hand (FU-9, 13, 22, 27,
+  30, 34, 35, 40, 43, the three already-closed rows aside): **every one holds on
+  substance — no further unmarked closes** — but three citations had drifted with
+  `cli.py`'s growth and are corrected in place (FU-30's `384`→`565`, FU-22's
+  `648`→`856`, FU-35's line range), along with FU-9's basis, which described the
+  ledger payload's fields incompletely.
+  **An earlier draft of this note said "twenty-two rows". The table has 25** — the
+  figure came from netting off rows judged not to need checking, and was never
+  stated as such. A count that cannot be reproduced from the document is the exact
+  failure this file exists to stop, so it is corrected rather than quietly
+  overwritten. The nine was right: 25 − 13 checked − 3 already closed = 9.]*
 - Thirteen open entries cite line numbers or symbols that have moved. Bodies
   corrected in place; the corrections are marked so the original claim is still
   legible.
@@ -122,7 +160,7 @@ the source and the defect is still there.
 | FU-4 | Still open, body accurate | No `sqlite` anywhere in `src/`; `storage/cache.py` is JSON only |
 | FU-5 | Still open, body accurate | `chips_played` is written (`squad.py:455`) and parsed (`transfers.py:83`), read by nothing |
 | FU-6 | Still open, body accurate | `SquadPlan.starters/captain/vice_captain` still one value each (`squad.py:23-25`) |
-| FU-9 | Still open, body accurate | `to_ledger_payload` emits `log` and `chips_played` only — no XI, captain or vice-captain |
+| FU-9 | Still open, **basis made precise 2026-09-12** | `to_ledger_payload` (`squad.py:437`) emits `version`, `genesis_event`, `log` and `chips_played` — no XI, captain or vice-captain, which is the claim |
 | FU-12 | Still open, **lines corrected** | `from rich import print` at `cli.py:12`, still mixed with `console.print` |
 | FU-13 | Open, **narrowed** by `task/fu-19-18-13` | Retitled and scoped to `plan evaluate` and `plan simulate`; explicitly not wanted on four others |
 | FU-14 | Still open, **body corrected** | `plan optimise` landed; `squad import`/`export`, `players show`, `squad show` still absent |
@@ -136,10 +174,10 @@ the source and the defect is still there.
 | FU-25 | Still open, body accurate | `DEFAULT_FT_VALUE = 1.5` still a constant (`optimizer.py:48`); no estimator |
 | FU-27 | Still open (won't-do), **symbols corrected** | `_xi_structure`/`_XiStructure` renamed public by FU-26; `ranked` tuples still built |
 | FU-29 | Still open, **basis corrected 2026-09-12** | No `--schedule` *option*. The string now appears at `cli.py:831` — inside the warning that names FU-29 as the reason the search is capped — so the original grep-shaped basis no longer distinguishes the flag from the apology for its absence |
-| FU-30 | Still open, **lines corrected** | `simulate_plan` still takes no `--model` (`cli.py:384`) |
+| FU-30 | Still open, **line re-corrected 2026-09-12** | `simulate_plan` still takes no `--model`, now `cli.py:565` (was cited `384`), and still builds `ComponentProjection` unconditionally at `:603` |
 | FU-31 | Still open, **body corrected** | No `--beam`/`--first-moves`/`--max-cells`; default is now 800M, not 400M |
 | FU-34 | Decided, not implemented — unchanged | No re-check needed; the entry records a decision, not a code claim |
-| FU-35 | **Still open, and confirmed so by FU-28's own source comment** | `optimizer.py:219-223` names FU-35 as the owner of the admission line; `:231` unchanged |
+| FU-35 | **Still open, and confirmed so by FU-28's own source comment** | `optimizer.py:220-223` names FU-35 as the owner of the admission line; the admission line at `:231` is unchanged (both re-checked 2026-09-12) |
 | FU-39 | Still open, body accurate | `DEFAULT_MAX_CELLS` still appears in exactly two places, both `optimizer.py` (`:60`, `:851`) |
 | FU-40 | Open permanently; **two passages superseded** | Standing rule, not closable; FU-41 landed the bundle format it assumed absent |
 | FU-42 | Still open, body accurate | `--archive-dir` at `cli.py:248`; all four cache paths still hardcoded; `FPL_SNAPSHOT` still the only env var read |
@@ -1057,7 +1095,7 @@ complete, `validate_plan`-passing file, so the write path can't omit
 `vice_captain`.
 
 *[Re-checked 2026-08-28 against `99e5afb`; `validate_plan`'s vice-captain checks were
-cited at `55-60`. **`fpl plan optimise --output` now exists** (`cli.py:648`) — but the
+cited at `55-60`. **`fpl plan optimise --output` now exists** (`cli.py:856`, re-checked 2026-09-12) — but the
 trigger this entry names is still unmet, and the distinction is the whole point of the
 entry. `--output` writes a **transfers plan** through
 `transfers.write_transfers_plan` (`domain/transfers.py:116`), a mapping of event to
@@ -1532,7 +1570,7 @@ exist, and stub flags tend to outlive the reason they were added.
 **Deferred from:** `task/optimise-cli`, while verifying the `optimise --output` →
 `simulate` round-trip live.
 
-`simulate_plan` (`cli.py:384`) builds `model = ComponentProjection(...)` unconditionally
+`simulate_plan` (`cli.py:565`, re-checked 2026-09-12) builds `model = ComponentProjection(...)` unconditionally
 — there is no way to tell it which model to project with. `fpl plan optimise`
 (`cli.py:637`) takes `--model component | naive | official-ep`.
 
