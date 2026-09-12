@@ -90,7 +90,7 @@ the source and the defect is still there.
 | FU-13 | Open, **narrowed** by `task/fu-19-18-13` | Retitled and scoped to `plan evaluate` and `plan simulate`; explicitly not wanted on four others |
 | FU-14 | Still open, **body corrected** | `plan optimise` landed; `squad import`/`export`, `players show`, `squad show` still absent |
 | FU-15 | Still open, **lines corrected** | README Commands block still lists three commands, still documents the legacy squad shape |
-| FU-17 | Still open, **lines corrected** | `cli.py:307` unchanged; no `BadParameter` for an unknown club |
+| FU-17 | **Closed** by `task/fu-17-club` (2026-09-12) | `BadParameter` now raised and the accepted club names listed; the short-name mismatch it exposed is filed as FU-68 |
 | FU-18 | **Closed** by `task/fu-19-18-13` | Stays one file; section comments added and a 600-line split threshold recorded |
 | FU-19 | **Closed** by `task/fu-19-18-13` | Block corrected, and `tests/test_claude_md_structure.py` now fails when block and tree disagree |
 | FU-20 | Still open, **lines corrected** | `_build_schedule` still private (`projections.py:219`); no `fixture_count` |
