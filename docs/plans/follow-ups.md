@@ -51,13 +51,43 @@ resolve correctly (`domain/rules.py:57`, `optimizer.py:48`).
 
 **The pre-FU-50 citations have drifted again, and the amount is measured rather than
 guessed.** Re-measured 2026-09-12: of **103** distinct `file.py:line` citations in
-this file, **14 point at a blank line or a bare delimiter** — `cli.py:50, 64, 303,
-344, 454, 638`, `domain/projections.py:218, 219`, `projections.py:219` (the same line
-cited a second way, counted separately because a reader has to resolve both spellings),
-`domain/squad.py:68, 140`, `optimizer.py:184, 321`, `tests/test_optimizer.py:237`.
-That is the whole list and it comes to 14. None is past end of file.
-`task/component-1.2` added roughly 550 lines to `domain/projections.py`, which
+this file, **14 point at a blank line or a bare delimiter**. None is past end of
+file. `task/component-1.2` added roughly 550 lines to `domain/projections.py`, which
 remains most of the cause.
+
+**All three figures here, and the table row count above, are asserted by
+`tests/test_follow_ups_header.py` (FU-69).** Change one and the suite fails naming
+both numbers. The counting rules are part of the contract, because the number is
+meaningless without them and three readings of it differ by more than the drift being
+measured — 133 counting every mention, 103 distinct as written, 99 distinct source
+lines:
+
+- **Distinct, as written.** Repeat mentions of one spelling count once: `cli.py:1021`
+  appears six times and counts once.
+- **Two spellings of one line count twice.** `projections.py:219` and
+  `domain/projections.py:219` are the same source line and two separate strings. Four
+  lines in this file are cited both ways. They count as two because fixing one does
+  **not** fix the other — the second is still wrong and still has to be found.
+- **Resolution order:** `src/fpl_cli/<path>`, then `<path>` from the repo root
+  (which is what reaches `tests/` and `tools/`), then a unique basename match
+  anywhere in the tree. A citation that resolves to nothing fails the suite; there
+  are none today.
+- **Non-substantive** means the line is blank, is a bare `"""`, `'''`, `)`, `]` or
+  `}`, or is past end of file.
+
+The list below is the assertion — the count is derived from it, so the two cannot
+disagree the way they did in this paragraph's first draft. **The block is excluded
+from the scan**, without which it could never empty: its own entries are citations,
+and they would keep themselves alive forever.
+
+<!-- broken-citations:start -->
+```text
+cli.py:50, cli.py:64, cli.py:303, cli.py:344, cli.py:454, cli.py:638,
+domain/projections.py:218, domain/projections.py:219, projections.py:219,
+domain/squad.py:68, domain/squad.py:140, optimizer.py:184, optimizer.py:321,
+tests/test_optimizer.py:237
+```
+<!-- broken-citations:end -->
 
 *[The earlier figure here was "13 of 62", and it named `cli.py:1021`,
 `domain/projections.py:218` and `cli.py:1273` as examples. Only the middle one
@@ -4838,6 +4868,25 @@ in the pinned 2026-09-12 capture. A promoted club could in principle ship a
 
 ## FU-69 — this file's self-referential numbers are hand-typed, and three were wrong
 
+**Status: closed** — `task/fu-69-header-checker` (2026-09-12), filed and closed the
+same day.
+
+Checked in the source: `tests/test_follow_ups_header.py` holds five assertions and a
+parametrised guard on its own heuristic. It asserts the **list** of non-substantive
+citations rather than their count, derives the stated count from that list, and
+checks the citation total and the table row count against the document. The
+declared-breakage block is delimited and excluded from the scan, without which the
+list could never empty. Five mutations were demonstrated failing before the tests
+were kept, one of which had to be strengthened to `replace`-all so it isolated to a
+single assertion.
+
+**What it does not do is the important half, and its module docstring says so
+first.** It is arithmetic over the document plus a file read. Nothing here judges
+whether a citation says what the entry claims — `cli.py:1021` is cited six times for
+a function at `:1229`, lands on a substantive line, and **passes**. A green suite is
+not evidence the citations are right, and the deferred reconciliation above is still
+deferred.
+
 **Filed from:** `task/fu-table-sweep`, 2026-09-12, after the sweep it names corrected
 two of the header's own figures and the sweep's own first draft added a third.
 
@@ -4878,6 +4927,42 @@ instead of the app.
 2. Count the table's rows; count distinct `file.py:line` citations; resolve each
    against the tree and count those landing on a blank line or a bare delimiter.
 3. Assert each stated figure matches. Fail naming the figure and both numbers.
+
+### Two decisions taken before building, 2026-09-12
+
+**1. "Distinct citation" means distinct *as written*, and the rule is stated in the
+header beside the number.** The question is not academic: the same file admits three
+defensible counts that differ by more than the drift being measured — **133**
+counting every mention, **103** distinct as written, **99** distinct source lines.
+`cli.py:1021` is cited six times; four source lines are cited under two spellings
+each (`projections.py:219` and `domain/projections.py:219` among them).
+
+*As written* wins because the measure exists to say how much of this file's
+referencing is stale, and each distinct written string is one thing a reader hits and
+one thing someone has to correct — fixing `domain/projections.py:219` leaves
+`projections.py:219` wrong and still to be found, so counting source lines understates
+the work. Every-mention is the most volatile: quoting a line once more in prose moves
+the number while nothing has become more or less stale.
+
+**The rule is written into the header, not just into the test.** Without that, the
+next person to update the number recounts their own way, gets 99, "corrects" the
+header, and the suite starts failing with nothing wrong — at which point the test is
+edited to agree or deleted. That is how a check like this dies, and it dies looking
+like the test's fault.
+
+**2. The test asserts the *list*, not the count.** The denominator was never the
+interesting number; **14** is, and 103 exists only to give it context. A list fails
+informatively — *"`cli.py:454` now points at a blank line"* rather than *"expected
+14, got 15"* — and it documents itself. The stated count is then derived from the
+list and checked against it, which is a real assertion rather than a tautology: this
+paragraph's first draft stated 14 above a list of 13, and that is exactly the defect
+it would have caught.
+
+**The list block must be excluded from the scan.** Its entries are themselves
+`file.py:line` citations. Scanned, they would keep themselves in the result forever —
+correct a citation in FU-39's body and the header's copy still cites the blank line,
+so the list could never empty. It is delimited by `<!-- broken-citations:start -->` /
+`<!-- broken-citations:end -->` and the scanner skips that region.
 
 **In `tests/`, not `tools/`.** It asserts rather than reports, which is the
 distinction that puts `calibration_report.py` in one and
