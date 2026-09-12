@@ -65,6 +65,18 @@ header's own findings list claimed no entry was in that state. Both were found
 by accident on 2026-09-12. An entry that overstates what is still broken costs
 a future session the work of rediscovering it is already done.
 
+**Deliberately not machine-checked, unlike the Structure block above.** The
+obvious check — a hook rejecting a commit whose message names FU-N without
+touching follow-ups.md — was considered and declined on 2026-09-12. It would
+have caught FU-15, whose commit message *does* name the entry, and missed
+FU-21, whose does not: that close was a side effect of implementing
+`component/1.2` and nobody was thinking about FU-21 at all. So it catches the
+case where the author already has the entry in mind and misses the case where
+they do not, which is the one that actually fails. It also cannot check the
+thing that gives a Status line its value — whether what it says about the
+source is *true*. That is a prose judgement, and prose judgement is the whole
+job here.
+
 ## Commands
 - Install: `pip install -e ".[dev]"`
 - Test: `pytest -q`
