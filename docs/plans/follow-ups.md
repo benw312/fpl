@@ -19,6 +19,19 @@ been half-fixed stops reading as untouched.
 the work** — they are two records of one fact and they have drifted apart twice.
 `CLAUDE.md`'s Follow-ups section states the obligation; this header owns the format.
 
+**Format pass, 2026-09-12, and what it deliberately left alone.** Every entry was
+checked against the table mechanically: **the two agree on every row** — the drift
+found earlier that day was real and is now fixed. Two markers were added: **FU-56**,
+whose close was stated in prose but carried no `Status` line and so did not scan as
+closed, and **FU-60**, the live entry, whose leg-1 result was recorded only at §6.3.
+
+**The convention was not retrofitted to historical entries, and this is a decision.**
+A `Progress` line reconstructed from a plan document rather than from the work would
+be a date and a claim nobody verified — inventing detail, which this repo forbids and
+which would make the marker worth less than its absence. Entries worked on before
+2026-09-12 carry their history in their bodies, where it has always been. The
+convention binds from here.
+
 **Last reconciled against `main`:** 2026-08-28 (`99e5afb`) for FU-1 to FU-49. Every
 entry in that range was checked against the source at that commit, not against the
 commit log.
@@ -3787,6 +3800,17 @@ suits both. Settling it means the same evaluation FU-54 needs.]`
 
 ## FU-56 — a published percentage outside 0-100 inverted the whole projection
 
+**Status: closed** — `task/component-1.2` (2026-09-02). The body below always said
+so in prose; the marker was added 2026-09-12 so the entry scans as closed.
+
+Checked in the source: `_as_probability` (`projections.py:549`) clamps to [0, 1] at
+the single point a published percentage enters the minutes model. **It is on the
+default path, not gated behind `component/1.2`** — the call at `:628` is branch 4,
+which is what `_availability` delegates to for `NaiveProjection` and every pre-1.2
+caller, so `component/1.1-price` carries the fix too. This distinguishes it from
+FU-21, whose close *is* variant-gated. Guarded by `tests/test_minutes_structure.py`,
+which names dropping the clamp as the mutation it must fail against.
+
 **Filed from:** `task/component-1.2`, 2026-09-02. **Fixed on the same branch**, as
 the fix and the test that prevents its recurrence are one concern.
 
@@ -3951,6 +3975,17 @@ operations.]`
 ---
 
 ## FU-60 — Pre-registration: component/1.2 against component/1.1-price
+
+**Progress: 2026-09-12** — in flight, one leg of two settled.
+**Leg 1 (GW3) passed** on 2026-09-11: `spearman_played` 0.348 against 0.316, +0.032,
+strictly greater. Recorded in §6.3 below and in
+[gw3-evaluation.md](gw3-evaluation.md). **Leg 2 (GW4) is pending**: deadline passed
+2026-09-12T12:30Z, settling ~2026-09-15, its pre-deadline inputs pinned and its
+fixture list checked clean before kick-off — [gw4-evaluation.md](gw4-evaluation.md).
+**Nothing is promoted and §7's freeze on FU-57 and FU-58 still holds.** This line
+says where the entry stands; it does not restate the criterion, and it is not a
+reading of anything — §1, §5 and §6.2 fix every outcome in advance and §8 forbids
+re-reading them.
 
 **This entry is a written commitment, not a feature.** Nothing here is to be built.
 No code change of any kind is implied. It is a decision rule written down before the
