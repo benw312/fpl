@@ -110,7 +110,18 @@ consumes: `selected_by_percent`, `chance_of_playing_this_round` and `_next_round
 `game_config.scoring`. **`defensive_contribution_per_90` does not exist before the
 2025/26 rule change at all**, and expected-goals fields appeared in the FPL payload
 only in recent seasons. The further back the archive reaches, the less of our model
-can be run on it. `[gap: which fields are present in which of vaastav's seasons is
+can be run on it. `[gap — VERIFIED 2026-09-12, see [vaastav-survey.md](../research/vaastav-survey.md)
+§2; original text follows. **(a) is confirmed fatal, and the reasoning above is
+wrong.** The obstacle is not sparse columns in old seasons: cumulative stats are
+reconstructible by summing the per-gameweek files from 2022-23, and `position` from
+2020-21. It is that `status`, `chance_of_playing_*` and `news` — the inputs to every
+one of S1 to S5 — exist only as **one end-of-season snapshot per season** and are
+overwritten in place, so they cannot be reconstructed for any past gameweek in any
+season, 2025-26 included. Ownership is the one partial exception: `selected` is a
+per-gameweek count, so it is approximately recoverable. The **outcome-distribution**
+use in §4.2 is meanwhile wide open — six complete seasons — and has been done.]`
+
+`[gap: which fields are present in which of vaastav's seasons is
 asserted from general knowledge and is NOT verified — no fetch was made. Verifying it
 is the first step of any work here, and it may kill (a) outright.]`
 
