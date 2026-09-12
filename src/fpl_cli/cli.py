@@ -324,7 +324,15 @@ def list_players(
         players = [player for player in players if player.element_type == position_id]
     if club:
         club_id = clubs.get(club.lower())
-        players = [player for player in players if player.team == club_id] if club_id else []
+        if club_id is None:
+            # FU-17: an unknown club used to fall through to an empty list, which
+            # is indistinguishable from a club that genuinely matched nothing.
+            # The valid set is known here — it came from the snapshot four lines
+            # up — so name it rather than leaving the user to guess. `--club`
+            # matches full names only, so the list also discloses that (FU-68).
+            known = ", ".join(sorted(item.name for item in snapshot.teams))
+            raise typer.BadParameter(f"Unknown club {club!r}. Known clubs: {known}")
+        players = [player for player in players if player.team == club_id]
     if name:
         query = name.lower()
         players = [player for player in players if query in player.display_name.lower()]
