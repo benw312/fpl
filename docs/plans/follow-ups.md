@@ -9,6 +9,16 @@ from the plans in this directory, so it must not shift. A closed entry carries a
 code, not just what the commit claimed. Its body is left as written, so where the
 fix diverged from the entry the Status line says how.
 
+**An entry that was worked on but not finished carries a dated
+`**Progress: YYYY-MM-DD**` line** saying what changed and what is left, and stays
+open. It is deliberately a different marker from **Status**, so that scanning for
+what is done cannot pick up what is merely underway — and so that an entry which has
+been half-fixed stops reading as untouched.
+
+**Both the entry and the open-entry table below are updated in the same commit as
+the work** — they are two records of one fact and they have drifted apart twice.
+`CLAUDE.md`'s Follow-ups section states the obligation; this header owns the format.
+
 **Last reconciled against `main`:** 2026-08-28 (`99e5afb`) for FU-1 to FU-49. Every
 entry in that range was checked against the source at that commit, not against the
 commit log.

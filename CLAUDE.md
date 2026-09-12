@@ -44,6 +44,27 @@ checked, the prose around it is not.
 - Tests use a synthetic dataset and mocked responses. No live API in tests.
 - Flag gaps and assumptions in [square brackets] rather than inventing detail.
 
+## Follow-ups
+`docs/plans/follow-ups.md` is the register, and it is only worth what its
+entries say about the code *now*. Working on an FU means updating its entry
+**in the same commit as the work** — not afterwards, not in a tidy-up pass.
+
+- **Partial progress:** add a dated `**Progress: YYYY-MM-DD**` line saying what
+  changed and what is left. The entry stays open.
+- **Closed:** add the `**Status: closed**` line, naming the commit or branch.
+  Say what was checked **in the source**, not what the commit message claimed,
+  and where the fix diverged from the entry, say how. The file's header
+  specifies the format; follow it there rather than restating it here.
+- **Update the entry *and* the header's open-entry table.** They are two
+  records of the same fact and they drift apart silently.
+- Numbering never shifts, so closed entries stay in place.
+
+**This is the file's recurring failure, not a hypothetical.** FU-15 and FU-21
+each sat closed-in-code and unmarked for fifteen and ten days, while the
+header's own findings list claimed no entry was in that state. Both were found
+by accident on 2026-09-12. An entry that overstates what is still broken costs
+a future session the work of rediscovering it is already done.
+
 ## Commands
 - Install: `pip install -e ".[dev]"`
 - Test: `pytest -q`
