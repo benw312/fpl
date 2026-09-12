@@ -90,7 +90,7 @@ the source and the defect is still there.
 | FU-13 | Open, **narrowed** by `task/fu-19-18-13` | Retitled and scoped to `plan evaluate` and `plan simulate`; explicitly not wanted on four others |
 | FU-14 | Still open, **body corrected** | `plan optimise` landed; `squad import`/`export`, `players show`, `squad show` still absent |
 | FU-15 | Still open, **lines corrected** | README Commands block still lists three commands, still documents the legacy squad shape |
-| FU-17 | Still open, **lines corrected** | `cli.py:307` unchanged; no `BadParameter` for an unknown club |
+| FU-17 | **Closed** by `task/fu-17-club` (2026-09-12) | `BadParameter` now raised and the accepted club names listed; the short-name mismatch it exposed is filed as FU-68 |
 | FU-18 | **Closed** by `task/fu-19-18-13` | Stays one file; section comments added and a 600-line split threshold recorded |
 | FU-19 | **Closed** by `task/fu-19-18-13` | Block corrected, and `tests/test_claude_md_structure.py` now fails when block and tree disagree |
 | FU-20 | Still open, **lines corrected** | `_build_schedule` still private (`projections.py:219`); no `fixture_count` |
@@ -624,6 +624,22 @@ content is not duplicated.
 ---
 
 ## FU-17 — `players list --club` fails silently on an unknown club
+
+**Status: closed** — `task/fu-17-club` (2026-09-12). `cli.py` now raises
+`typer.BadParameter` naming the unknown club **and listing the clubs that would have
+worked**, which the entry's suggested fix did not ask for: `--club` matches
+`Club.name` only, so the commonest bad value is a correct club typed as a short name
+("LIV"), and an error that names only the bad value reads as a spelling dispute over
+a name the user knows is right. That mismatch is filed separately as **FU-68**; this
+entry closes on the silent-failure defect alone, which was the whole of its claim.
+
+Checked in the source, not in the commit message: the `if club_id is None` branch
+raises before the filter, the filter no longer carries an `else []`, and case-folding
+survives on both the keys and the lookup. `tests/test_players_list_filters.py` has
+four assertions, each naming the mutation it must fail against, all four demonstrated
+failing before being kept — including the one that isolates case-insensitivity from
+the other three (fold-dropping on keys *and* lookup, since dropping it on the lookup
+alone trips two tests and isolates nothing).
 
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8.
 
@@ -4635,3 +4651,42 @@ gameweek variation.]`
 projected elements. Share is invariant to population *size* but not to population
 *composition* — if our element set carries a different positional mix than the
 archive's, part of the gap is that. Not checked, and it is cheap to check.]`
+
+---
+
+## FU-68 — `--club` matches full names only, so the name a user reaches for first fails
+
+**Filed from:** `task/fu-17-club`, 2026-09-12, while fixing FU-17.
+
+`cli.py:318` builds the lookup from one field:
+
+```python
+clubs = {item.name.lower(): item.id for item in snapshot.teams}
+```
+
+`Club` carries **both** `name` and `short_name` (`api/models.py:77-78`), and the
+snapshot publishes both. Only `name` is accepted, so `--club Liverpool` works and
+`--club LIV` does not — while `players list`'s own output column renders
+`short_name` in preference to `name` (`cli.py:472`, `(club.short_name or club.name)`).
+**The application shows the user one identifier and accepts only the other.**
+
+This was invisible before FU-17 because the failure was silent: `--club LIV` returned
+an empty table, which reads as "no players" rather than "wrong field". FU-17's fix
+makes it a loud rejection, which is why the fix also lists the accepted names — that
+is a disclosure of this defect, not a repair of it.
+
+**Fix:** accept either field. Build the lookup from both, and decide what happens on
+a collision — `name` should win, since it is the unambiguous one, but no collision
+exists in the current snapshot (checked: 20 clubs, 40 distinct keys) so the rule is
+unexercised and should not be chosen on the strength of this season's data alone.
+
+**Not done here** under one-concern-per-branch: FU-17 is a silent-failure defect and
+this is an input-vocabulary enhancement. Bundling them would have made the FU-17 fix
+untestable as the thing it claims to be.
+
+**Related:** FU-14 (`players show` unimplemented) will need the same lookup, so
+whoever does that should do this first rather than copy `list`'s.
+
+`[gap: no check that `name` and `short_name` are collision-free across seasons, only
+in the pinned 2026-09-12 capture. A promoted club could in principle ship a
+`short_name` equal to another club's `name`; the fix should not assume otherwise.]`
