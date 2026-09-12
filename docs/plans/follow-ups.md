@@ -4833,3 +4833,134 @@ whoever does that should do this first rather than copy `list`'s.
 `[gap: no check that `name` and `short_name` are collision-free across seasons, only
 in the pinned 2026-09-12 capture. A promoted club could in principle ship a
 `short_name` equal to another club's `name`; the fix should not assume otherwise.]`
+
+---
+
+## FU-69 — this file's self-referential numbers are hand-typed, and three were wrong
+
+**Filed from:** `task/fu-table-sweep`, 2026-09-12, after the sweep it names corrected
+two of the header's own figures and the sweep's own first draft added a third.
+
+**The defect.** The header states numbers *about this document* — how many rows the
+open-entry table has, how many `file.py:line` citations the file carries, how many of
+those resolve to a blank line. Every one is typed by hand, none is checked, and on
+2026-09-12 three were wrong at once:
+
+| claim | was | is |
+|---|---|---|
+| open-entry table rows | "twenty-two" | **25** |
+| line-number citations | "62" | **103** |
+| citations pointing at a blank line | "13" | **14** |
+
+The row count was wrong because it netted off rows judged not to need checking and
+never said so. The citation figures were simply stale. **All three are decidable from
+the file and the source alone**, with no judgement of any kind, which is what makes
+them worth a test rather than a convention.
+
+**Why this is not the hook that was declined on the same day.** `CLAUDE.md`'s
+Follow-ups section records that a commit-message hook was considered and rejected,
+because it cannot check the thing that gives a Status line its value — whether a
+prose claim *about the source* is true. That argument does not reach here. A row
+count is arithmetic over the document; a citation resolving to a blank line is a file
+read. Neither is a judgement about the world. **Check what is decidable inside the
+document; do not machine-check prose judgement about the code.** That is the line,
+and this entry sits on the safe side of it.
+
+**Precedent, which is why this is small.** `tests/test_claude_md_structure.py`
+already parses a prose count out of the README — *"Eight commands."* — via
+`documented_command_count`, and asserts it against the Typer app's own
+`registered_commands`. FU-19 built it. The same shape applies here, against this file
+instead of the app.
+
+**Scope.**
+
+1. Parse the header's three stated figures.
+2. Count the table's rows; count distinct `file.py:line` citations; resolve each
+   against the tree and count those landing on a blank line or a bare delimiter.
+3. Assert each stated figure matches. Fail naming the figure and both numbers.
+
+**In `tests/`, not `tools/`.** It asserts rather than reports, which is the
+distinction that puts `calibration_report.py` in one and
+`test_claude_md_structure.py` in the other.
+
+**What it must not be trusted for, and the test should say so in its docstring.**
+The substantive check is a *heuristic*: it establishes that a cited line is not
+blank, never that it says what the entry claims. `cli.py:1021` is cited three times
+as `_report_live_provenance`, which is at `:1229`, and lands on a substantive line
+throughout — this test would pass it. It guards the **count**, not the
+**correctness**, and an entry that over-trusts it is worse than no entry.
+
+**Mutation discipline** applies as everywhere: each assertion names the mutation it
+must fail against, demonstrated failing before it is kept. At minimum — a row added
+to the table without updating the stated count, and a citation edited to point past
+end of file.
+
+**Relationship to FU-70, which matters before anyone starts.** FU-70 proposes
+generating the table from per-entry data. **If FU-70 lands, roughly half of this
+entry is subsumed** — a generated table cannot disagree with a generated count. The
+citation-resolution half survives it, because citations point *out* of the document
+at source files the generator does not own. Worth knowing that this is partly
+interim work, and worth doing anyway: FU-70 is a larger change and this guards the
+file in the meantime.
+
+`[gap: "distinct citation" is doing work in the figure of 103, and the two spellings
+of `projections.py:219` are counted separately because a reader must resolve both.
+That is a defensible choice and not the only one; the test has to fix a definition
+and the header has to state the same one, or the two will disagree for a reason
+nobody can see.]`
+
+---
+
+## FU-70 — the same fact is recorded in three places by hand, and drifts
+
+**Filed from:** `task/fu-table-sweep`, 2026-09-12. The direction this file should
+eventually go; **not** to be started before FU-69, and not at all without a plan.
+
+**The defect, which is structural rather than a mistake anyone made.** An entry's
+state lives in three hand-maintained places:
+
+1. the entry's own `**Status:**` / `**Progress:**` line,
+2. the header's open-entry table row,
+3. the current handoff's follow-up inventory (`handoff-2026-09-12.md` §4).
+
+Nothing keeps them in agreement, and on 2026-09-12 **every pairing had drifted at
+least once**: FU-15 and FU-21 were closed in the source with (1) and (2) both silent;
+FU-17 had (1) marked and (2) stale on the same branch, within the same hour; and (3)
+was missing FU-68 on the morning it was filed.
+
+`CLAUDE.md`'s rule — update all of them in the commit that does the work — is the
+right discipline and it is still a discipline. It makes the duplication survivable;
+it does not remove it.
+
+**The shape of the fix.** Give each entry machine-readable metadata — frontmatter or
+a sidecar data file — carrying at least `status`, `closed_by`, `filed_from`, `date`.
+Then (2) and (3) are **generated**, not written, and cannot disagree with (1) because
+they are derived from it. The prose body stays exactly as it is: the argument is the
+value of this file and no schema should touch it.
+
+**Why not now.**
+
+- It is a change to every one of 68 entries, and a bad schema is worse than none —
+  the fields have to be settled against what the table and the inventory actually
+  need to say, which is not obvious from either.
+- It needs a written plan under this repo's own rule for anything non-trivial.
+- Doing it while FU-60's pair is mid-flight would churn the file that records the
+  pre-registration, for no benefit to the decision in flight.
+
+**What it would have prevented, stated exactly.** Both unmarked closes would still
+have happened — the *source* changed and nobody told the file, which no generator
+can detect. What it removes is the second-order failure: the table saying one thing
+while the entry says another, and a reader having no way to know which is current.
+That is three of the four drifts found on 2026-09-12, and it is the class that
+wasted the most time.
+
+`[gap: a generated table means an entry's state becomes a field someone sets, and a
+field is easier to set wrongly than a sentence is to write wrongly — the sentence at
+least forces you to say what you checked. The plan needs to decide whether the
+generated row carries the Status line's *reasoning* or only its verdict, and losing
+the reasoning would be a real regression from what the table does today.]`
+
+`[gap: the handoff is a dated snapshot and is *supposed* to go stale — it records
+what was true when it was written. Generating (3) from live data would change what a
+handoff is. Whether that is wanted is a genuine question, not an oversight, and the
+plan must answer it rather than assume the third copy is simply redundant.]`
