@@ -4519,3 +4519,59 @@ gameweeks behind the snapshot's finished count is detectable in one line, and
 `plan optimise` could say so rather than silently proceeding. Whether that belongs
 as a warning, a refusal, or nothing at all is a UX decision this entry does not
 take — and it is the only part of this that is a code change.]`
+
+---
+
+## FU-67 — the model's points are skewed toward defenders, measured against six seasons
+
+**Filed from:** `task/route-a-distribution-check`, 2026-09-12, by
+`tools/distribution_check.py` §2. Reference figures in
+[vaastav-survey.md](../research/vaastav-survey.md) §4 and §6(a).
+
+**Measured.** Share of total points by position — historical, over 226 gameweeks of
+2020-21 to 2025-26, against what each model projects for GW3 on the pinned capture
+(`0cc7193b5e20…`):
+
+| | GKP | DEF | MID | FWD |
+|---|---|---|---|---|
+| **historical share of actual points** | 8.3% | 31.8% | 45.5% | 13.5% |
+| `component/1.2` | 8.4% | **36.1%** | 43.7% | 11.8% |
+| `component/1.1-price` | **11.7%** | 33.6% | 41.9% | 12.7% |
+
+`component/1.2` over-weights defenders by **4.3 points of share** (a 13% relative
+over-allocation) and under-weights midfielders and forwards.
+`component/1.1-price` puts half again the historical share on goalkeepers.
+
+**Why this is worth a separate entry.** Share of points is **population-size
+invariant**, so unlike a total it is not confounded by our 652-element population
+against the archive's 586-780. It is also invisible to every metric we compute:
+`spearman_played` is a single ranking across all positions, and RMSE is dominated
+by the many low scorers. Nothing in `plan evaluate` would show this.
+
+**It is not obviously a minutes problem.** Both variants over-weight defenders, and
+they differ only in the minutes term — so FU-57 is unlikely to be the whole cause.
+The candidates are the clean-sheet term (`p60 * exp(-xg_against) * scoring`), which
+is the largest defender-specific component, and the defcon threshold constants,
+which apply to DEF and MID but not GKP.
+
+**Related shape from the same survey, which may be the same finding seen from the
+other end.** vaastav-survey.md §4 measures that defenders haul *often and small*
+(39.8% of all haulers, 82% of their hauls 5-8 points, 4.5% at 13+) while midfielders
+haul *rarely and huge* (17.4% haul rate but 10.4% at 13+, maximum 26). A model
+fitting conditional means on a compressed scale (FU-62) will represent the reliable
+small returns better than the rare large ones, which would inflate DEF share at
+MID's expense — exactly the direction observed.
+
+**Do not act on this before FU-57 and FU-60's pair.** `component/1.2` is frozen
+until the GW3+GW4 pair completes (FU-60 §7), and the clean-sheet and defcon terms are
+rate-side constants that FU-50 §3 governs. This is a measurement, filed.
+
+`[gap: one gameweek of our own against a six-season reference. GW3's positional
+split could be unusual — the historical figure has a sd across gameweeks that is not
+computed here, so "4.3 points of share" has no error bar and might be inside normal
+gameweek variation.]`
+
+`[gap: the historical share is over the archive's population and ours is over 652
+projected elements. Share is invariant to population *size* but not to population
+*composition* — if our element set carries a different positional mix than the
+archive's, part of the gap is that. Not checked, and it is cheap to check.]`
