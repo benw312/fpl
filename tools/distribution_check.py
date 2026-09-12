@@ -132,6 +132,84 @@ PLAYED_ABOVE: dict[int, float] = {
 }
 
 
+# --- The rule change, and why the pooled figures above are the wrong reference
+# for two of the four positions ---------------------------------------------
+#
+# Defensive-contribution points arrived in 2025-26. Measured on the archive, the
+# defenders' share of all points moved from a five-season pre-rule mean of 31.5%
+# to 35.0% in 2025-26 — a 3.5-point step, nearly as large as the 4.3-point
+# gameweek-to-gameweek standard deviation. Pooling across that change therefore
+# understates DEF and overstates MID for any season played under the new rules,
+# and `POSITION_SHARE_OF_POINTS` above must NOT be used as the reference for one.
+#
+# It moved the level too: total points per played player ran 2.864 in 2024-25
+# against 2.994 in 2025-26.
+#
+# So the post-rule figures below are the correct reference and the pooled ones
+# above are kept only for contrast. The cost is real and is stated rather than
+# hidden: **this is one season**, so a round-level entry here is a single
+# observation where the pooled table averages six. Read the level from it with
+# that in mind; the season-long position shares are the part that is tight.
+POSTRULE_ROUND_NORMS: dict[int, tuple[float, float]] = {
+    1: (3.210, 1.392),
+    2: (2.895, 1.283),
+    3: (3.076, 1.307),
+    4: (3.190, 1.313),
+    5: (2.731, 1.123),
+    6: (2.688, 1.125),
+    7: (2.891, 1.208),
+    8: (3.062, 1.260),
+    9: (2.908, 1.226),
+    10: (2.927, 1.187),
+    11: (3.168, 1.277),
+    12: (2.987, 1.199),
+    13: (2.855, 1.150),
+    14: (3.141, 1.264),
+    15: (2.981, 1.217),
+    16: (3.070, 1.216),
+    17: (3.023, 1.186),
+    18: (3.058, 1.156),
+    19: (3.293, 1.241),
+    20: (3.027, 1.142),
+    21: (3.034, 1.126),
+    22: (3.131, 1.140),
+    23: (2.941, 1.110),
+    24: (2.954, 1.100),
+    25: (2.858, 1.060),
+    26: (2.866, 1.049),
+    27: (3.071, 1.115),
+    28: (2.804, 1.031),
+    29: (2.951, 1.101),
+    30: (3.230, 1.163),
+    31: (3.041, 1.113),
+    32: (2.983, 1.094),
+    33: (3.112, 1.133),
+    34: (3.049, 1.074),
+    35: (2.856, 1.047),
+    36: (3.040, 1.071),
+    37: (2.853, 1.039),
+    38: (2.817, 1.045),
+}
+
+POSTRULE_POSITION_SHARE: dict[str, float] = {
+    "GKP": 0.075,
+    "DEF": 0.350,
+    "MID": 0.453,
+    "FWD": 0.123,
+}
+
+POSTRULE_PLAYED_ABOVE: dict[int, float] = {
+    2: 0.5863,
+    3: 0.3678,
+    4: 0.2804,
+    5: 0.2200,
+    6: 0.1799,
+    8: 0.0933,
+    10: 0.0446,
+    13: 0.0156,
+}
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -166,14 +244,15 @@ def main(argv: list[str] | None = None) -> int:
             actuals = actuals_from_live_event(LiveEvent(**payload["live"]))
 
     per_played, per_pop, seasons = ROUND_NORMS[args.event]
+    post_played, post_pop = POSTRULE_ROUND_NORMS.get(args.event, (per_played, per_pop))
     ids = [player.id for player in snapshot.elements]
     positions = {p.id: snapshot.positions[p.element_type].singular_name_short for p in snapshot.elements}
     models = tuple(args.model) if args.model else ("component/1.1-price", "component/1.2")
 
     print(f"GW{args.event}  capture {sha256(pinned / bootstrap)[:12]}…  "
           f"fixtures {sha256(pinned / fixtures_file)[:12]}…")
-    print(f"norm for round {args.event}: {per_played:.3f} pts per played, {per_pop:.3f} per population "
-          f"({seasons} seasons, 2020-21 to 2025-26)")
+    print(f"round {args.event} norms — pooled 2020-26: {per_played:.3f} per played, {per_pop:.3f} per pop "
+          f"({seasons} seasons);  2025-26 post-rule: {post_played:.3f} / {post_pop:.3f} (1 season)")
     print(f"population projected: {len(ids)}")
 
     realised_total = realised_played = None
@@ -184,10 +263,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"this season realised: {realised_total} pts over {len(scored)} projected, "
               f"{realised_played} played → {realised_total / realised_played:.3f} per played, "
               f"{realised_total / len(scored):.3f} per population "
-              f"({pct(realised_total / len(scored) / per_pop - 1)} vs norm)")
+              f"({pct(realised_total / len(scored) / per_pop - 1)} vs pooled, "
+              f"{pct(realised_total / len(scored) / post_pop - 1)} vs post-rule)")
 
     print("\n=== §1 TOTAL POINTS (valid: expectations are additive) ===")
-    print(f"{'model':<28} {'sum xP':>9} {'per pop':>9} {'vs norm':>9} {'vs realised':>12}")
+    print(f"{'model':<28} {'sum xP':>9} {'per pop':>9} {'vs pooled':>10} {'vs postrule':>12} {'vs realised':>12}")
     projections = {}
     for name in models:
         model = variants.build(variants.get(name), snapshot, fixtures)
@@ -196,13 +276,18 @@ def main(argv: list[str] | None = None) -> int:
         total = sum(p.xp_total for p in rows.values())
         against_realised = pct(total / realised_total - 1) if realised_total else "    n/a"
         print(f"{model.name:<28} {total:>9.0f} {total / len(ids):>9.3f} "
-              f"{pct(total / len(ids) / per_pop - 1):>9} {against_realised:>12}")
+              f"{pct(total / len(ids) / per_pop - 1):>10} "
+              f"{pct(total / len(ids) / post_pop - 1):>12} {against_realised:>12}")
 
     print("\n=== §2 SHARE OF PROJECTED POINTS BY POSITION (valid: population-invariant) ===")
     header = f"{'model':<28} " + " ".join(f"{p:>9}" for p in ("GKP", "DEF", "MID", "FWD"))
     print(header)
-    print(f"{'historical share':<28} " + " ".join(
-        f"{POSITION_SHARE_OF_POINTS[p]:>9.1%}" for p in ("GKP", "DEF", "MID", "FWD")))
+    print(f"{'2025-26 (post-rule) share':<28} " + " ".join(
+        f"{POSTRULE_POSITION_SHARE[p]:>9.1%}" for p in ("GKP", "DEF", "MID", "FWD"))
+        + "   <- the reference")
+    print(f"{'2020-26 pooled (pre-rule mix)':<28} " + " ".join(
+        f"{POSITION_SHARE_OF_POINTS[p]:>9.1%}" for p in ("GKP", "DEF", "MID", "FWD"))
+        + "   (contrast only — spans the defcon change)")
     for name, rows in projections.items():
         by_position = collections.Counter()
         for pid, projection in rows.items():

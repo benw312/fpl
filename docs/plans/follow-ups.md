@@ -4524,6 +4524,46 @@ take — and it is the only part of this that is a code change.]`
 
 ## FU-67 — the model's points are skewed toward defenders, measured against six seasons
 
+**Status: REFUTED the same day it was filed** — `task/fu-67-error-bars`, 2026-09-12.
+Kept in full below because the mistake is more instructive than the entry was.
+
+**The gap was an artefact of the reference, not a property of the model.**
+Defensive-contribution points arrived in **2025-26**, and the defenders' share of
+all points stepped from a five-season pre-rule mean of **31.5% to 35.0%**. The
+"historical 31.8%" this entry was filed against pooled five pre-rule seasons with
+one post-rule season, so it was the wrong reference for a season played under the
+new rules. Against the correct post-rule reference the gap is **+1.1 points of
+share, not +4.3**.
+
+Three further measurements, each of which alone would have been enough:
+
+| check | result |
+|---|---|
+| gameweek-to-gameweek sd of DEF share | **4.3 points** — the original +4.3 gap was 1.0 sd, i.e. one gameweek of ordinary variation |
+| our population's positional mix vs the archive's | within 1.4 points everywhere — **composition is not the explanation**, closing this entry's second gap |
+| model vs **this season's own realised** share | DEF **+0.2%** mean over GW2 and GW3 (realised 32.0% then 40.8%; model 37.1% then 36.1%) |
+
+This season is running at a DEF share of **36.4%**, above even the post-rule 35.0%,
+and `component/1.2` projects 36.6%. **The model is tracking its season correctly.**
+
+**What remains, and it is a different question.** The model matches this season
+because it is built from this season's rates, so it cannot distinguish "defenders
+really are scoring more this year" from "three gameweeks of defender-heavy rates
+that will revert toward 35%". That is a mean-reversion question about
+`RateShrinkageConfig`'s priors, not a positional bias, and it is not filed here
+because nothing measures it yet.
+
+**The lesson, which is the reason this entry is kept.** A six-season reference is
+not automatically better than a two-gameweek one. Pooling across a scoring-rule
+change imported a bias larger than the effect being looked for, and the pooled
+figure looked authoritative precisely because it rested on 227 gameweeks.
+`tools/distribution_check.py` now reports the post-rule reference as *the*
+reference and the pooled one as contrast only.
+
+*Original entry follows.*
+
+### FU-67 as filed
+
 **Filed from:** `task/route-a-distribution-check`, 2026-09-12, by
 `tools/distribution_check.py` §2. Reference figures in
 [vaastav-survey.md](../research/vaastav-survey.md) §4 and §6(a).

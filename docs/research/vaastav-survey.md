@@ -227,11 +227,11 @@ constants; nothing reads the archive at runtime. Three findings on first run:
    **+8.5% above** the historical round-3 average. `component/1.1-price` moves the
    other way — +12.3% against realised, **+21.9%** against history. Two settled
    gameweeks could not have told us this, which is the whole point of route (a).
-2. **The positional allocation is skewed.** Historical share of points is GKP 8.3% /
-   DEF 31.8% / MID 45.5% / FWD 13.5%. `component/1.2` projects 8.4 / **36.1** /
-   43.7 / 11.8 — defenders over-weighted by 4.3 points of share, midfielders and
-   forwards under. `component/1.1-price` puts **11.7%** on goalkeepers, half again
-   the historical share. Filed as **FU-67**.
+2. **The positional allocation looked skewed, and was not.** Filed as FU-67 and
+   **refuted the same day** — see below. The pooled reference spanned the
+   defensive-contribution rule change, which is the whole of the apparent gap.
+   `component/1.1-price`'s goalkeeper share, 11.7% against a post-rule 7.5%,
+   survives the correction and is the one part of that entry still standing.
 3. **The compression is starker than FU-62 could show.** History says 22.0% of
    players who appear score ≥ 5. `component/1.1-price` projects **zero** players
    above 5 out of 652; `component/1.2` projects three. Reported explicitly as a
@@ -241,6 +241,20 @@ constants; nothing reads the archive at runtime. Three findings on first run:
 **Round-indexed, not season-averaged**, because the element set grows from ~586 in
 round 1 to ~780 by round 38; comparing an early gameweek against a season average
 would use the wrong denominator.
+
+**A correction to §4 and to the tool, found by chasing finding 2.** Defensive
+contribution arrived in 2025-26 and moved the defenders' share of all points from a
+five-season pre-rule mean of **31.5% to 35.0%** — a step nearly as large as the
+4.3-point gameweek-to-gameweek standard deviation — and lifted points per played
+player from 2.864 to 2.994. **So the pooled six-season figures in §3 and §4 are the
+wrong reference for any season played under the current rules**, and the tool now
+reports 2025-26 alone as the reference with the pooled set kept for contrast. The
+cost is stated where it is used: one season means a round-level norm is a single
+observation where the pooled table averages six.
+
+This is the trap route (a) exists to avoid, sprung in the other direction: a
+six-season reference is not automatically better than a two-gameweek one, and 227
+gameweeks of authority made the wrong number look right.
 
 **(b) As a prior for a per-position calibration map.** §4's position shapes are the
 target a calibration would map onto. Needs `rank-calibration.md`'s criterion problem
