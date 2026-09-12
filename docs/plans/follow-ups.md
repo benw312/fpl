@@ -9,8 +9,28 @@ from the plans in this directory, so it must not shift. A closed entry carries a
 code, not just what the commit claimed. Its body is left as written, so where the
 fix diverged from the entry the Status line says how.
 
-**Last reconciled against `main`:** 2026-08-28 (`99e5afb`). Every entry below was
-checked against the source at that commit, not against the commit log.
+**Last reconciled against `main`:** 2026-08-28 (`99e5afb`) for FU-1 to FU-49. Every
+entry in that range was checked against the source at that commit, not against the
+commit log.
+
+**FU-50 to FU-67 have not been through that process** — they were written between
+2026-09-01 and 2026-09-12 and cite the source as it stood when each was filed. Spot-
+checked 2026-09-12 (`8b58674`): the citations in the entries added this session
+resolve correctly (`domain/rules.py:57`, `optimizer.py:48`).
+
+**The pre-FU-50 citations have drifted again, and the amount is measured rather than
+guessed.** Of 62 line-number citations in this file, **13 now point at a blank line,
+a bare docstring delimiter, or past the end of the file** — `cli.py:1021`,
+`domain/projections.py:218` and `cli.py:1273` among them. `task/component-1.2` added
+roughly 550 lines to `domain/projections.py` alone, which is most of the cause.
+
+That check is weaker than a reconciliation: it establishes only that a cited line is
+*substantive*, not that it says what the entry claims, so 49 is an upper bound on
+how many are right. **A full re-reconciliation is deferred, not done**, and this
+paragraph exists so nobody reads the 2026-08-28 line above and believes the file is
+current. The recurring nature of this is itself recorded in the 2026-08-28 block
+below, which found thirteen drifted citations by the same measure — the same number,
+two weeks and one large refactor later.
 
 Five merges landed since the previous reconciliation at `76809ae`, not four:
 `30fc761` (FU-28), `8bcfda8` (`task/snapshot-pinning`, which filed FU-40),
