@@ -4044,16 +4044,26 @@ operations.]`
 
 ## FU-60 — Pre-registration: component/1.2 against component/1.1-price
 
-**Progress: 2026-09-12** — in flight, one leg of two settled.
-**Leg 1 (GW3) passed** on 2026-09-11: `spearman_played` 0.348 against 0.316, +0.032,
-strictly greater. Recorded in §6.3 below and in
-[gw3-evaluation.md](gw3-evaluation.md). **Leg 2 (GW4) is pending**: deadline passed
-2026-09-12T12:30Z, settling ~2026-09-15, its pre-deadline inputs pinned and its
-fixture list checked clean before kick-off — [gw4-evaluation.md](gw4-evaluation.md).
-**Nothing is promoted and §7's freeze on FU-57 and FU-58 still holds.** This line
-says where the entry stands; it does not restate the criterion, and it is not a
-reading of anything — §1, §5 and §6.2 fix every outcome in advance and §8 forbids
-re-reading them.
+**Progress: 2026-09-19** — **the pair is complete and the criterion is met.**
+Leg 1 (GW3, 2026-09-11) +0.032; leg 2 (GW4, 2026-09-19) **+0.000517**. Both
+strictly greater, so under §1 `component/1.2` replaces `component/1.1-price` as the
+registered default and §7's freeze on FU-57 and FU-58 lifts. Results in §6.3 and
+§6.4 below, figures in [gw3-evaluation.md](gw3-evaluation.md) and
+[gw4-evaluation.md](gw4-evaluation.md).
+
+**Still open, and this entry does not close until it lands:** the registry change is
+prepared on `task/promote-component-1.2` and is **not merged**.
+
+**Two things a reader must carry forward, neither of which alters §1's verdict.**
+The leg-2 margin is 62 times smaller than leg 1's, and §4 predicted that shrinkage
+in advance — §6.4 shows the mechanism confirmed on its own pre-specified
+measurement. And under **FU-50 §4**, a separate standing rule, the best component
+variant **lost to `naive/1.0` at GW4**; that is one failure of the two that would
+make `naive/1.0` the default, and **GW5 settles it**.
+
+This line says where the entry stands. It does not restate the criterion and it is
+not a reading of anything — §1, §5 and §6.2 fixed every outcome in advance and §8
+forbids re-reading them.
 
 **This entry is a written commitment, not a feature.** Nothing here is to be built.
 No code change of any kind is implied. It is a decision rule written down before the
@@ -4359,6 +4369,49 @@ below 0.5 who had started every gameweek and started this one, against 1 for
 2026-09-12T12:30Z; `fpl-sync.timer` next fires 2026-09-12T00:03Z and was verified
 healthy on 2026-09-11, so the pre-deadline capture is secured. GW4's fixture list is
 to be re-checked for blanks and doubles before it counts.
+
+### 6.4 Leg 2 result — GW4, recorded 2026-09-19
+
+**Leg 2 is met and the pair completes.** `component/1.2` **0.329665501** against
+`component/1.1-price` **0.329148282** on `spearman_played`, **+0.000517219**,
+strictly greater. §1 has no margin clause and one is not introduced now — §8. Full
+figures and provenance in [gw4-evaluation.md](gw4-evaluation.md).
+
+GW4 clean, checked **before kick-off** and re-confirmed against the settled payload
+with an identical fixture set. Settled (`finished`, `data_checked`). Projected from
+the 2026-09-12 canonical capture, 12h26m before the deadline. **Every model digest is
+identical to GW3's**, so §7's stability requirement is verified rather than assumed.
+
+**§6.2's Case A** again: 1.2 (0.329666) > 1.2-availability (0.323130), and 1.2 >
+1.1-price (0.329148). **The decomposition changed sign** — S6(a) +0.0065 and S1–S5
+**−0.0060**, against +0.029 and +0.003 at GW3 — so the two now nearly cancel, which
+is the whole of why the margin fell by a factor of 62. S1–S5 subtracting is not
+covered by any fixed reading and is recorded, not acted on.
+
+**§5's log loss clause did not fire**; 1.2 wins `spearman_played`, Brier and log
+loss. The tracked FU-57 residual: −0.0238 → +0.0848 → **+0.0452**. It narrowed with
+no code change, which is the condition §5 names as *"direct evidence for §4's
+recession hypothesis, obtained free"*. **That clause fires.**
+
+**§4's recession is confirmed on its own pre-specified measurement.** §4.2's count —
+players with `s = a` rated `p_start ≤ 0.5` under 1.2 — **collapsed from 59 to 5**,
+3 of whom started. FU-57's defect has largely dissolved on its own as `a` reached 3,
+exactly as §4's arithmetic predicted in advance. §4.2's own clause does **not** fire,
+because it requires the collapse to coincide with `spearman_played` *rising* and
+1.2's fell (0.348 → 0.3297). §4.1 stands: GW3 could not be explained by accumulation,
+so the pair is self-controlling as designed.
+
+**The consequence: `component/1.2` becomes the registered default, and §7's freeze
+lifts** — unblocking FU-57 and FU-58. The registry change is prepared on
+`task/promote-component-1.2` and is deliberately **not merged**; this entry closes
+when it lands.
+
+**Read alongside FU-50 §4, which is a separate standing rule and is now one gameweek
+from firing.** At GW4 the best component variant **lost** to `naive/1.0` —
+0.329666 against 0.342232, −0.012567 — the family's first failure against its own
+control, in the same gameweek it is promoted internally. §6.2 forbids reading "which
+model came top" as this entry's criterion and that is respected. It does not make
+FU-50 §4 go away. **GW5 settles it.**
 
 ### 7. Stability: 1.2 does not change between registration and evaluation
 
