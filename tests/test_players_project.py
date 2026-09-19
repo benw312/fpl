@@ -258,6 +258,14 @@ def test_start_percent_renders_under_component_and_is_withheld_under_official_ep
     """
     _open_at(bootstrap_snapshot, 3)  # GW3 is the conftest snapshot's is_next
     _name_clubs(bootstrap_snapshot)
+    # P3 has started its one appearance; the other four DEF have not. Without a
+    # start history this assertion cannot do its job: `component` has pointed at
+    # `component/1.2` since 2026-09-19 (FU-60), whose prior is *pooled from the
+    # snapshot* rather than a hardcoded per-position constant, so on a fixture
+    # where nobody has ever started the pooled rate is 0 and every player renders
+    # "0%" — which a missing *100 also renders, leaving the mutation below
+    # undetectable.
+    next(player for player in bootstrap_snapshot.elements if player.id == 3).starts = 1
     _project(
         bootstrap_snapshot,
         _one_fixture_each(3),
@@ -267,11 +275,21 @@ def test_start_percent_renders_under_component_and_is_withheld_under_official_ep
     )
     component_out = capsys.readouterr().out
     component_row = next(line for line in component_out.splitlines() if "P3 ·" in line)
-    # The exact value, not merely "a percent sign": one finished gameweek means
-    # the shrinkage collapses to the DEF prior, (0 + 4*0.65) / (1 + 4) = 0.52,
-    # against availability 1.0. Asserting "%" alone lets a missing *100 through
-    # — 0.52 formatted to no decimals is "1%", which still contains a "%".
-    assert "52%" in component_row
+    # The exact value, not merely "a percent sign". One finished gameweek, so
+    # a = 1 and s = 1; the pooled DEF start rate is 1 of 5 DEF = 0.2, and the
+    # ownership band level equals the position level because every synthetic
+    # player sits in the same `<1%` band, making the band shrinkage a no-op.
+    # So (1 + 4*0.2) / (1 + 4) = 0.36, against availability 1.0. Verified against
+    # the model, not only derived.
+    #
+    # Asserting "%" alone lets a missing *100 through — 0.36 formatted to no
+    # decimals is "0%", which still contains a "%".
+    #
+    # This read 52% until 2026-09-19, from `component/1.1-price`'s hardcoded DEF
+    # prior of 0.65: (1 + 4*0.65) / (1 + 4) = 0.72 on this same fixture, and
+    # (0 + 4*0.65) / (1 + 4) = 0.52 before P3 was given its start. The change is
+    # the default moving, not the renderer.
+    assert "36%" in component_row
     assert "Start% = modelled probability of starting" in component_out
     # Checked on the row, not the whole output: the UNVALIDATED caption
     # contains an em dash of its own.

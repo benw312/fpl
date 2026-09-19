@@ -589,7 +589,7 @@ def test_dc_and_saves_are_never_price_conditioned() -> None:
         assert rates.rates["saves"].prior_source == "position"
 
 
-def test_component_11_price_is_the_default_and_10_stays_registered() -> None:
+def test_the_component_alias_names_one_variant_and_superseded_ones_stay_registered() -> None:
     """The default moved to 1.1-price on task/default-1.1-and-preregistration.
 
     This test previously asserted the opposite — that 1.0 remained default until
@@ -601,11 +601,18 @@ def test_component_11_price_is_the_default_and_10_stays_registered() -> None:
 
     Mutation: pointing the `component` alias back at 1.0, or dropping 1.0 from
     the registry, fails here.
+
+    The alias moved to `component/1.2` on 2026-09-19 when FU-60's pair
+    completed. What this test guards is unchanged and is not the identity of
+    the default: it is that superseded variants stay *registered* so the
+    figures quoted against them remain reproducible. Both 1.0 and 1.1-price are
+    now in that position.
     """
     from fpl_cli import cli  # noqa: PLC0415
 
-    assert cli._MODEL_ALIASES["component"] == "component/1.1-price"
+    assert cli._MODEL_ALIASES["component"] == "component/1.2"
     assert "component/1.1-price" in cli._DEFAULT_EVALUATE_MODELS
+    assert variants.get("component/1.1-price").name == "component/1.1-price"
     assert "component/1.0" not in cli._DEFAULT_EVALUATE_MODELS
     # Still resolvable by full name, which is how the comparison is re-run.
     assert variants.get("component/1.0").name == "component/1.0"

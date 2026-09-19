@@ -154,8 +154,9 @@ def test_the_short_aliases_still_resolve(
     _install(monkeypatch, bootstrap_snapshot)
     cli.evaluate_plan(event=EVENT, model=["component", "naive"], snapshot_path=None)
     out = capsys.readouterr().out
-    # `component` resolves to whichever variant is default, currently 1.1-price.
-    assert "component/1.1-price+banded" in out
+    # `component` resolves to whichever variant is default, 1.2 since FU-60's
+    # pair completed on 2026-09-19.
+    assert "component/1.2+banded" in out
     assert "naive/1.0" in out
 
 

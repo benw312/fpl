@@ -5102,3 +5102,48 @@ the reasoning would be a real regression from what the table does today.]`
 what was true when it was written. Generating (3) from live data would change what a
 handoff is. Whether that is wanted is a genuine question, not an oversight, and the
 plan must answer it rather than assume the third copy is simply redundant.]`
+
+---
+
+## FU-71 — `players project --model` takes only the three aliases, so it can no longer show a superseded variant
+
+**Filed from:** `task/promote-component-1.2`, 2026-09-19, found while updating the
+tests the promotion broke.
+
+`project_players` restricts `--model` to `component`, `naive` and `official-ep`:
+
+```
+$ fpl players project --model component/1.2
+Invalid value: --model must be one of ('component', 'naive', 'official-ep').
+```
+
+The restriction is not accidental — `start_note=_START_NOTES[model]` indexes a dict
+keyed by exactly those three strings, so a full variant name would raise `KeyError`
+rather than render. Refusing it at the boundary is correct as far as it goes, and it
+is why passing a registered name is a usage error rather than a crash.
+
+**Why it now matters more than when it was written.** `players project` is described
+in the README as *"a diagnostic on the model"*. Until 2026-09-19 the alias
+`component` and the only variant anyone wanted to look at were the same thing. FU-60
+has now moved the alias to `component/1.2`, and **`component/1.1-price` — every
+figure before GW4 is quoted against it — has become unreachable from this command.**
+The one command whose stated purpose is inspecting the model cannot be pointed at the
+model the record is written in terms of.
+
+`plan evaluate --model` takes full registered names and is unaffected, so the
+comparison is still possible; it is `players project`'s per-player view that is not.
+
+**Fix:** accept any registered variant, and derive the start note from the variant's
+`family` rather than from the flag string. The family is already on `ModelVariant`
+and is exactly the thing `_START_NOTES` is really keyed on — the comment above it
+says so in terms, *"`p_start` is on every `Projection`, but it only means a start
+rate under `component`"*. That is a rename of the lookup key, not new logic.
+
+**Not done here** under one-concern-per-branch: this branch moves a default, and
+widening a flag's accepted values is a separate change with its own surface.
+
+`[gap: the fix above assumes every future variant family has a sensible start note,
+and `_START_NOTES` would become a lookup that can miss. A variant registered under a
+new family would `KeyError` at render time instead of at the flag boundary, which is
+strictly worse — whoever does this needs a default note or a registry-time check, and
+choosing between those is the actual work.]`

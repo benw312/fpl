@@ -674,8 +674,26 @@ def _ordinal(n: int) -> str:
 # a defensible input to anything. 1.0 stays registered — it is the comparison
 # point every measurement so far is quoted against, and unregistering it would
 # make those figures unreproducible.
+#
+# It moved again to `component/1.2` on 2026-09-19, and this one *is* the
+# evaluation: FU-60 pre-registered on 2026-09-02 that 1.2 takes the default if
+# and only if it beats 1.1-price on `spearman_played` in each of GW3 and GW4,
+# strictly and with no margin. It did — +0.032 then +0.000517 (gw3-evaluation.md,
+# gw4-evaluation.md). The second margin is 62x smaller than the first and the
+# criterion has no margin clause; FU-60 §8 forbids introducing one after the
+# figure exists, in either direction.
+#
+# Two things a reader should carry, neither of which changes the above.
+# FU-60 §4 predicted the margin would shrink as appearances accumulate and §6.4
+# confirms the mechanism, so a thin leg 2 was foreseen rather than discovered.
+# And under FU-50 §4 — a *separate* standing rule — the best component variant
+# lost to `naive/1.0` at GW4 for the first time; that clause needs two clean
+# gameweeks and GW5 settles it. If it fires, the default moves again, to
+# `naive/1.0`.
+#
+# 1.1-price stays registered for the same reason 1.0 did.
 _MODEL_ALIASES: dict[str, str] = {
-    "component": "component/1.1-price",
+    "component": "component/1.2",
     "naive": "naive/1.0",
     "official-ep": "official-ep/1.0",
 }

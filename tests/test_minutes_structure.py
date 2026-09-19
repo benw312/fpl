@@ -862,15 +862,21 @@ def test_12_availability_actually_moves_projections_against_both_neighbours() ->
 
 
 def test_12_availability_is_not_the_default() -> None:
-    """`component/1.1-price` stays default; this is a diagnostic, not a candidate.
-    It is in the default *evaluate* list so GW3 scores all three against one
+    """`component/1.2-availability` is a diagnostic, not a candidate. It is in
+    the default *evaluate* list so one run scores all three against one
     capture, which is a different thing.
+
+    FU-60 §6.2: it "has no criterion of its own and cannot become default under
+    this entry". That held when the default was 1.1-price and it still holds now
+    the default is 1.2 — promoting it would need its own pre-registration. This
+    test is about the decomposition variant, not about which variant leads.
 
     Mutation: pointing the `component` alias at it fails.
     """
     from fpl_cli import cli  # noqa: PLC0415
 
-    assert cli._MODEL_ALIASES["component"] == "component/1.1-price"
+    assert cli._MODEL_ALIASES["component"] != "component/1.2-availability"
+    assert cli._MODEL_ALIASES["component"] == "component/1.2"
     assert "component/1.2-availability" in cli._DEFAULT_EVALUATE_MODELS
     assert "component/1.2" in cli._DEFAULT_EVALUATE_MODELS
     assert "component/1.1-price" in cli._DEFAULT_EVALUATE_MODELS
