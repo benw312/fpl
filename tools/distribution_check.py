@@ -60,6 +60,8 @@ RUNS: dict[int, tuple[str, str, str | None, datetime]] = {
         datetime(2026, 8, 28, 0, 32, 59, tzinfo=UTC)),
     3: ("gw3-pre-deadline.json", "gw3-fixtures.json", "gw3-live.json",
         datetime(2026, 9, 4, 0, 1, 59, tzinfo=UTC)),
+    4: ("gw4-pre-deadline.json", "gw4-fixtures.json", "gw4-live.json",
+        datetime(2026, 9, 12, 0, 3, 59, tzinfo=UTC)),
 }
 
 # --- The measured norms (vaastav-survey.md §3, §4) ---------------------------
