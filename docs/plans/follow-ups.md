@@ -215,6 +215,119 @@ the source and the defect is still there.
 
 ---
 
+# Review — 2026-09-21: validity, and what to do in what order
+
+A full pass over the open entries, asked for as a planning exercise rather than a
+reconciliation. **It does not supersede the 2026-08-28 reconciliation**, which
+remains the last time entry *bodies* were checked line by line; this checked each
+open entry's **headline claim** against the source and then ranked the work.
+
+**Written the evening GW5 settled**, and the ordering below is a direct consequence
+of that result — see [gw5-evaluation.md](gw5-evaluation.md). A review written a day
+earlier would have ranked this list very differently, which is itself worth knowing.
+
+## What was checked
+
+41 entries are open on `main`. Every one's headline claim was checked against the
+source or the data. **None was found closed-in-code-but-unmarked** — the failure the
+2026-09-12 sweep found twice. Specifically confirmed still true: no SQLite anywhere
+(FU-4); no chip logic anywhere in `domain/` (FU-5); `doubtful_chance` still reachable
+only through the `status == "d"` branch (FU-48); `plan evaluate` still **warns
+loudly and scores anyway** on unsettled actuals, with no refusal (FU-49); the ramp
+still registered at the identity (FU-51); `squad.json` still `genesis_event: 1` with
+15 log entries (FU-66); `--club` still keyed on `name` only (FU-68);
+`DEFAULT_FT_VALUE` still the literal 1.5 (FU-25, FU-64).
+
+**FU-71 and FU-72 are not in this file on `main`** — they are on the unmerged
+promotion stack, and this review covers what `main` carries.
+
+## What the GW5 result does to the ranking
+
+Three gameweeks of decomposition now exist, and they say something the September
+plans did not anticipate:
+
+- **S1–S5 has never moved the metric**: +0.003, −0.006, +0.0003. Three readings,
+  indistinguishable from zero. minutes-model.md §9 predicted this in terms.
+- **S6(a) is large and unstable**: +0.029, +0.0065, −0.033. Mean near zero, spread
+  wider than every margin any decision here has turned on.
+
+So **the minutes work as a whole is not measurably earning its place**, and the
+entries that assume it is — FU-57 and FU-58 especially — have lost their premise
+rather than merely their urgency. FU-57's own measurable symptom is *gone* (the
+suppression count fell 59 → 4 as appearances accumulated) while S6(a) got worse,
+which means FU-57 no longer explains what S6(a) is doing.
+
+## The order
+
+**1 — Write the next pre-registration. Nothing model-side can proceed without it.**
+No entry covers what to do about three variants that are now within noise of each
+other. FU-60 is spent; FU-50 §4 has been settled in the family's favour; and
+`component/1.2-availability` has been best or joint-best twice while being barred
+from the default by FU-60 §6.2 for want of a criterion of its own. This is the
+gating artefact and it must be written **before GW6 settles** — its deadline is
+2026-10-10, so there is time, and that time is the only reason it can be done
+properly. It should also decide whether the S6(a)/S1–S5 split is worth continuing to
+measure at all.
+
+**2 — FU-72: score the optimiser. This is now the largest unknown in the project.**
+Four gameweeks have gone into measuring projections; **zero** have gone into the
+half that produces the actual output. And the projection side has just produced its
+least encouraging result yet, which makes "are we polishing the wrong half?" a live
+question rather than a rhetorical one. Step A is an overnight job with a known cost
+(81× the default search, ~54 minutes). *Blocked on FU-31 or a `tools/` harness — the
+entry argues for the harness.*
+
+**3 — The GW5 confound, because it is cheap and it could undo §2's premise.**
+gw5-evaluation.md's second gap: GW5 scored +30.4% against the post-rule norm, and
+the variant that predicts high totals won it while the variant that predicts low
+totals lost. If high-scoring gameweeks systematically favour high-predicting models,
+part of GW5's ordering is the week rather than the models — and the same mechanism
+would have penalised 1.1-price in a low-scoring week. **Four settled gameweeks and
+two existing tools are enough to check this.** It is the highest ratio of
+information to effort on this list.
+
+**4 — FU-62 and FU-63, which survived GW5 better than anything else did.** The
+compression is real and unexplained at every gameweek: 1.2 has never predicted above
+about 5.2 while real players score 17. FU-63's *stability* claim is now falsified —
+the bias went −7.5%, −8.0%, **+4.9%** against the post-rule norm — so that entry
+needs correcting before it is worked on, not after. **FU-65 must precede any
+calibration work**, and still does.
+
+**5 — Cheap correctness and UX, none of it blocked on anything.** FU-68 (`--club`
+rejects the short name the app itself prints), FU-12 (two print functions mixed),
+FU-14 (`players show`, `squad import`/`export` missing), FU-13 (`--json` where it was
+narrowed to). Each is a contained change with a testable claim, and FU-68 in
+particular is a defect a user meets on their first command.
+
+**6 — FU-31, promoted by FU-72.** Exposing `--beam`, `--first-moves` and
+`--max-cells` was a convenience when filed. It now blocks the measurement in §2. The
+entry should record that it has acquired a dependent.
+
+**7 — FU-5 (chips), promoted for the same reason.** Filed as a feature gap. FU-72
+identifies chips as a likely *large* component of the optimiser's shortfall under a
+perfect forecast, so it is now a candidate answer to §2's question rather than a
+nice-to-have.
+
+**Explicitly not now:** FU-57 and FU-58 (premise gone — see above; they are unblocked
+and should stay unstarted until §1 exists), FU-4 (SQLite, no demand), FU-70 (wants a
+written plan and the file is currently stable), FU-59 and FU-66 (open by design),
+FU-40 and FU-50 (standing rules, not closable).
+
+## What this review did not do
+
+`[gap: headline claims only. Entry bodies have not been checked line by line since
+2026-08-28, and 14 of this file's citations still resolve to blank lines. This review
+read enough of each entry to rank it, not enough to certify it.]`
+
+`[gap: the ranking is an argument, not a measurement. §2 is placed first among the
+work on the belief that an unmeasured half is riskier than a measured one performing
+poorly, which is a judgement. Someone who thinks the projections are close to a
+breakthrough would order this differently and would not obviously be wrong.]`
+
+---
+
+---
+
 ## FU-1 — Extract the stale-cache decision into a `SnapshotService`
 
 **Status: closed** — `7642b44` *Extract SnapshotService, fix cache write on successful
@@ -3912,6 +4025,17 @@ observed payload.
 
 ## FU-57 — the ownership prior is marginal over `starts`, where the signal is an interaction
 
+**Progress: 2026-09-21** — **unblocked by FU-60's pair completing, and its premise has
+moved out from under it.** The symptom this entry is written around — nailed starters
+rated at or below 0.5 — has **gone on its own** as appearances accumulated: 59 at GW3,
+5 at GW4, **4 at GW5** (`a = 4`). Over the same three gameweeks S6(a)'s contribution
+went +0.029 → +0.0065 → **−0.033**, so the prior is doing *more* damage while the
+defect this entry describes has disappeared. **FU-57 therefore no longer explains what
+S6(a) is doing**, and implementing it would be fixing a symptom that has already
+resolved. It stays open — the structure it names is still wrong — but it must not be
+picked up as "the first thing to do" on the strength of a size that no longer exists.
+The 2026-09-21 review puts a fresh pre-registration ahead of it.
+
 **Filed from:** `task/component-1.2-recall`, 2026-09-02. Diagnosis in
 [component-1.2-recall.md](component-1.2-recall.md).
 
@@ -4053,6 +4177,16 @@ registered default and §7's freeze on FU-57 and FU-58 lifts. Results in §6.3 a
 
 **Still open, and this entry does not close until it lands:** the registry change is
 prepared on `task/promote-component-1.2` and is **not merged**.
+
+**GW5, 2026-09-21: `component/1.2` lost to `component/1.1-price` by −0.0325** — 63×
+the margin it won leg 2 by, in the opposite direction. **This does not revisit the
+verdict above and must not be used to.** GW5 is not a leg of this pair, the criterion
+was fixed on 2026-09-02, and §8 forbids re-reading it against a later figure —
+*declining* to promote on a subsequent result is the same error as promoting on an
+unlicensed one, with the sign flipped. What GW5 does is make **merging** the prepared
+branch a live judgement rather than book-keeping, and any decision that uses GW5 needs
+its own pre-registration, exactly as §6.2 requires. Both positions are set out in
+[gw5-evaluation.md](gw5-evaluation.md) §4 and neither is taken there.
 
 **Two things a reader must carry forward, neither of which alters §1's verdict.**
 The leg-2 margin is 62 times smaller than leg 1's, and §4 predicted that shrinkage
@@ -4558,6 +4692,15 @@ that the compression is *also* a bias — only that the range is narrow.]`
 ---
 
 ## FU-63 — a stable aggregate scale bias, and the two constants it bites
+
+**Progress: 2026-09-21** — **the word "stable" in this title is now falsified.**
+Against the post-rule norm the bias reads −7.5% (GW3), −8.0% (GW4) and **+4.9%**
+(GW5) — it has changed sign. GW5 was an unusually high-scoring week (+30.4% against
+the same norm), so part of that is the gameweek rather than the model, which is
+precisely the confound the 2026-09-21 review ranks third. **The bias is real and
+undiminished; its stability was an artefact of two adjacent gameweeks.** Anything
+built on "stable" — including the two constants this entry says it bites — needs
+re-reading before it is acted on. See [gw5-evaluation.md](gw5-evaluation.md) §5.
 
 **Filed from:** `task/haulers-decomposition`, 2026-09-11.
 
