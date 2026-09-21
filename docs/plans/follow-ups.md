@@ -5147,3 +5147,118 @@ and `_START_NOTES` would become a lookup that can miss. A variant registered und
 new family would `KeyError` at render time instead of at the flag boundary, which is
 strictly worse — whoever does this needs a default note or a registry-time check, and
 choosing between those is the actual work.]`
+
+---
+
+## FU-72 — the optimiser's output has never been scored against anything
+
+**Filed from:** `task/file-fu-72`, 2026-09-21, from the question *"if we could predict
+every player's score perfectly for three gameweeks, would the planner give the optimal
+transfers?"* The answer is **no, and nobody knows by how much**, which is the entry.
+
+**The asymmetry this exists to name.** Three gameweeks have been spent measuring how
+well the projection half of this program ranks players — FU-50, FU-60, two evaluation
+documents, four diagnostic tools. **The transfer-planning half has never been scored
+against anything at all.** `plan evaluate` scores projections; nothing scores a plan.
+The program's output is a transfer recommendation, and its quality is unmeasured.
+
+`[gap: this is stated as an asymmetry in effort, which is a fact. Whether it is an
+asymmetry in *importance* is not established — it is possible the planner is near-exact
+and the projections are the whole story. That is precisely what is unmeasured, so the
+claim here is only that we cannot currently tell.]`
+
+### 1. Why a perfect forecast would still not produce an optimal plan
+
+Five reasons, verified in the source 2026-09-21, roughly in order of expected size.
+They matter because they are also the **decomposition** of any gap that gets measured —
+a single number would not say which of these to fix.
+
+1. **It does not maximise points.** `DEFAULT_DECAY = 0.84` (`optimizer.py`) discounts
+   each future gameweek, weighting a horizon-3 plan about 1.00 / 0.84 / 0.71. Two plans
+   totalling 30 points are not equal to it: 10-10-10 scores 25.5 and 15-10-5 scores
+   27.0, so it prefers the front-loaded one. Discounting hedges forecast uncertainty;
+   **under a perfect forecast there is nothing to hedge and the discount is simply
+   wrong.** `--decay 1.0` already exists, so this one is a flag, not a change.
+   *0.84 is borrowed from another project's published `decay_base`
+   (optimizer-search.md §177, docs/research/projections-survey.md). The survey records
+   that they use it, not why. It is a chosen constant under FU-50 §3.*
+2. **Chips are not modelled anywhere.** No `wildcard`, `free_hit`, `bench_boost` or
+   `triple_captain` in `domain/` (FU-5 records the ledger field nothing reads). Over
+   three gameweeks with perfect foresight the optimal plan will often involve a chip,
+   and that entire branch of the decision is invisible to the search.
+3. **At most two transfers per gameweek.** `K_ENUM = 2`, fixed. The rules permit more
+   at −4 each, and a perfect forecast is exactly the condition under which "take a −8,
+   it is worth 30" becomes correct. The move cannot be expressed. FU-29's unimplemented
+   `--schedule` and the run banner both already say the search considers ≤2.
+4. **Beam search, not exhaustive.** The root is enumerated exhaustively; after that
+   only the best `DEFAULT_BEAM = 4` paths survive each level, from
+   `DEFAULT_FIRST_MOVES = 50`. A path that looks mediocre at GW+1 and is excellent by
+   GW+3 is discarded before its payoff is visible — the deferred-payoff case, which is
+   the one a perfect forecast is most likely to want. **Note this is *not* the same as
+   the pruning being unsound: FU-28 made dominance pruning exact and that is verified.
+   The beam is a deliberate budget, not a defect.**
+5. **The horizon's boundary value is a guessed constant.** `DEFAULT_FT_VALUE = 1.5`
+   prices a banked free transfer at the end of the horizon. Every finite-horizon
+   planner needs such a term and this one is made up — FU-25 (no estimator) and FU-64
+   (it may not affect any decision) are both open on it.
+
+### 2. The measurement, cheapest step first
+
+**Do not start with the expensive one.** FU-53's shape: bound the prize before
+building. Step A is hours; step B is a project.
+
+**Step A — isolate causes 1 and 4 with no new machinery.** Re-run an existing
+recommendation at `--decay 1.0` and at a much wider beam, and see whether the
+recommendation changes at all. If it does not move, causes 1 and 4 are not where the
+gap lives and step B can be scoped to chips and transfer counts instead.
+
+Cost is known exactly: `optimizer.py`'s own formula is
+`1 + first_moves + first_moves·beam·(horizon−2)`, so horizon 3 goes from **251
+expansions at the defaults to 20,401 at `beam=50, first_moves=400`** — **81×**. At the
+recorded ~40s per run that is **~54 minutes**, which is an overnight job and not an
+interactive one.
+
+**`FU-31 blocks step A.`** `--beam`, `--first-moves` and `--max-cells` are not exposed
+on `fpl plan optimise`; they are keyword arguments on `optimise()` only. Step A needs
+either FU-31 implemented or a `tools/` harness calling `optimise()` directly. **A
+`tools/` harness is the right call** — it is a diagnostic, it keeps an experimental
+knob off the shipped CLI, and FU-31 is a separate user-facing decision about flags.
+
+**Step B — the true optimum, and why it cannot be brute force.** The obvious
+experiment — enumerate every legal plan and compare — is not available. One gameweek
+alone offers ~15×650 ≈ 9,750 single transfers and ~15C2 × 650C2 ≈ 22 million doubles;
+cubed over a horizon it is astronomically large. Two tractable routes, and the entry
+does **not** choose between them:
+
+- **Restrict the universe.** With perfect projections the optimal plan is very unlikely
+  to involve a player who scored nothing, so brute force over the top ~60 players by
+  *realised* points is feasible and yields a true optimum *within that universe*. The
+  restriction is an assumption that must be stated, not buried — and it is itself
+  selection on the outcome, in FU-61's sense.
+- **Solve it exactly.** optimizer-search.md §177 records that another project uses MILP
+  over HiGHS. That gives a provable optimum rather than a bounded one, at the cost of a
+  solver dependency and a second formulation of the rules — two implementations that
+  can disagree, which is a real maintenance claim.
+
+### 3. Constraints on whatever gets built
+
+- **It is an oracle and must never reach the CLI.** `fu53_minutes_oracle.py` sets the
+  rule: refuse an unsettled gameweek, live in `tools/`, never be importable by the
+  package. A planner that has seen the results is not a planner.
+- **A settled window is required**, so this needs three consecutive settled clean
+  gameweeks. GW2–GW4 qualify today.
+- **Report the gap decomposed by §1's five causes**, not as one number. "The planner
+  leaves 6 points on the table" is not actionable; "4 of those 6 are chips" is.
+
+`[gap: "the optimal plan" is only defined once the objective is. Under a perfect
+forecast the natural objective is total points over the window, but the real program
+also has a terminal state — the squad you are left holding — which total-points-over-
+three-gameweeks ignores entirely. A plan that scores 2 more points and wrecks the
+squad for GW+4 is not obviously better, and cause 5 is exactly this term. The
+experiment must fix an objective in advance and say what it excludes, or it will
+measure a gap against a target nobody wants.]`
+
+`[gap: no pre-registration is offered here, deliberately. This is a measurement of our
+own code against a constructed benchmark, not a decision rule about a model, so FU-50's
+machinery does not obviously apply. If step A's result were ever used to justify
+changing a default, it would need one first.]`
