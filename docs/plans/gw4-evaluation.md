@@ -237,11 +237,21 @@ measurement.**
 Same shape as GW3: 1.2 improves Zeros and Blanks markedly and is worst on Haulers.
 Per FU-61 the Haulers row selects on the outcome and is not a defect measure.
 
-**FU-63's scale bias has widened.** `tools/distribution_check.py`: 1.2 projects 792
-against 921 realised, **−14.0%**, and **−8.0%** against the post-rule norm — against
-−7.5% at GW3. 1.1-price runs +5.2% against realised. **FU-63 is unresolved and
-moving in the wrong direction**, and the handoff's "expect overshoot when FU-57 is
-fixed" warning now has less headroom than it did, not more.
+**FU-63's scale bias persists, and is close to flat.** `tools/distribution_check.py`:
+1.2 projects 792 against 921 realised, **−14.0%**, and **−8.0%** against the post-rule
+norm. 1.1-price runs +5.2% against realised.
+
+**The only like-for-like comparison with GW3 is against the post-rule norm, and it is
+−7.5% → −8.0%** — half a point, which on two gameweeks with no error bar is not a
+trend. The −14.0% figure is measured against GW4's own realised total, a different and
+stricter denominator with no GW3 counterpart on record, so the two must not be read as
+a movement.
+
+*[An earlier draft of this section said the bias had "widened" and was "moving in the
+wrong direction". That put −14.0% next to −7.5% — different denominators — and
+overstated it. FU-63 is unresolved and undiminished, which is the honest claim, and
+the standing "expect overshoot when FU-57 is fixed" warning stands on the bias
+existing, not on it growing.]*
 
 **FU-62's compression persists.** 1.2's predicted SD 1.19 and max 5.17 against a
 realised SD of 2.65 and max 17. Above 5 points, 1.2 places 1 player where 22.0% of
