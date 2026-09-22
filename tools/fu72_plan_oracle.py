@@ -327,6 +327,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pinned", default=str(PINNED))
     parser.add_argument("--wide", action="store_true", help=f"add O4: beam {WIDE_BEAM}, first moves {WIDE_FIRST_MOVES}")
     parser.add_argument("--skip-planner", action="store_true", help="MILP runs only")
+    parser.add_argument(
+        "--forecasts",
+        nargs="+",
+        default=None,
+        help="instead of the full run: score the default search's plan under each named variant's forecast",
+    )
     args = parser.parse_args(argv)
 
     pinned = Path(args.pinned).expanduser()
@@ -353,6 +359,23 @@ def main(argv: list[str] | None = None) -> int:
         return realised
 
     record("HOLD", {})
+
+    if args.forecasts:
+        # The points-based view of model quality (fu-72-results.md §3's gap):
+        # the same default search, fed each forecast, scored on realised points.
+        # A measurement, not a criterion — nothing here promotes a model.
+        for name in args.forecasts:
+            variant = variants.get(name)
+            model = variants.build(variant, snapshot, fixtures)
+            try:
+                forecast = model.project([player.id for player in snapshot.elements], events)
+            except ValueError as exc:
+                print(f"  {name}: cannot project GW{events[0]}-GW{events[-1]} ({exc})", flush=True)
+                continue
+            result = optimise(start, snapshot, forecast, rules, from_event=events[0], horizon=HORIZON,
+                              now=snapshot.fetched_at)
+            record(f"P[{variant.version}]", path_plan(result.paths[0]))
+        return 0
 
     if not args.skip_planner:
         model = variants.build(variants.get("component/1.2"), snapshot, fixtures)

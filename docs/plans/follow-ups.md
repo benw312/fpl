@@ -1785,6 +1785,13 @@ concern, this one was CLI wiring for `optimise`.
 
 ## FU-31 — `fpl plan optimise` doesn't expose `--beam`, `--first-moves` or `--max-cells`
 
+**Progress: 2026-09-22** — **demoted again.** The 2026-09-21 review promoted this
+entry because FU-72's step A needed it. That need is gone: `tools/fu72_plan_oracle.py`
+calls `optimise()` directly, and the beam cost only 3 and 0 points against the exact
+optimum of the planner's own move space (fu-72-results.md §2). The entry is back to
+being a user-facing convenience. The code is unchanged and still has none of the
+three flags.
+
 **Deferred from:** `task/beam-width`, while re-measuring optimizer-search.md §5.5 and
 §7.1 against the live snapshot.
 
@@ -5316,6 +5323,24 @@ choosing between those is the actual work.]`
 ---
 
 ## FU-72 — the optimiser's output has never been scored against anything
+
+**Progress: 2026-09-22** — **measured, on `task/fu-72-plan-scoring`.** Plan:
+[fu-72-plan-scoring.md](fu-72-plan-scoring.md). Results:
+[fu-72-results.md](fu-72-results.md). Harness: `tools/fu72_plan_oracle.py`, with a
+MILP optimum from scipy/HiGHS under the `oracle` extra; the CLI never imports it. Each
+MILP plan is replayed through `apply_transfers` and reproduces its own objective
+exactly. Over GW2–4 and GW3–5, measured in realised points:
+- **The forecast accounts for about 60% of the gap:** +91 and +105 for a perfect forecast.
+- **The search is close to exact:** the beam costs 3 and 0.
+- **Decay, terminal value and the hit cap cost 0 to 1.** The hit cap,
+  `max_hit = 4`, is a sixth cause that §1 did not list.
+- **The two-transfer limit is worth about 65, but only under certainty.** That is an
+  upper bound, not a case for raising `K_ENUM`.
+- **The shipped program's plan beat holding by −2 and +23.**
+**§1's premise is answered:** the optimiser is not the weak half.
+**Left:** cause 2, chips, is unmeasured. P0 is scored as a fixed plan; a rolling,
+re-plan-weekly P0 is the faithful measure of the shipped workflow, and it needs a
+design for mixing captures' prices.
 
 **Filed from:** `task/file-fu-72`, 2026-09-21, from the question *"if we could predict
 every player's score perfectly for three gameweeks, would the planner give the optimal
