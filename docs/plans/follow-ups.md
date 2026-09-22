@@ -55,7 +55,8 @@ this file, **13 point at a blank line or a bare delimiter**. *(The total was 103
 2026-09-12; FU-60's Status line added two on 2026-09-22, both substantive. FU-68's
 `club_lookup` (2026-09-22) moved every later `cli.py` line down 21: three
 previously blank citations (`:344`, `:454`, `:638`) now land on code, and two
-(`:1273`, `:1303`) now land on blanks. 14 → 13.)* None is past end of
+(`:1273`, `:1303`) now land on blanks. 14 → 13. FU-71's `_start_note` then moved
+them again: `:1273` and `:1303` land on code, and `:856` and `:1018` on blanks. Still 13.)* None is past end of
 file. `task/component-1.2` added roughly 550 lines to `domain/projections.py`, which
 remains most of the cause.
 
@@ -86,7 +87,7 @@ and they would keep themselves alive forever.
 
 <!-- broken-citations:start -->
 ```text
-cli.py:50, cli.py:64, cli.py:303, cli.py:1273, cli.py:1303,
+cli.py:50, cli.py:64, cli.py:303, cli.py:856, cli.py:1018,
 domain/projections.py:218, domain/projections.py:219, projections.py:219,
 domain/squad.py:68, domain/squad.py:140, optimizer.py:184, optimizer.py:321,
 tests/test_optimizer.py:237
@@ -4182,7 +4183,7 @@ operations.]`
 
 **Status: closed** — `dae3672` on `task/promote-component-1.2`, merged to `main` in
 `60b6324` (2026-09-21). Marked 2026-09-22, a day late. **Checked in the source:**
-`_MODEL_ALIASES["component"]` is `"component/1.2"` (`cli.py:719`; `:696` before FU-68 moved it), and
+`_MODEL_ALIASES["component"]` is `"component/1.2"` (`cli.py:733`; `:696` before FU-68 and FU-71 moved it), and
 `tests/test_variants.py:53` pins `component/1.2` at digest `4f479b2253cc` — the
 digest recorded at both legs (gw3-evaluation.md, gw4-evaluation.md), so the variant
 promoted is the variant the pair measured. **Diverged from the entry in one
@@ -5283,6 +5284,17 @@ plan must answer it rather than assume the third copy is simply redundant.]`
 ---
 
 ## FU-71 — `players project --model` takes only the three aliases, so it can no longer show a superseded variant
+
+**Status: closed** — `task/fu-71-project-any-variant`, 2026-09-22, stacked on
+`task/fu-68-club-short-name` because both move the header's citation block.
+**Checked in the source:** `project_players` resolves `--model` through
+`resolve_variant`, so it accepts any alias or registered name and an unknown name is
+a `BadParameter` listing what exists. The start note and the official-ep guard are
+keyed on `variant.family`. **The entry's gap is resolved with both options it
+named:** `_start_note` falls back to a note that claims nothing, so a new family
+cannot KeyError at render time, and `test_every_registered_family_has_a_start_note`
+fails in the suite until someone writes the real note. The body below is left as
+written.
 
 **Filed from:** `task/promote-component-1.2`, 2026-09-19, found while updating the
 tests the promotion broke.

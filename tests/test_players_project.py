@@ -419,3 +419,49 @@ def test_top_limits_the_rows_rendered(
     assert "P6 ·" in out and "P5 ·" in out
     assert "P7 ·" not in out
     assert "P3 ·" not in out
+
+
+# --- FU-71: any registered variant ---------------------------------------------
+
+
+def test_a_superseded_variant_can_be_projected_by_its_full_name(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    bootstrap_snapshot: BootstrapSnapshot,
+) -> None:
+    """`component/1.1-price` — the model every pre-GW4 figure is quoted in —
+    must be reachable, and must carry the component start note.
+
+    Mutation: restoring the `_MODEL_CHOICES` gate, which rejects it.
+    """
+    _open_at(bootstrap_snapshot, 2)
+    _name_clubs(bootstrap_snapshot)
+    _project(bootstrap_snapshot, _one_fixture_each(2), monkeypatch, model="component/1.1-price")
+    out = capsys.readouterr().out
+    assert "component/1.1-price" in out
+    assert "modelled probability of starting" in out
+
+
+def test_an_unregistered_model_name_is_a_usage_error_naming_what_exists(
+    monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """Mutation: resolving with `variants.get` directly (a KeyError, not a
+    usage error)."""
+    with pytest.raises(typer.BadParameter, match="component/1.2"):
+        _project(bootstrap_snapshot, _one_fixture_each(2), monkeypatch, model="component/9.9")
+
+
+def test_every_registered_family_has_a_start_note() -> None:
+    """FU-71's gap, closed as a registry-time check: a new family fails here,
+    in the suite, instead of rendering the fallback note unnoticed.
+
+    Mutation: deleting the `naive` entry from `_START_NOTES`.
+    """
+    from fpl_cli.domain import variants  # noqa: PLC0415
+
+    assert {v.family for v in variants.all_variants()} <= set(cli._START_NOTES)
+
+
+def test_an_unknown_family_gets_a_note_that_claims_nothing() -> None:
+    """Mutation: `_START_NOTES[family]`, which KeyErrors at render time."""
+    assert "not documented" in cli._start_note("dixon-coles")

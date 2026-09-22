@@ -370,13 +370,23 @@ def list_players(
 # `component`. `naive` puts the raw availability scalar there and `official-ep`
 # hardcodes 0.0 — its own `assumptions` tuple says "p_start and xmins are not
 # modelled" — so rendering a percentage for it would invent a measurement.
-# Keyed off the `--model` string rather than sniffed from the model object
-# because `Projection` has no way to mark a field as unmodelled (FU-45).
+# Keyed off the variant's *family* rather than sniffed from the model object
+# because `Projection` has no way to mark a field as unmodelled (FU-45). Until
+# FU-71 it was keyed off the `--model` string, which only worked while the three
+# aliases were the only accepted values; the family is what it always meant.
 _START_NOTES = {
     "component": "Start% = modelled probability of starting. Not an interval, and not calibrated.",
     "naive": "Start% = availability only; naive models no start rate.",
     "official-ep": "Start% is not modelled by official-ep.",
 }
+
+
+def _start_note(family: str) -> str:
+    """FU-71's gap: a variant registered under a new family must not KeyError at
+    render time. It gets a note that claims nothing, and
+    `test_every_registered_family_has_a_start_note` fails until someone writes
+    the real one."""
+    return _START_NOTES.get(family, f"Start% is not documented for the {family!r} family; do not read it as a rate.")
 
 
 @players_app.command("project")
@@ -386,7 +396,9 @@ def project_players(
     ),
     top: int = typer.Option(30, "--top", min=1, help="Rows to show."),
     horizon: int = typer.Option(5, "--horizon", min=1, help="Gameweeks to average over."),
-    model: str = typer.Option("component", "--model", help="component | naive | official-ep."),
+    model: str = typer.Option(
+        "component", "--model", help="component | naive | official-ep, or any registered variant name."
+    ),
     include_unavailable: bool = typer.Option(
         False, "--include-unavailable", help="Include players who cannot be bought."
     ),
@@ -398,8 +410,10 @@ def project_players(
     reading the top of this table is the cheapest check that the minutes model
     is producing sensible names.
     """
-    if model not in _MODEL_CHOICES:
-        raise typer.BadParameter(f"--model must be one of {_MODEL_CHOICES}.")
+    # FU-71: any registered variant, not only the three aliases — so a
+    # superseded variant such as `component/1.1-price`, in whose terms the GW2-GW4
+    # record is written, can still be inspected per player.
+    variant = resolve_variant(model)
 
     snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     now = datetime.now(UTC)
@@ -434,7 +448,7 @@ def project_players(
     # condition; here the user named the model, so refusing beats projecting
     # something they did not ask for.
     next_event = next((gameweek.id for gameweek in snapshot.events if gameweek.is_next), None)
-    if model == "official-ep" and (horizon != 1 or from_event != next_event):
+    if variant.family == "official-ep" and (horizon != 1 or from_event != next_event):
         error_console.print(
             f"--model official-ep only projects the snapshot's next gameweek "
             f"({next_event}) at --horizon 1; this run is GW{from_event} at horizon {horizon}."
@@ -513,7 +527,7 @@ def project_players(
             snapshot=snapshot,
             events=events,
             model_name=projection_model.name,
-            start_note=_START_NOTES[model],
+            start_note=_start_note(variant.family),
             suppressed=suppressed,
         )
     )
