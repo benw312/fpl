@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print
+# FU-12: no `from rich import print` here; all output goes through presentation's consoles.
 
 from fpl_cli.api.models import BootstrapSnapshot
 from fpl_cli.api.snapshots import (
@@ -560,9 +560,9 @@ def create_squad(
 
     result = validate_squad_players(slots.player_ids, snapshot)
     for error in result.errors:
-        print(f"[red]✗ {error}[/red]")
+        console.print(f"[red]✗ {error}[/red]")
     for warning in result.warnings:
-        print(f"[yellow]! {warning}[/yellow]")
+        console.print(f"[yellow]! {warning}[/yellow]")
     if not result.valid:
         console.print("[red]Squad failed validation; not written.[/red]")
         raise typer.Exit(1)
@@ -582,11 +582,11 @@ def validate_squad(path: Path, snapshot_path: SnapshotOption = None) -> None:
         error_console.print(f"Could not read squad plan: {exc}")
         raise typer.Exit(1) from exc
     for error in result.errors:
-        print(f"[red]✗ {error}[/red]")
+        console.print(f"[red]✗ {error}[/red]")
     for warning in result.warnings:
-        print(f"[yellow]! {warning}[/yellow]")
+        console.print(f"[yellow]! {warning}[/yellow]")
     if result.valid:
-        print(f"[green]Valid squad for {result.season}.[/green]")
+        console.print(f"[green]Valid squad for {result.season}.[/green]")
     else:
         raise typer.Exit(1)
 
@@ -611,7 +611,7 @@ def simulate_plan(squad_path: Path, transfers_path: Path, snapshot_path: Snapsho
         error_console.print(f"Could not read squad ledger: {exc}")
         raise typer.Exit(1) from exc
     if ledger.legacy:
-        print(
+        console.print(
             "[yellow]Legacy squad file: selling prices are estimated from current "
             "prices, not real purchase history.[/yellow]"
         )
@@ -659,14 +659,14 @@ def simulate_plan(squad_path: Path, transfers_path: Path, snapshot_path: Snapsho
     console.print(simulation_table(transfers_by_event, results, points_by_event))
     for event, result in zip(sorted(transfers_by_event), results):
         for error in result.validation.errors:
-            print(f"[red]✗ GW{event}: {error}[/red]")
+            console.print(f"[red]✗ GW{event}: {error}[/red]")
         for warning in result.validation.warnings:
-            print(f"[yellow]! GW{event}: {warning}[/yellow]")
+            console.print(f"[yellow]! GW{event}: {warning}[/yellow]")
 
     final_state = results[-1].state if results else state
     console.print(squad_state_table(final_state, snapshot))
-    print(f"Bank: £{final_state.bank / 10:.1f}m  |  Free transfers: {final_state.free_transfers}")
-    print(f"Total hit points: {sum(result.hit_points for result in results)}")
+    console.print(f"Bank: £{final_state.bank / 10:.1f}m  |  Free transfers: {final_state.free_transfers}")
+    console.print(f"Total hit points: {sum(result.hit_points for result in results)}")
 
     if any(not result.validation.valid for result in results):
         raise typer.Exit(1)
@@ -1359,18 +1359,18 @@ def _report_strength_fit(built: object) -> None:
     fit = rates_model.fit
     name = getattr(built, "name", "?")
     if fit.fallback:
-        print(
+        console.print(
             f"[yellow]{name}: fitted strength fell back to banded — {fit.fallback} "
             f"({fit.matches} results before GW{fit.target_event}).[/yellow]"
         )
         return
     if fit.prior_unchanged:
-        print(
+        console.print(
             f"[yellow]{name}: 2025-26 prior used unchanged — {fit.prior_unchanged} "
             f"({fit.matches} results before GW{fit.target_event}).[/yellow]"
         )
         return
-    print(
+    console.print(
         f"{name}: fitted strength on {fit.matches} results before GW{fit.target_event} — "
         f"mu {fit.mu:.3f}, home {fit.home_factor:.3f}, away {fit.away_factor:.3f}, "
         f"prior {fit.prior_goals_attack / fit.mu:.1f} games (attack), "
@@ -1424,7 +1424,7 @@ def evaluate_plan(
         )
     else:
         projection_snapshot = current_snapshot
-        print(
+        console.print(
             f"[yellow]No archived snapshot predates GW{event}'s deadline — using the current "
             "snapshot. This result is optimistic, not a backtest.[/yellow]"
         )
@@ -1468,7 +1468,7 @@ def evaluate_plan(
             # official-ep refuses any event but the snapshot's own next one. A
             # model that cannot score this gameweek is skipped with a reason
             # rather than failing the run, so the remaining columns still print.
-            print(f"[yellow]{built.name}: not evaluable for GW{event} ({exc})[/yellow]")
+            console.print(f"[yellow]{built.name}: not evaluable for GW{event} ({exc})[/yellow]")
             continue
         evaluations.append(evaluate_model(projections, actuals, model_name=built.name))
 
