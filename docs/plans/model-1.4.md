@@ -141,3 +141,54 @@ The **go/no-go rule is FU-74 §2**, fixed before the build: GO if `1.4 −
 Everything model-1.3.md §5 parks stays parked: blending `ep_next`,
 rank-ensembling, and splitting P(plays) from E[points | plays]. **Dixon–Coles's
 low-score correction is not added either.** It would be a third change.
+
+---
+
+## 7 — Development gate, GW2–GW5 (2026-09-22): **NO-GO**
+
+**Built and committed first** (`eaf5f6c`), then scored. Nothing was changed after the
+figures were seen. Digests: `component/1.4` `be140444dd50`, `component/1.4-venue`
+`c9e603c9afbe`. The pinned inputs are those of model-1.3.md §7 and
+gw5-evaluation.md §1. 1.3 reproduces its §7 figures to six places, so generalising
+the fit did not alter it.
+
+### The gate (FU-74 §2): `1.4 − 1.2-availability`, `spearman_played`
+
+| | 1.4 | 1.2-availability | Δ |
+|---|---|---|---|
+| GW2 | 0.383191 | 0.378293 | **+0.004898** |
+| GW3 | 0.295772 | 0.319355 | −0.023583 |
+| GW4 | 0.340363 | 0.323130 | **+0.017233** |
+| GW5 | 0.399016 | 0.414502 | −0.015486 |
+
+**Two of four positive; the rule needs three. NO-GO.** Under FU-74 §2, FU-74 closes
+not run, `component/1.2` stays default, and no candidate is spent on GW6 and GW7.
+Under §6 there is no second revision against GW2–GW5.
+
+### What the decomposition shows (findings, not criteria)
+
+| | change A: `1.4-venue − 1.3` | change B: `1.4 − 1.4-venue` |
+|---|---|---|
+| GW2 | 0 (1.4-venue falls back to the band) | +0.004898 (prior unchanged) |
+| GW3 | +0.029612 | +0.027399 |
+| GW4 | +0.006605 | +0.016668 |
+| GW5 | +0.007675 | +0.004723 |
+
+- **Both changes helped relative to 1.3, in every gameweek where they could act.**
+  The suspected cause of 1.3's loss, the unshrunk current-season home factor, is
+  corroborated: fixing it gained on all three identified gameweeks. Last season's
+  team priors gained on all four.
+- **Neither was enough to beat the difficulty band.** The fitted model now roughly
+  splits with the band (+, −, +, −). It did not lose six out of six as 1.3 did. Four
+  gameweeks cannot tell a small real effect from none.
+- **The fit.** GW2 used the prior unchanged; its excess was negative, as expected with
+  one game per team. At GW3–5 the fit was identified. Prior weight in games, attack /
+  defence: 12.1 / 69.1, 28.3 / 35.8, 8.7 / 16.9. So the current season moved the
+  ratings only moderately away from 2025-26's.
+
+**What this licenses.** The next attempt needs development data 1.4 has not seen.
+That means our own captures from GW6 onwards, and a fresh pre-registration naming
+later gameweeks. `component/1.3`, `1.4-venue` and `1.4` stay in `plan evaluate`'s
+default set so that record accumulates from GW6 without anything being decided on it.
+`[gap: whether fixture strength is worth a third attempt at all is open. The band has
+survived two, and FU-72 — the unscored optimiser — may be the larger prize.]`
