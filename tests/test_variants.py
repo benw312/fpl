@@ -52,6 +52,10 @@ EXPECTED_DIGESTS = {
     "component/1.1-position": "877dd43d6607",
     "component/1.2": "4f479b2253cc",
     "component/1.2-availability": "c6143ceb6826",
+    # Pinned at registration, before GW6's deadline, per FU-73 §5. Both legs of
+    # FU-73's pair compare against these — a move here voids the pair.
+    "component/1.3-fixtures": "500b1d355ef9",
+    "component/1.3": "d02bb0a770d1",
 }
 
 # `component/1.2` added a `structure` field to `ModelVariant` and **no digest
@@ -72,6 +76,8 @@ EXPECTED_VERSIONS = {
     "component/1.1-position": "component/1.1-position+banded",
     "component/1.2": "component/1.2+banded",
     "component/1.2-availability": "component/1.2-availability+banded",
+    "component/1.3-fixtures": "component/1.3-fixtures+fitted",
+    "component/1.3": "component/1.3+fitted",
 }
 
 
@@ -616,3 +622,54 @@ def test_the_component_alias_names_one_variant_and_superseded_ones_stay_register
     assert "component/1.0" not in cli._DEFAULT_EVALUATE_MODELS
     # Still resolvable by full name, which is how the comparison is re-run.
     assert variants.get("component/1.0").name == "component/1.0"
+
+
+# --- component/1.3 and component/1.3-fixtures (FU-73) --------------------------
+
+
+def test_13_variants_each_differ_from_their_control_only_in_the_strength_model() -> None:
+    """FU-73 §4's comparisons isolate one change each only if this holds:
+    1.3-fixtures is 1.2, and 1.3 is 1.2-availability, with strength `fitted`.
+
+    Mutations: registering 1.3 with `COMPONENT_V12.structure` (it then carries
+    S6(a)); giving either `StrengthConfig()` (banded).
+    """
+    for candidate, control in [
+        ("component/1.3-fixtures", "component/1.2"),
+        ("component/1.3", "component/1.2-availability"),
+    ]:
+        new = variants.get(candidate).as_dict()
+        old = variants.get(control).as_dict()
+        differing = {key for key in new if new[key] != old[key]}
+        assert differing == {"name", "strength"}, (candidate, differing)
+        assert new["strength"]["name"] == "fitted"
+        assert {k: v for k, v in new["strength"].items() if k != "name"} == {
+            k: v for k, v in old["strength"].items() if k != "name"
+        }
+
+
+def test_13_variants_are_scored_by_default_and_neither_is_the_default_model() -> None:
+    """FU-73 §4: scored in the same run as their controls. §1: not default until
+    GW6 and GW7 say so.
+
+    Mutations: dropping either from `_DEFAULT_EVALUATE_MODELS`; pointing the
+    `component` alias at `component/1.3`.
+    """
+    from fpl_cli import cli  # noqa: PLC0415
+
+    assert {"component/1.3", "component/1.3-fixtures", "component/1.2"} <= set(cli._DEFAULT_EVALUATE_MODELS)
+    assert cli._MODEL_ALIASES["component"] == "component/1.2"
+
+
+def test_a_built_13_reports_its_fit_or_its_fallback(capsys: pytest.CaptureFixture[str]) -> None:
+    """model-1.3.md §3.2: a fallback is recorded in the run. The synthetic
+    fixtures carry no results, so the fit must fall back and say so.
+
+    Mutation: making `_report_strength_fit` return immediately.
+    """
+    from fpl_cli import cli  # noqa: PLC0415
+
+    built = variants.build(variants.get("component/1.3"), _snapshot(), _fixtures())
+    cli._report_strength_fit(built)
+    out = capsys.readouterr().out
+    assert "component/1.3+fitted" in out and "fell back to banded" in out

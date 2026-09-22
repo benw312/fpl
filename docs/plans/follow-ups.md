@@ -5440,6 +5440,17 @@ design gaps that the criterion depends on are closed in model-1.3.md: the minute
 term (§2), the ratings wiring (§3.1), and the shrinkage rule (§3.2). Design in
 [model-1.3.md](model-1.3.md); this entry is the decision rule and nothing else.
 
+**Progress: 2026-09-22** — **both variants are built and registered** on
+`task/model-1.3`: `component/1.3` at digest **`d02bb0a770d1`**, and
+`component/1.3-fixtures` at **`500b1d355ef9`**. Both are pinned in
+`tests/test_variants.py`, which is the §5 record. Both are in `plan evaluate`'s
+default set, so GW6 and GW7 score them in the same run as their controls. The run
+prints each fit, or its fallback. Every other digest is unchanged.
+**The development check went against the fitted model**: it lost in all six fixture
+readings at GW3–5 (model-1.3.md §7). Nothing was changed in response, per §6.
+**Left:** freeze. Before 2026-10-10 Ben decides whether 1.3 goes to GW6 as
+registered. Then GW6 and GW7 are scored.
+
 **This entry is a written commitment, not a feature.** Nothing here is to be built.
 
 ### 1. The criterion

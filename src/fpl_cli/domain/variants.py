@@ -50,7 +50,14 @@ from fpl_cli.domain.projections import (
     RateShrinkageConfig,
     legacy_rate_config,
 )
-from fpl_cli.domain.strength import BAND_MULTIPLIERS, LEAGUE_MEAN_GOALS, BandedTeamRates
+from fpl_cli.domain.strength import (
+    BAND_MULTIPLIERS,
+    LEAGUE_MEAN_GOALS,
+    BandedTeamRates,
+    FittedTeamRates,
+    TeamRatesModel,
+    fit_team_strength,
+)
 
 
 @dataclass(frozen=True)
@@ -67,18 +74,25 @@ class StrengthConfig:
     league_mean_goals: float = LEAGUE_MEAN_GOALS
     home_advantage: float = 1.0
 
-    def build(self, snapshot: BootstrapSnapshot) -> BandedTeamRates:
-        if self.name != "banded":
+    def build(self, snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture] = ()) -> TeamRatesModel:
+        """`fitted` keeps the banded arguments because it falls back to exactly
+        that model when the fit cannot be identified (model-1.3.md §3.2) — so
+        they are still constants of the variant, and the digest still covers
+        them. The fitted ratings are data, refitted per capture, and are not."""
+        if self.name not in ("banded", "fitted"):
             raise ValueError(
-                f"No strength model named {self.name!r}. Only 'banded' exists; "
+                f"No strength model named {self.name!r}. Only 'banded' and 'fitted' exist; "
                 "Dixon-Coles is docs/plans/projections-v1.md Decision 1's v2."
             )
-        return BandedTeamRates(
+        banded = BandedTeamRates(
             snapshot,
             band_multipliers=dict(self.band_multipliers),
             league_mean_goals=self.league_mean_goals,
             home_advantage=self.home_advantage,
         )
+        if self.name == "banded":
+            return banded
+        return FittedTeamRates(fit_team_strength(snapshot, fixtures), banded)
 
 
 @dataclass(frozen=True)
@@ -241,7 +255,7 @@ def build(
         return ComponentProjection(
             snapshot,
             fixtures,
-            variant.strength.build(snapshot),
+            variant.strength.build(snapshot, fixtures),
             fixtures_stale=fixtures_stale,
             fixtures_fetched_at=fixtures_fetched_at,
             minutes_config=variant.minutes,
@@ -505,6 +519,59 @@ COMPONENT_V12_AVAILABILITY = register(
             "component/1.2 with S6(a) removed: the availability fixes S1-S5 on "
             "component/1.1-price's rates, with the pre-1.2 position start priors. "
             "Registered to decompose 1.2's result, not as a candidate default."
+        ),
+    )
+)
+
+
+# --- component/1.3 and component/1.3-fixtures (FU-73) --------------------------
+#
+# **Registered together, before GW6's deadline, under a criterion signed off
+# before either existed.** FU-60 §6.1 records the cost of registering a
+# decomposition variant late; both halves exist from the first gameweek here.
+#
+# Each differs from an existing variant in exactly one field, by construction:
+#
+#   1.3-fixtures = 1.2               with strength "fitted"
+#   1.3          = 1.2-availability  with strength "fitted"
+#
+# so `1.3-fixtures − 1.2` and `1.3 − 1.2-availability` are two readings of the
+# fixture change, and `1.3 − 1.3-fixtures` is S6(a)'s fourth (FU-73 §4). The
+# structures are taken from those variants rather than restated, so neither can
+# drift from its control. The banded arguments stay at their defaults because
+# `fitted` falls back to exactly that model (model-1.3.md §3.2).
+#
+# **Neither is default.** FU-73 §1 decides that, at GW6 and GW7, on
+# `spearman_played`. The ratings are refitted from each capture's own results;
+# the rule that fits them is what must not change between the legs (FU-73 §5).
+
+_FITTED = StrengthConfig(name="fitted")
+
+COMPONENT_V13_FIXTURES = register(
+    ModelVariant(
+        name="component/1.3-fixtures",
+        family="component",
+        strength=_FITTED,
+        rates=COMPONENT_V12.rates,
+        structure=COMPONENT_V12.structure,
+        note=(
+            "component/1.2 with the fitted team-strength model (model-1.3.md §3) in place "
+            "of the difficulty band. Decomposes 1.3; not a candidate default."
+        ),
+    )
+)
+
+COMPONENT_V13 = register(
+    ModelVariant(
+        name="component/1.3",
+        family="component",
+        strength=_FITTED,
+        rates=COMPONENT_V12_AVAILABILITY.rates,
+        structure=COMPONENT_V12_AVAILABILITY.structure,
+        note=(
+            "component/1.2-availability with the fitted team-strength model: S6(a) "
+            "removed and the difficulty band replaced. FU-73 decides whether it "
+            "becomes default, at GW6 and GW7."
         ),
     )
 )

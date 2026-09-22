@@ -239,3 +239,78 @@ curve, and it is the first thing that slips under time pressure.
 this design is a response to what they showed. That is what a development set is for.
 It is also why FU-73 names GW6 and GW7, and why the criterion must be committed
 before GW6's deadline of **2026-10-10**.
+
+---
+
+## 7 — Development check, GW2–GW5 (2026-09-22, report only)
+
+**Built on `task/model-1.3`.** Digests: `component/1.3` `d02bb0a770d1`,
+`component/1.3-fixtures` `500b1d355ef9`. **Nothing was changed after these figures
+were seen.** FU-73 §6 forbids it: changing the rule now would need a new
+pre-registration.
+
+**Pinned inputs (sha256).** The GW5 trio is as cited in gw5-evaluation.md §1.
+
+| pin | sha256 |
+|---|---|
+| `gw2-pre-deadline.json` | `593f60c2e356c4e94205f10248dfd834f4797ad6c736ea73b239da610d84ffcf` |
+| `gw2-fixtures.json` | `fbd4457e5c819f38cb34228453596f8c6eb3ae345bc64a11996682187bdf09a8` |
+| `gw2-live.json` | `afdaf81a6fcdce4000aa4b6f362dc56aa8b1d099a845dd3c4b94c445b5c7d6c9` |
+| `gw3-pre-deadline.json` | `0cc7193b5e20567e379e437a58c3ae6e73379ff892742479af9c0654f3264a0e` |
+| `gw3-fixtures.json` | `5cc5817d3385a671e2fe92f0a7bec3f15869ea8367a0bc32a23125b46e679573` |
+| `gw3-live.json` | `cd86195071cd72e0546e24e1980202c7ea6db34784c10821eda159838d1626a4` |
+| `gw4-pre-deadline.json` | `de9d7d3573b27d28c3d43d8ac0932b290d5f0785903d1e07d031099d8eb49f7e` |
+| `gw4-fixtures.json` | `85d3ef089f28bc22a1d168204ea9d1982dac6ba0af72fd28379e370fbf3eff23` |
+| `gw4-live.json` | `8809e516a5ffeeeebf8707f219ceeac7a9231860bb7257b6753e11c6d4218342` |
+
+**The pipeline was checked before the new figures were read.** Every existing variant
+reproduces its published `spearman_played` to six places: GW3 `1.2` 0.348254, GW4
+`1.2` 0.329666, and GW5 `1.2` 0.381725 and `1.2-availability` 0.414502. **The event
+bound holds.** Fitting from the current fixtures file, which has 50 finished results
+including GW5's own, gives a fit identical to the one from each pinned file, at GW3,
+GW4 and GW5.
+
+### What the fit found
+
+| capture | results | fell back? | μ | home / away | excess att / def | prior (games) att / def |
+|---|---|---|---|---|---|---|
+| GW2 | 10 | **yes** — excess −0.050 / −0.050 | — | — | — | — |
+| GW3 | 20 | no | 1.550 | 1.194 / 0.806 | +0.297 / +0.073 | 5.2 / 21.4 |
+| GW4 | 30 | no | 1.417 | 1.129 / 0.871 | +0.182 / +0.071 | 7.8 / 20.0 |
+| GW5 | 40 | no | 1.425 | 1.035 / 0.965 | +0.244 / +0.151 | 5.8 / 9.5 |
+
+GW2 fell back, as §3.2 predicted. There, `1.3` projects identically to
+`1.2-availability`, and `1.3-fixtures` identically to `1.2`, to six places. That is
+the fallback working as specified.
+
+### `spearman_played`
+
+| | 1.2 | 1.2-avail | **1.3-fixtures** | **1.3** | 1.1-price | naive | official-ep |
+|---|---|---|---|---|---|---|---|
+| GW3 | 0.348254 | 0.319355 | 0.320985 | 0.238761 | 0.316227 | 0.229472 | 0.210042 |
+| GW4 | 0.329666 | 0.323130 | 0.329047 | 0.317090 | 0.329148 | 0.342232 | 0.353172 |
+| GW5 | 0.381725 | 0.414502 | 0.364813 | 0.386618 | 0.414226 | 0.336305 | 0.380525 |
+
+| | fixture change, minutes at 1.2's | fixture change, minutes at S1–S5 | removing S6(a) under fitted strength | 1.3 − 1.2 (FU-73 §1's comparison) |
+|---|---|---|---|---|
+| GW3 | −0.027269 | −0.080594 | −0.082224 | −0.109493 |
+| GW4 | −0.000619 | −0.006040 | −0.011957 | −0.012576 |
+| GW5 | −0.016912 | −0.027884 | +0.021805 | +0.004893 |
+
+**The fitted strength model lost in all six fixture readings on the development set.**
+Three of the six are small; GW3's −0.081 is not. `spearman_all` moves the same way:
+1.3-fixtures and 1.3 are at or below their controls at every identified gameweek.
+
+**What this is, and is not.** GW2–GW5 are the development set (§6). They were read
+closely before 1.3 was designed, and they are not the test FU-73 names. Nor is this
+noise that the rule can be tuned out of. Per FU-73 §6, the rule does not move in
+response to these figures without a new pre-registration.
+
+**One observation, not acted on.** Home advantage is fitted from the pooled home and
+away means and is **not shrunk**, because §3.2 did not ask for it to be. At GW3 it
+comes from 20 matches and splits home and away by ±19%. That is the largest single
+multiplier in the model at that gameweek, larger than any team's opponent-defence
+rating (0.92–1.07). GW3 is also where the loss is largest. `[gap: the loss has not
+been decomposed into its venue and opponent-rating parts. Doing so means scoring
+further variants against the development set, which is a decision for Ben, not a
+diagnostic to run in passing.]`
