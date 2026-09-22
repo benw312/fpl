@@ -110,7 +110,9 @@ was written for a failed leg, and it applies with equal force here.
 `task/promote-component-1.2` and **not merged**. Merging it is no longer a
 book-keeping step — it installs as default a variant that has now been beaten by its
 predecessor on the most recent settled gameweek, by 63 times the margin it won on.
-That is a judgement for Ben, and this document deliberately does not make it. Both
+That is a judgement for Ben, and this document deliberately does not make it.
+*[Resolved 2026-09-21: Ben honoured FU-60 and promoted — merged in `60b6324`.
+FU-60 is closed; the successor pre-registration is FU-73.]* Both
 available positions are defensible and both must be taken deliberately:
 
 - **Honour FU-60 and promote**, then pre-register a revert test naming GW6 and GW7

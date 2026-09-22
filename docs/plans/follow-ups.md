@@ -50,8 +50,10 @@ checked 2026-09-12 (`8b58674`): the citations in the entries added this session
 resolve correctly (`domain/rules.py:57`, `optimizer.py:48`).
 
 **The pre-FU-50 citations have drifted again, and the amount is measured rather than
-guessed.** Re-measured 2026-09-12: of **103** distinct `file.py:line` citations in
-this file, **14 point at a blank line or a bare delimiter**. None is past end of
+guessed.** Re-measured 2026-09-12: of **105** distinct `file.py:line` citations in
+this file, **14 point at a blank line or a bare delimiter**. *(The total was 103 on
+2026-09-12; FU-60's Status line added two on 2026-09-22, `cli.py:696` and
+`tests/test_variants.py:53`, both substantive, so the 14 is unchanged.)* None is past end of
 file. `task/component-1.2` added roughly 550 lines to `domain/projections.py`, which
 remains most of the cause.
 
@@ -59,8 +61,8 @@ remains most of the cause.
 `tests/test_follow_ups_header.py` (FU-69).** Change one and the suite fails naming
 both numbers. The counting rules are part of the contract, because the number is
 meaningless without them and three readings of it differ by more than the drift being
-measured — 133 counting every mention, 103 distinct as written, 99 distinct source
-lines:
+measured — on 2026-09-12, 133 counting every mention, 103 distinct as written, 99
+distinct source lines:
 
 - **Distinct, as written.** Repeat mentions of one spelling count once: `cli.py:1021`
   appears six times and counts once.
@@ -239,7 +241,12 @@ still registered at the identity (FU-51); `squad.json` still `genesis_event: 1` 
 `DEFAULT_FT_VALUE` still the literal 1.5 (FU-25, FU-64).
 
 **FU-71 and FU-72 are not in this file on `main`** — they are on the unmerged
-promotion stack, and this review covers what `main` carries.
+promotion stack, and this review covers what `main` carries. *[Superseded
+2026-09-22: that stack merged in `60b6324` the same evening, so both entries are on
+`main` now, as is FU-73, filed after. Counting every entry without a `Status:
+closed`, `landed` or `REFUTED` line gives **44 open as of 2026-09-22**, FU-60 now
+closed. The same rule gives **42**, not 41, for `main` on this review's date; the
+rule behind 41 is not stated and the one-entry difference is not resolved.]*
 
 ## What the GW5 result does to the ranking
 
@@ -4167,6 +4174,18 @@ operations.]`
 ---
 
 ## FU-60 — Pre-registration: component/1.2 against component/1.1-price
+
+**Status: closed** — `dae3672` on `task/promote-component-1.2`, merged to `main` in
+`60b6324` (2026-09-21). Marked 2026-09-22, a day late. **Checked in the source:**
+`_MODEL_ALIASES["component"]` is `"component/1.2"` (`cli.py:696`), and
+`tests/test_variants.py:53` pins `component/1.2` at digest `4f479b2253cc` — the
+digest recorded at both legs (gw3-evaluation.md, gw4-evaluation.md), so the variant
+promoted is the variant the pair measured. **Diverged from the entry in one
+respect:** the Progress line below says the merge is prepared and unmerged, and
+leaves the GW5 judgement open. Ben took it — honour §1 and promote, knowing GW5 —
+and the reasoning is gw5-evaluation.md §4. FU-50 §4, which this entry said GW5
+would settle, settled in the component family's favour (+0.0782). The successor
+decision rule is FU-73.
 
 **Progress: 2026-09-19** — **the pair is complete and the criterion is met.**
 Leg 1 (GW3, 2026-09-11) +0.032; leg 2 (GW4, 2026-09-19) **+0.000517**. Both
