@@ -5405,3 +5405,113 @@ measure a gap against a target nobody wants.]`
 own code against a constructed benchmark, not a decision rule about a model, so FU-50's
 machinery does not obviously apply. If step A's result were ever used to justify
 changing a default, it would need one first.]`
+
+---
+
+## FU-73 — Pre-registration: component/1.3 against the incumbent, at GW6 and GW7
+
+**Status: DRAFT — not binding until signed off, and it must be signed off before
+GW6's deadline, 2026-10-10T10:00Z.** A pre-registration agreed after the gameweek it
+governs is not a pre-registration. Design in [model-1.3.md](model-1.3.md); this entry
+is the decision rule and nothing else. **One substantive choice is left open for Ben
+and is marked in §2.**
+
+**This entry is a written commitment, not a feature.** Nothing here is to be built.
+
+### 1. The criterion
+
+**`component/1.3` replaces `component/1.2` as the registered default if and only if
+it scores strictly higher on the primary metric of §2 in *each* of GW6 and GW7.** No
+margin. A tie does not clear. One win and one reversal is a null result, not a
+tie-break — FU-50 §2, unchanged.
+
+**"Clean" carries FU-50 §2's meaning** — no blanks, no doubles — and is to be
+checked on each gameweek's fixture list **before it counts**, from the pre-deadline
+capture, and re-confirmed against the settled payload. GW4 and GW5 were both checked
+this way.
+
+**Both gameweeks are named now, in advance.** FU-60 §6.2 closed FU-50 §2's "or any
+later pair" hole: without both named, a GW6 failure invites trying GW7, which is
+serial testing and inflates the false-positive rate this whole scheme exists to
+control. If 1.3 fails either leg it does not become default under this entry, and a
+later attempt needs fresh pre-registration naming its gameweeks before they settle.
+
+### 2. The primary metric — the open decision
+
+**Recommendation: `spearman_all`.** FU-60 used `spearman_played`. Changing it is a
+real degree of freedom and must be argued before the data, not after.
+
+**The case for changing.** `spearman_all` ranks the whole projected population, which
+is the population `plan optimise` actually chooses over — it does not get to restrict
+itself to players who turned out to play. It is also where the component family is
+**losing to `naive/1.0` and `official-ep/1.0`** at GW4 and GW5, and 1.3's stated
+purpose is to fix the weak half. Judging 1.3 on the metric it is not trying to move
+would measure the wrong thing.
+
+**The case against, stated plainly because it is the stronger-sounding one.**
+Switching the primary metric immediately after the incumbent lost on it looks exactly
+like moving the goalposts. The defence is that this choice is being made **before the
+variants exist, before GW6 is played, and for a structural reason about what the
+optimiser consumes** — not against any visible figure for 1.3. That defence is only
+good if the choice is fixed *now* and never revisited.
+
+**Whichever is chosen, the other is reported and is not a criterion** — FU-50 §1's
+rule. `[gap: this entry does not resolve the choice. It must be resolved in a commit
+landing before 2026-10-10, and the resolution must not cite any GW6 figure.]`
+
+### 3. The control is the incumbent, and FU-50 §4 still applies
+
+The comparison is against **`component/1.2`**, the registered default as of
+2026-09-21 — not against `component/1.1-price`, and not against whichever variant
+happens to look best. Using "the best of the family" as the control would let 1.3
+clear a bar chosen after the fact.
+
+**FU-50 §4 continues to apply independently.** If the best component variant fails to
+beat `naive/1.0` across two clean gameweeks, `naive/1.0` becomes the default
+regardless of anything here. That clause has fired once (GW4) and not since.
+
+### 4. The decomposition, and the readings fixed now
+
+Four variants are scored in one run: `1.3`, `1.3-fixtures`, `1.2`, `1.1-price`.
+`1.3 − 1.3-fixtures` isolates the minutes change; `1.3-fixtures − 1.1-price` isolates
+the fixture change. **The decomposition does not change §1's criterion**, which is a
+single pairwise comparison. "Which model came top" is not the criterion.
+
+Readings fixed in advance:
+
+- **Both changes help, 1.3 best.** §1's leg is met on its own terms. Both directions
+  are worth keeping and 1.4 can build on either.
+- **`1.3-fixtures` ≥ `1.3`.** The fixture model works and the minutes simplification
+  costs something. §1 is judged on 1.3 regardless; if 1.3 loses, **the fixture change
+  is not thereby refuted** and deserves its own pre-registration rather than being
+  smuggled in under this one.
+- **`1.3` > `1.2` but `1.3-fixtures` ≈ `1.1-price`.** The gain is the minutes
+  *subtraction*, and the fitted strength model earned nothing. That is a clean and
+  useful answer: stop work on fixture strength and bank the deletion.
+- **Neither clears `1.2`.** `component/1.2` stays default by incumbency; 1.3 stays
+  registered and re-measurable — FU-50 §4's "a demotion, not a deletion".
+
+### 5. Stability
+
+**`component/1.3` and `component/1.3-fixtures` must not change between registration
+and the completion of the pair**, for FU-60 §7's reason: a variant evaluated at GW7
+that differs from the one evaluated at GW6 makes the pair two observations of two
+models and the criterion unsatisfiable in principle. **Model digests are to be
+compared across both legs and recorded**, as was done for GW3/GW4 — that check is
+what turns the requirement from an assertion into a verification.
+
+The controls `1.2` and `1.1-price` are frozen for the duration too.
+
+### 6. Not to be re-read against a result
+
+The metric, population, control and readings above are fixed once §2 is resolved.
+None may be revisited against a GW6 or GW7 figure — FU-50 §5 and FU-60 §8. **This
+includes declining to act on a result that meets the criterion**, which GW5 made a
+live temptation: refusing to promote on a later figure is the same error as promoting
+on an unlicensed one, with the sign flipped.
+
+`[gap: the fitted strength model of §3 has a shrinkage strength, which is a constant.
+FU-50 §3 forbids choosing it on thin data. It must be set from a principle or fixed
+before any evaluation figure is seen. If it ends up chosen by trying values against
+GW2-GW5, this entry's criterion is measuring a curve fitted to its own development
+set and the pair will not mean what it says.]`
