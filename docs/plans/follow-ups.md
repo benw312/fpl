@@ -268,6 +268,9 @@ gating artefact and it must be written **before GW6 settles** — its deadline i
 2026-10-10, so there is time, and that time is the only reason it can be done
 properly. It should also decide whether the S6(a)/S1–S5 split is worth continuing to
 measure at all.
+*[Done 2026-09-22: FU-73, binding. It keeps measuring the split: `1.3 − 1.3-fixtures`
+is S6(a)'s fourth reading. It does not give `component/1.2-availability` a criterion of
+its own. That variant's minutes term becomes 1.3's, so it is tested through 1.3.]*
 
 **2 — FU-72: score the optimiser. This is now the largest unknown in the project.**
 Four gameweeks have gone into measuring projections; **zero** have gone into the
@@ -5410,11 +5413,13 @@ changing a default, it would need one first.]`
 
 ## FU-73 — Pre-registration: component/1.3 against the incumbent, at GW6 and GW7
 
-**Status: DRAFT — not binding until signed off, and it must be signed off before
-GW6's deadline, 2026-10-10T10:00Z.** A pre-registration agreed after the gameweek it
-governs is not a pre-registration. Design in [model-1.3.md](model-1.3.md); this entry
-is the decision rule and nothing else. **One substantive choice is left open for Ben
-and is marked in §2.**
+**Status: binding from 2026-09-22** — signed off by Ben on `task/fu-73-signoff`,
+eighteen days before GW6's deadline (2026-10-10T10:00Z). No 1.3 variant existed when
+it was signed, and GW6 had not been played. The draft left one choice open, in §2. It
+is resolved, and against the draft's own recommendation. §4 is corrected, and the
+design gaps that the criterion depends on are closed in model-1.3.md: the minutes
+term (§2), the ratings wiring (§3.1), and the shrinkage rule (§3.2). Design in
+[model-1.3.md](model-1.3.md); this entry is the decision rule and nothing else.
 
 **This entry is a written commitment, not a feature.** Nothing here is to be built.
 
@@ -5436,10 +5441,33 @@ serial testing and inflates the false-positive rate this whole scheme exists to
 control. If 1.3 fails either leg it does not become default under this entry, and a
 later attempt needs fresh pre-registration naming its gameweeks before they settle.
 
-### 2. The primary metric — the open decision
+### 2. The primary metric: `spearman_played`
 
-**Recommendation: `spearman_all`.** FU-60 used `spearman_played`. Changing it is a
-real degree of freedom and must be argued before the data, not after.
+**Decided 2026-09-22: `spearman_played`**, the metric FU-60 used. The draft
+recommended `spearman_all`, and both arguments it gave are kept below as written.
+
+**Why the recommendation was overturned.** Neither of 1.3's changes targets the
+problem `spearman_all` measures. That problem is effectively *"will he play"*, since
+most of the projected population scores zero.
+
+- **Change 2**, the fitted strength model, acts on the rate half: attack scaling and
+  clean sheets. Its effect falls mostly on players who play.
+- **Change 1** reverts the minutes term to S1–S5. In GW3–5 the whole component family
+  trails `naive/1.0` and `official-ep/1.0` on `spearman_all` by 0.02–0.06. The one
+  near-exception is `component/1.2` at GW3, within 0.003 of `naive/1.0` (0.700
+  against 0.703; gw3-, gw4- and gw5-evaluation.md). That is true of every minutes term already
+  registered, S1–S5 included, so reverting to one of them is not an attempt on that
+  gap.
+
+Judging 1.3 on `spearman_all` would therefore judge it on a problem it does not try to
+solve. Component variants differ from one another there by 0.023 at most at GW3–5, so the
+1.3 vs 1.2 comparison would come down to noise.
+
+**The "will he play" problem is not dropped.** It is the parked idea in model-1.3.md
+§5 of splitting P(plays) from E[points | plays], and it gets a pre-registration of its
+own, with `spearman_all`, or a metric built for it, as its criterion.
+
+*The draft's arguments, as written:*
 
 **The case for changing.** `spearman_all` ranks the whole projected population, which
 is the population `plan optimise` actually chooses over — it does not get to restrict
@@ -5455,9 +5483,9 @@ variants exist, before GW6 is played, and for a structural reason about what the
 optimiser consumes** — not against any visible figure for 1.3. That defence is only
 good if the choice is fixed *now* and never revisited.
 
-**Whichever is chosen, the other is reported and is not a criterion** — FU-50 §1's
-rule. `[gap: this entry does not resolve the choice. It must be resolved in a commit
-landing before 2026-10-10, and the resolution must not cite any GW6 figure.]`
+**`spearman_all` is reported and is not a criterion**, under FU-50 §1's rule.
+Resolved in a commit landing before 2026-10-10 that cites no GW6 figure, as the draft
+required.
 
 ### 3. The control is the incumbent, and FU-50 §4 still applies
 
@@ -5472,35 +5500,66 @@ regardless of anything here. That clause has fired once (GW4) and not since.
 
 ### 4. The decomposition, and the readings fixed now
 
-Four variants are scored in one run: `1.3`, `1.3-fixtures`, `1.2`, `1.1-price`.
-`1.3 − 1.3-fixtures` isolates the minutes change; `1.3-fixtures − 1.1-price` isolates
-the fixture change. **The decomposition does not change §1's criterion**, which is a
-single pairwise comparison. "Which model came top" is not the criterion.
+**Five component variants are scored in one run:** `1.3`, `1.3-fixtures`, `1.2`,
+`1.2-availability` and `1.1-price`, with `naive/1.0` and `official-ep/1.0` beside
+them. `1.3` is fitted strength with 1.2-availability's minutes term, S1–S5.
+`1.3-fixtures` is fitted strength with the incumbent's, S1–S6(a). Each difference
+below changes exactly one thing:
 
-Readings fixed in advance:
+- **`1.3-fixtures − 1.2`**: the fixture change, with minutes held at the incumbent's.
+- **`1.3 − 1.2-availability`**: the fixture change, with minutes held at S1–S5. This is
+  a second reading of the same change.
+- **`1.3 − 1.3-fixtures`**: removing S6(a), under fitted strength.
 
-- **Both changes help, 1.3 best.** §1's leg is met on its own terms. Both directions
-  are worth keeping and 1.4 can build on either.
-- **`1.3-fixtures` ≥ `1.3`.** The fixture model works and the minutes simplification
-  costs something. §1 is judged on 1.3 regardless; if 1.3 loses, **the fixture change
-  is not thereby refuted** and deserves its own pre-registration rather than being
-  smuggled in under this one.
-- **`1.3` > `1.2` but `1.3-fixtures` ≈ `1.1-price`.** The gain is the minutes
-  *subtraction*, and the fitted strength model earned nothing. That is a clean and
-  useful answer: stop work on fixture strength and bank the deletion.
-- **Neither clears `1.2`.** `component/1.2` stays default by incumbency; 1.3 stays
-  registered and re-measurable — FU-50 §4's "a demotion, not a deletion".
+*Corrected 2026-09-22, before any variant existed.* The draft claimed that `1.3 −
+1.3-fixtures` isolates "the minutes change" and that `1.3-fixtures − 1.1-price`
+isolates the fixture change. The first holds: it is the removal of S6(a). The second
+does not hold. It changes the strength model **and** the whole minutes term, from the
+scalar to S1–S6(a).
+
+**The fixture change includes the team's own defence entering the clean-sheet term**
+(model-1.3.md §3.1). This is stated here so that a result for "the fixture change" is
+not later read as a result for the ratings alone.
+
+**The decomposition does not change §1's criterion**, which is a single pairwise
+comparison. "Which model came top" is not the criterion.
+
+**Known in advance:** `1.3 − 1.2` bundles the fixture change with removing S6(a).
+S6(a) has read +0.029, +0.0065 and −0.033, a spread wider than any margin decided
+here. So §1's comparison can be won or lost by the deletion alone. The readings below
+separate the two. They do not alter §1.
+
+Readings fixed in advance ("≈" means the two fixture readings disagree in sign, or
+both are smaller in magnitude than the other term):
+
+- **1.3 > 1.2, and both fixture readings positive.** §1's leg is met, and the fitted
+  model contributed. Both directions are worth keeping, and 1.4 can build on either.
+- **1.3 > 1.2, but the fixture readings ≈ 0.** The gain is the removal of S6(a), and
+  the fitted strength model earned nothing. That is a clean and useful answer: stop
+  work on fixture strength and bank the deletion. §1 is still met as written.
+- **1.3 ≤ 1.2, but both fixture readings positive.** Removing S6(a) cost more than
+  the fixtures gained. §1 fails. **The fixture change is not thereby refuted.** It
+  deserves its own pre-registration, not to be smuggled in under this one.
+- **Neither.** `component/1.2` stays default by incumbency; 1.3 stays registered and
+  re-measurable — FU-50 §4's "a demotion, not a deletion".
 
 ### 5. Stability
 
-**`component/1.3` and `component/1.3-fixtures` must not change between registration
-and the completion of the pair**, for FU-60 §7's reason: a variant evaluated at GW7
+**Both digests are recorded in this entry at registration, before 2026-10-10**, and
+compared again at each leg. **`component/1.3` and `component/1.3-fixtures` must not
+change between registration and the completion of the pair**, for FU-60 §7's reason: a variant evaluated at GW7
 that differs from the one evaluated at GW6 makes the pair two observations of two
 models and the criterion unsatisfiable in principle. **Model digests are to be
 compared across both legs and recorded**, as was done for GW3/GW4 — that check is
 what turns the requirement from an assertion into a verification.
 
-The controls `1.2` and `1.1-price` are frozen for the duration too.
+The controls `1.2`, `1.2-availability` and `1.1-price` are frozen for the duration
+too.
+
+**The fitted ratings are data, not configuration.** They are refitted from each
+capture's own finished fixtures, so GW6's ratings and GW7's will differ. That is the
+model working as specified, not a change to the model. What must not change is the
+rule in model-1.3.md §3.2, and the digest covers the rule.
 
 ### 6. Not to be re-read against a result
 
@@ -5510,8 +5569,9 @@ includes declining to act on a result that meets the criterion**, which GW5 made
 live temptation: refusing to promote on a later figure is the same error as promoting
 on an unlicensed one, with the sign flipped.
 
-`[gap: the fitted strength model of §3 has a shrinkage strength, which is a constant.
-FU-50 §3 forbids choosing it on thin data. It must be set from a principle or fixed
-before any evaluation figure is seen. If it ends up chosen by trying values against
-GW2-GW5, this entry's criterion is measuring a curve fitted to its own development
-set and the pair will not mean what it says.]`
+**The shrinkage strength is fixed by rule, not chosen** (model-1.3.md §3.2). It is
+estimated by method of moments on each capture's finished fixtures, and falls back to
+`BandedTeamRates` when the between-team excess is ≤ 0. The draft's gap is closed.
+**If the rule is ever changed after a GW2–GW5 evaluation figure has been seen, this
+entry's criterion measures a curve fitted to its own development set**, and the pair
+will not mean what it says. Changing the rule needs a new pre-registration.
