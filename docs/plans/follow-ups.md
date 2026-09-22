@@ -5338,6 +5338,10 @@ exactly. Over GW2–4 and GW3–5, measured in realised points:
   upper bound, not a case for raising `K_ENUM`.
 - **The shipped program's plan beat holding by −2 and +23.**
 **§1's premise is answered:** the optimiser is not the weak half.
+**Also measured (§3 of the results):** the same search fed `naive/1.0`'s forecast
+plans 20 and 30 points *below* holding, although naive wins `spearman_all`. That is
+the first evidence that forecast magnitudes, FU-62's and FU-63's territory, cost
+real points.
 **Left:** cause 2, chips, is unmeasured. P0 is scored as a fixed plan; a rolling,
 re-plan-weekly P0 is the faithful measure of the shipped workflow, and it needs a
 design for mixing captures' prices.
