@@ -283,3 +283,102 @@ def test_no_results_at_all_falls_back() -> None:
     Mutation: removing the `if not results` guard raises ZeroDivisionError.
     """
     assert fit_team_strength(_league(next_event=1), _RESULTS).fallback is not None
+
+
+# --- The season prior: component/1.4 (model-1.4.md §2) ---------------------------
+
+from fpl_cli.domain.strength import SeasonPrior, fit_results  # noqa: E402
+
+_TEAMS = (1, 2, 3, 4)
+_VENUE = (1.11, 0.89)
+# Club 1 was strong last season, club 4 weak; 2 and 3 average.
+_PRIOR_RATINGS = {1: (1.3, 0.8), 2: (1.0, 1.0), 3: (1.0, 1.0), 4: (0.7, 1.25)}
+
+
+def test_change_a_fixes_the_venue_factors_at_the_prior_seasons() -> None:
+    """model-1.4.md §2.1: last season's factors replace this season's fit.
+
+    Mutation: ignoring `prior.venue` and refitting from the current results.
+    """
+    fit = fit_results(_RESULTS, _TEAMS, prior=SeasonPrior(mu=1.4, venue=_VENUE))
+    assert (fit.home_factor, fit.away_factor) == _VENUE
+    assert fit.fallback is None
+
+
+def test_a_flat_prior_with_the_fitted_venue_reproduces_13_exactly() -> None:
+    """Change B at r_i = 1 everywhere is 1.3's shrinkage, so 1.3 cannot have
+    been altered by generalising the fit. (The synthetic schedule is balanced,
+    so the spread about mu equals the variance of the team means.)
+
+    Mutation: taking `mu` from `prior.mu` rather than fitting it from the current
+    results (the prior's `mu` is 0.0 here precisely so that mutation shows).
+    """
+    plain = fit_results(_RESULTS, _TEAMS)
+    venue = (plain.home_factor, plain.away_factor)
+    flat = fit_results(_RESULTS, _TEAMS, prior=SeasonPrior(mu=0.0, venue=venue, ratings={t: (1.0, 1.0) for t in _TEAMS}))
+    for team in _TEAMS:
+        assert abs(flat.attack[team] - plain.attack[team]) < 1e-12
+        assert abs(flat.defence[team] - plain.defence[team]) < 1e-12
+
+
+def test_ratings_are_the_gamma_posterior_about_each_clubs_prior_mean() -> None:
+    """model-1.4.md §2.2: rating = (observed + r²/σ²) / (exposure + r/σ²).
+    Checked for club 1's attack (prior 1.3) from the returned ratings.
+
+    Mutations: dropping `** 2` on the prior mean in the numerator; dropping the
+    prior mean from the denominator (both shrink toward 1, not toward r).
+    """
+    prior = SeasonPrior(mu=1.4, venue=_VENUE, ratings=_PRIOR_RATINGS)
+    fit = fit_results(_RESULTS, _TEAMS, prior=prior)
+    assert fit.prior_unchanged is None, fit
+    inverse_s2 = fit.prior_goals_attack
+    games = [(f, f.team_h == 1) for f in _RESULTS if 1 in (f.team_h, f.team_a)]
+    observed = sum(f.team_h_score if home else f.team_a_score for f, home in games)
+    exposure = sum(
+        fit.mu * (_VENUE[0] if home else _VENUE[1]) * fit.defence[f.team_a if home else f.team_h] for f, home in games
+    )
+    r = _PRIOR_RATINGS[1][0]
+    assert abs(fit.attack[1] - (observed + inverse_s2 * r * r) / (exposure + inverse_s2 * r)) < 1e-9
+
+
+def test_the_excess_is_measured_about_each_clubs_prior_expectation() -> None:
+    """model-1.4.md §2.2: excess = mean[(m_i − μ·r_i)²] − μ/n, not the variance
+    of the team means.
+
+    Mutation: using `pvariance` of the team means when a prior is given.
+    """
+    prior = SeasonPrior(mu=1.4, venue=_VENUE, ratings=_PRIOR_RATINGS)
+    fit = fit_results(_RESULTS, _TEAMS, prior=prior)
+    scored: dict[int, list[int]] = {}
+    for f in _RESULTS:
+        scored.setdefault(f.team_h, []).append(f.team_h_score)
+        scored.setdefault(f.team_a, []).append(f.team_a_score)
+    expected = sum((sum(g) / len(g) - fit.mu * _PRIOR_RATINGS[t][0]) ** 2 for t, g in scored.items()) / 4 - fit.mu / 3
+    assert abs(fit.excess_attack - expected) < 1e-12
+
+
+def test_no_spread_beyond_the_prior_uses_the_prior_unchanged_not_the_band() -> None:
+    """model-1.4.md §2.2's fallback differs from 1.3's: the prior stands, and
+    `fallback` (which means "banded") stays None.
+
+    Mutation: returning 1.3's banded fallback when a prior is given.
+    """
+    level = [_result(i + 1, 1 + i // 2, h, a, 1, 1) for i, (h, a) in enumerate([(1, 2), (3, 4), (1, 3), (2, 4), (4, 1), (2, 3)])]
+    prior = SeasonPrior(mu=1.4, venue=_VENUE, ratings={t: (1.0, 1.0) for t in _TEAMS})
+    fit = fit_results(level, _TEAMS, prior=prior)
+    assert fit.fallback is None and fit.prior_unchanged is not None
+    assert fit.attack == {t: 1.0 for t in _TEAMS}
+    snapshot = _league()
+    model = FittedTeamRates(fit, _banded(snapshot))
+    assert model.rates(team=1, opponent=2, home=True) != _banded(snapshot).rates(team=1, opponent=2, home=True)
+
+
+def test_no_results_with_a_prior_uses_the_prior_seasons_mean() -> None:
+    """GW1: nothing to fit a league mean from, so last season's stands in.
+
+    Mutation: leaving `mu` at 0.0 on the prior path.
+    """
+    prior = SeasonPrior(mu=1.375, venue=_VENUE, ratings=_PRIOR_RATINGS)
+    fit = fit_results([], _TEAMS, prior=prior)
+    assert fit.mu == 1.375
+    assert fit.attack[1] == 1.3 and fit.defence[4] == 1.25

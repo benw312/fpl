@@ -56,6 +56,10 @@ EXPECTED_DIGESTS = {
     # FU-73's pair compare against these — a move here voids the pair.
     "component/1.3-fixtures": "500b1d355ef9",
     "component/1.3": "d02bb0a770d1",
+    # Pinned at registration under FU-74 §5, before GW6. Each covers the 2025-26
+    # prior table's own digest, so a regenerated table moves these.
+    "component/1.4-venue": "c9e603c9afbe",
+    "component/1.4": "be140444dd50",
 }
 
 # `component/1.2` added a `structure` field to `ModelVariant` and **no digest
@@ -78,6 +82,8 @@ EXPECTED_VERSIONS = {
     "component/1.2-availability": "component/1.2-availability+banded",
     "component/1.3-fixtures": "component/1.3-fixtures+fitted",
     "component/1.3": "component/1.3+fitted",
+    "component/1.4-venue": "component/1.4-venue+fitted",
+    "component/1.4": "component/1.4+fitted",
 }
 
 
@@ -673,3 +679,90 @@ def test_a_built_13_reports_its_fit_or_its_fallback(capsys: pytest.CaptureFixtur
     cli._report_strength_fit(built)
     out = capsys.readouterr().out
     assert "component/1.3+fitted" in out and "fell back to banded" in out
+
+
+# --- component/1.4 and component/1.4-venue (FU-74) -------------------------------
+
+
+def test_14_variants_each_differ_from_their_control_only_in_the_season_prior() -> None:
+    """FU-74 §4: `1.4-venue − 1.3` is change A and `1.4 − 1.4-venue` is change B
+    only if nothing else differs.
+
+    Mutations: registering 1.4 with `season_prior="venue"`; giving 1.4-venue
+    1.2's structure.
+    """
+    for candidate, control, mode in [
+        ("component/1.4-venue", "component/1.3", "venue"),
+        ("component/1.4", "component/1.4-venue", "venue+ratings"),
+    ]:
+        new = variants.get(candidate).as_dict()
+        old = variants.get(control).as_dict()
+        assert {key for key in new if new[key] != old[key]} == {"name", "strength"}, candidate
+        assert new["strength"]["season_prior"] == mode
+        base = {k: v for k, v in new["strength"].items() if k not in ("season_prior", "season_prior_table")}
+        assert base == {k: v for k, v in old["strength"].items() if k not in ("season_prior", "season_prior_table")}
+
+
+def test_the_prior_table_is_inside_the_14_digests_and_outside_13s(monkeypatch: pytest.MonkeyPatch) -> None:
+    """model-1.4.md §4: a regenerated table with different numbers is a
+    different model; 1.3 takes nothing from the table and must not move.
+
+    Mutation: dropping `season_prior_table` from `as_dict`.
+    """
+    from fpl_cli.domain import season_prior  # noqa: PLC0415
+
+    before = {name: variants.get(name).digest for name in ("component/1.3", "component/1.4-venue", "component/1.4")}
+    monkeypatch.setattr(season_prior, "HOME_FACTOR", season_prior.HOME_FACTOR + 0.01)
+    after = {name: variants.get(name).digest for name in before}
+    assert after["component/1.3"] == before["component/1.3"]
+    assert after["component/1.4-venue"] != before["component/1.4-venue"]
+    assert after["component/1.4"] != before["component/1.4"]
+
+
+def test_14_variants_are_scored_by_default_and_the_alias_stays_on_12() -> None:
+    """Mutations: dropping either from `_DEFAULT_EVALUATE_MODELS`; pointing the
+    `component` alias at `component/1.4`."""
+    from fpl_cli import cli  # noqa: PLC0415
+
+    assert {"component/1.4", "component/1.4-venue", "component/1.2-availability"} <= set(cli._DEFAULT_EVALUATE_MODELS)
+    assert cli._MODEL_ALIASES["component"] == "component/1.2"
+
+
+def test_a_club_the_previous_season_does_not_know_takes_the_relegated_mean() -> None:
+    """model-1.4.md §2.2: promoted clubs are identified by code, not listed, and
+    take the relegated clubs' mean — not league average.
+
+    Mutation: defaulting an unknown code to `(1.0, 1.0)`.
+    """
+    from fpl_cli.api.models import Club  # noqa: PLC0415
+    from fpl_cli.domain import season_prior  # noqa: PLC0415
+
+    snapshot = _snapshot()
+    known = next(iter(season_prior.RATINGS))
+    clubs = [
+        Club(id=1, name="Carried over", code=known),
+        Club(id=2, name="Promoted", code=999_999),
+        Club(id=3, name="Synthetic, no code"),
+    ]
+    snapshot = snapshot.model_copy(update={"teams": clubs})
+    snapshot.__dict__.pop("clubs", None)
+    prior = variants._season_prior_for(snapshot, "venue+ratings")
+    assert prior.ratings[1] == season_prior.RATINGS[known]
+    assert prior.ratings[2] == season_prior.PROMOTED_PRIOR
+    assert prior.ratings[3] == season_prior.PROMOTED_PRIOR
+    assert season_prior.PROMOTED_PRIOR != (1.0, 1.0)
+
+
+def test_a_built_14_reports_that_it_used_the_prior_unchanged(capsys: pytest.CaptureFixture[str]) -> None:
+    """The synthetic fixtures carry no results, so 1.4 must use the 2025-26
+    prior as it stands — not the banded model — and say so.
+
+    Mutation: making the `prior_unchanged` branch of `_report_strength_fit`
+    fall through to the fitted line.
+    """
+    from fpl_cli import cli  # noqa: PLC0415
+
+    built = variants.build(variants.get("component/1.4"), _snapshot(), _fixtures())
+    assert built.rates_model.fit.fallback is None
+    cli._report_strength_fit(built)
+    assert "prior used unchanged" in capsys.readouterr().out

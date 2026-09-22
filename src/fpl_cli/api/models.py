@@ -76,6 +76,10 @@ class Club(BaseModel):
     id: int
     name: str
     short_name: str = ""
+    # FPL's persistent club identifier. `id` is reassigned every season (it is
+    # alphabetical position); `code` is not, so it is what matches a club to
+    # its previous-season rating (model-1.4.md §2). None in synthetic tests.
+    code: int | None = None
     # Despite the field names, `strength_overall_home` is the difficulty
     # rating an OPPONENT faces when playing at home against this club, and
     # `strength_overall_away` the rating faced playing away — confirmed

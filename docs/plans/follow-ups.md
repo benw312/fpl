@@ -5619,6 +5619,17 @@ will not mean what it says. Changing the rule needs a new pre-registration.
 
 ## FU-74 — Pre-registration: component/1.4 against the incumbent, at GW6 and GW7
 
+**Status: closed — not run; the development gate said NO-GO (2026-09-22)**, on
+`task/model-1.4`. **Checked in the source:** `component/1.4` (`be140444dd50`) and
+`component/1.4-venue` (`c9e603c9afbe`) were built and committed (`eaf5f6c`) *before*
+the gate was read. `1.4 − 1.2-availability` on `spearman_played` was +0.0049,
+−0.0236, +0.0172 and −0.0155 at GW2–GW5: two of four positive against §2's three.
+`component/1.2` stays default, and nothing is spent on GW6 and GW7 under this entry.
+Per §6 there is no second revision against GW2–GW5. Both changes helped relative to
+1.3, but neither beat the band. Figures and decomposition are in model-1.4.md §7.
+Both variants stay registered and in the default evaluation set. The body below is
+left as written.
+
 **Status: binding from 2026-09-22.** Ben signed it off on `task/fu-74-prereg` before
 1.4 was built, so before any 1.4 figure existed, and before GW6. Design in
 [model-1.4.md](model-1.4.md). This entry is the decision rule. It replaces FU-73,
