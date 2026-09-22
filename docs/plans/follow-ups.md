@@ -51,9 +51,11 @@ resolve correctly (`domain/rules.py:57`, `optimizer.py:48`).
 
 **The pre-FU-50 citations have drifted again, and the amount is measured rather than
 guessed.** Re-measured 2026-09-12: of **105** distinct `file.py:line` citations in
-this file, **14 point at a blank line or a bare delimiter**. *(The total was 103 on
-2026-09-12; FU-60's Status line added two on 2026-09-22, `cli.py:696` and
-`tests/test_variants.py:53`, both substantive, so the 14 is unchanged.)* None is past end of
+this file, **13 point at a blank line or a bare delimiter**. *(The total was 103 on
+2026-09-12; FU-60's Status line added two on 2026-09-22, both substantive. FU-68's
+`club_lookup` (2026-09-22) moved every later `cli.py` line down 21: three
+previously blank citations (`:344`, `:454`, `:638`) now land on code, and two
+(`:1273`, `:1303`) now land on blanks. 14 → 13.)* None is past end of
 file. `task/component-1.2` added roughly 550 lines to `domain/projections.py`, which
 remains most of the cause.
 
@@ -84,7 +86,7 @@ and they would keep themselves alive forever.
 
 <!-- broken-citations:start -->
 ```text
-cli.py:50, cli.py:64, cli.py:303, cli.py:344, cli.py:454, cli.py:638,
+cli.py:50, cli.py:64, cli.py:303, cli.py:1273, cli.py:1303,
 domain/projections.py:218, domain/projections.py:219, projections.py:219,
 domain/squad.py:68, domain/squad.py:140, optimizer.py:184, optimizer.py:321,
 tests/test_optimizer.py:237
@@ -4180,7 +4182,7 @@ operations.]`
 
 **Status: closed** — `dae3672` on `task/promote-component-1.2`, merged to `main` in
 `60b6324` (2026-09-21). Marked 2026-09-22, a day late. **Checked in the source:**
-`_MODEL_ALIASES["component"]` is `"component/1.2"` (`cli.py:696`), and
+`_MODEL_ALIASES["component"]` is `"component/1.2"` (`cli.py:719`; `:696` before FU-68 moved it), and
 `tests/test_variants.py:53` pins `component/1.2` at digest `4f479b2253cc` — the
 digest recorded at both legs (gw3-evaluation.md, gw4-evaluation.md), so the variant
 promoted is the variant the pair measured. **Diverged from the entry in one
@@ -5046,6 +5048,16 @@ archive's, part of the gap is that. Not checked, and it is cheap to check.]`
 ---
 
 ## FU-68 — `--club` matches full names only, so the name a user reaches for first fails
+
+**Status: closed** — `task/fu-68-club-short-name`, 2026-09-22. **Checked in the
+source:** `players list` now builds its keys with `club_lookup`, from every full name
+plus every *unambiguous* short name, all case-folded. On a collision the full name
+wins. A short name shared by two clubs is left out rather than guessed. The unknown-club
+message lists `Name (SHORT)`. **Diverged from the entry in one respect:** the entry
+declined to choose a collision rule on one season's data. The rule chosen is
+structural rather than empirical: a full name is the unambiguous identifier, and
+ambiguity is refused, not resolved. So it rests on no season's data. The body below
+is left as written.
 
 **Filed from:** `task/fu-17-club`, 2026-09-12, while fixing FU-17.
 

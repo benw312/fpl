@@ -63,8 +63,9 @@ def test_unknown_club_raises_bad_parameter() -> None:
 def test_the_message_lists_the_clubs_that_would_have_worked() -> None:
     """Naming the bad value is not enough on its own.
 
-    `--club` matches `Club.name` only, so a user typing a short name ("LIV")
-    gets an error that looks like a typo in a name they believe is correct.
+    A user typing a name the snapshot does not know ("LIV", when these
+    synthetic clubs publish no short name) gets an error that looks like a typo
+    in a name they believe is correct.
     The valid set is in hand at the point of failure, so it is printed.
 
     Mutation it must fail against: dropping `known` from the message and
@@ -109,3 +110,48 @@ def test_club_matching_stays_case_insensitive() -> None:
     loud rejection of a correctly-spelled club, which is worse than the defect.
     """
     _list("cLuB 1")
+
+
+# --- FU-68: short names -----------------------------------------------------------
+
+from fpl_cli.api.models import Club  # noqa: E402
+
+
+def test_a_short_name_selects_its_club_case_insensitively() -> None:
+    """The name `players list` itself prints must be accepted.
+
+    Mutation: building the lookup from `name` only (the pre-FU-68 line).
+    """
+    teams = [Club(id=1, name="Liverpool", short_name="LIV"), Club(id=2, name="Arsenal", short_name="ARS")]
+    lookup = cli.club_lookup(teams)
+    assert lookup["liv"] == 1 and lookup["ars"] == 2
+    assert lookup["liverpool"] == 1
+
+
+def test_a_full_name_wins_over_a_colliding_short_name() -> None:
+    """A promoted club could ship a short name equal to another club's full name
+    (FU-68's gap). The full name is the unambiguous one.
+
+    Mutation: inserting short names before full names, so the short one wins.
+    """
+    teams = [Club(id=1, name="Hull", short_name="HUL"), Club(id=2, name="Hul City", short_name="HULL")]
+    assert cli.club_lookup(teams)["hull"] == 1
+
+
+def test_a_short_name_shared_by_two_clubs_is_refused_not_guessed() -> None:
+    """Mutation: dropping the `len(ids) == 1` check, which silently picks one."""
+    teams = [Club(id=1, name="Alpha", short_name="AAA"), Club(id=2, name="Beta", short_name="AAA")]
+    assert "aaa" not in cli.club_lookup(teams)
+
+
+def test_the_message_lists_short_names_beside_full_names(
+    monkeypatch: pytest.MonkeyPatch, bootstrap_snapshot: BootstrapSnapshot
+) -> None:
+    """Mutation: dropping the `(short_name)` from the known-clubs message."""
+    teams = [Club(id=1, name="Liverpool", short_name="LIV")]
+    snapshot = bootstrap_snapshot.model_copy(update={"teams": teams})
+    snapshot.__dict__.pop("clubs", None)
+    monkeypatch.setattr(cli, "SnapshotService", lambda **_: _Service(snapshot))
+    with pytest.raises(typer.BadParameter) as info:
+        _list("Everton")
+    assert "Liverpool (LIV)" in str(info.value)
