@@ -5432,6 +5432,16 @@ changing a default, it would need one first.]`
 
 ## FU-73 — Pre-registration: component/1.3 against the incumbent, at GW6 and GW7
 
+**Status: closed — withdrawn 2026-09-22, before its first leg**, on
+`task/fu-74-prereg`. No GW6 figure existed, so FU-50 §5 permits it. **Why:** the
+development check (model-1.3.md §7) went against the fitted model in all six fixture
+readings. Running it at GW6 and GW7 would have spent both gameweeks confirming
+that. **Checked in the source:** `component/1.3` (`d02bb0a770d1`) and
+`component/1.3-fixtures` (`500b1d355ef9`) stay registered and pinned, and are still in
+`plan evaluate`'s default set. They are reported and are no longer a candidate.
+**Superseded by FU-74**, which responds to that result. The body below is left as
+written.
+
 **Status: binding from 2026-09-22** — signed off by Ben on `task/fu-73-signoff`,
 eighteen days before GW6's deadline (2026-10-10T10:00Z). No 1.3 variant existed when
 it was signed, and GW6 had not been played. The draft left one choice open, in §2. It
@@ -5605,3 +5615,84 @@ estimated by method of moments on each capture's finished fixtures, and falls ba
 **If the rule is ever changed after a GW2–GW5 evaluation figure has been seen, this
 entry's criterion measures a curve fitted to its own development set**, and the pair
 will not mean what it says. Changing the rule needs a new pre-registration.
+
+
+## FU-74 — Pre-registration: component/1.4 against the incumbent, at GW6 and GW7
+
+**Status: binding from 2026-09-22.** Ben signed it off on `task/fu-74-prereg` before
+1.4 was built, so before any 1.4 figure existed, and before GW6. Design in
+[model-1.4.md](model-1.4.md). This entry is the decision rule. It replaces FU-73,
+which was withdrawn before its first leg.
+
+**Written after 1.3's development figures were seen, and it says so.** The design
+responds to them (model-1.4.md §1). That is exactly why the test is GW6 and GW7, and
+why GW2–GW5 act only as a go/no-go gate.
+
+### 1. The criterion
+
+**`component/1.4` replaces `component/1.2` as the registered default if and only if
+it scores strictly higher on `spearman_played` in *each* of GW6 and GW7.** This is
+FU-73 §1 unchanged: no margin, and a tie does not clear. One win and one reversal is
+a null result. Clean has FU-50 §2's meaning and is checked from the pre-deadline
+capture, then re-confirmed against the settled payload. Both gameweeks are named now.
+The metric is `spearman_played`, for FU-73 §2's reason: nothing in 1.4 targets
+"will he play". `spearman_all` is reported and is not a criterion.
+
+### 2. The development gate — before GW6, not a criterion
+
+Once built, 1.4 is scored on GW2–GW5. **Nothing is changed after those figures are
+seen, and there is one revision only.**
+
+**The rule, signed off 2026-09-22:** **GO** if `1.4 − 1.2-availability` on `spearman_played` is
+positive in **at least three of GW2–GW5**. That is the fitted strength model against
+the band, with the minutes term held equal. **NO-GO otherwise.** On NO-GO, FU-74 is
+closed as not run, `component/1.2` stays default, and no candidate is spent on GW6.
+Three of four was chosen over "mean > 0", because one gameweek dominated 1.3's mean
+(GW3, −0.081), and over "all four", which a small real gain could easily miss.
+
+**The gate reads only that one comparison.** `1.4 − 1.2`, §1's comparison, is not
+read on GW2–GW5 for go/no-go. Doing so would make GW2–GW5 a second criterion.
+
+### 3. The control is the incumbent
+
+**`component/1.2`**, as in FU-73 §3. FU-50 §4 continues to apply independently.
+
+### 4. The decomposition, and the readings fixed now
+
+Scored in one run: `1.4`, `1.4-venue`, `1.3`, `1.2`, `1.2-availability`, `1.1-price`,
+`naive/1.0` and `official-ep/1.0`.
+
+- **`1.4-venue − 1.3`**: change A, last season's home advantage, alone.
+- **`1.4 − 1.4-venue`**: change B, last season's team priors, alone.
+- **`1.4 − 1.2-availability`**: the whole fitted model against the band.
+
+**Known in advance:** `1.4 − 1.2` also removes S6(a), which swings about ±0.03, as it
+did in FU-73.
+
+Readings:
+
+- **1.4 > 1.2 at both legs, and 1.4 > 1.2-availability.** §1 is met, and the strength
+  model contributed.
+- **1.4 > 1.2, but 1.4 ≤ 1.2-availability.** §1 is met as written. The gain is the
+  removal of S6(a), and the strength model is not shown to help. Bank the deletion.
+- **`1.4-venue − 1.3` positive at both legs.** The unshrunk current-season home
+  factor was a cause of 1.3's loss. That is a finding about 1.3, not a criterion.
+- **Neither clears 1.2.** `component/1.2` stays default by incumbency, and 1.4 stays
+  registered.
+
+### 5. Stability
+
+Both digests are recorded here at registration and compared at each leg. **The
+2025-26 prior table is inside the digest** (model-1.4.md §4), so a regenerated table
+is a different model. Every control is frozen for the duration. The *current-season*
+ratings refit each capture; that is data, not configuration, exactly as FU-73 §5
+says.
+
+### 6. Not to be re-read against a result
+
+The criterion, gate, control and readings are fixed once §2 is signed off. None may
+be revisited against a GW2–GW5 figure for 1.4, or against a GW6 or GW7 figure.
+**If the gate says NO-GO, there is no second revision against GW2–GW5.** The next
+attempt needs new development data, which means our own captures from GW6 onwards,
+and a fresh pre-registration.
+
