@@ -1,7 +1,6 @@
 # component/1.4 — design
 
-**Status: DRAFT, 2026-09-22, awaiting Ben's sign-off with FU-74.** Nothing here is
-built. This document is the *what* and *why*; FU-74 is the decision rule. It
+**Status: design agreed 2026-09-22; FU-74 binding.** Nothing here is built yet. This document is the *what* and *why*; FU-74 is the decision rule. It
 supersedes [model-1.3.md](model-1.3.md) as the candidate for GW6 and GW7. It does
 not replace 1.3's record: `component/1.3` and `component/1.3-fixtures` stay
 registered, and their development check (model-1.3.md §7) is what this responds to.
@@ -132,8 +131,8 @@ Once built, 1.4 and 1.4-venue are scored on GW2–GW5 with **nothing changed aft
 figures are seen**. **One revision; no iteration.** If it fails, 1.4 is not revised
 against GW2–GW5 again.
 
-The **go/no-go rule is FU-74 §2**, fixed before the build. `[gap: the threshold is a
-proposal awaiting Ben's sign-off.]`
+The **go/no-go rule is FU-74 §2**, fixed before the build: GO if `1.4 −
+1.2-availability` on `spearman_played` is positive in at least three of GW2–GW5.
 
 ---
 

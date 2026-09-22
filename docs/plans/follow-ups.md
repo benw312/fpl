@@ -5619,11 +5619,10 @@ will not mean what it says. Changing the rule needs a new pre-registration.
 
 ## FU-74 — Pre-registration: component/1.4 against the incumbent, at GW6 and GW7
 
-**Status: DRAFT, 2026-09-22 — not binding until Ben signs it off, and it must be
-signed off before GW6's deadline, 2026-10-10T10:00Z.** Design in
+**Status: binding from 2026-09-22.** Ben signed it off on `task/fu-74-prereg` before
+1.4 was built, so before any 1.4 figure existed, and before GW6. Design in
 [model-1.4.md](model-1.4.md). This entry is the decision rule. It replaces FU-73,
-which was withdrawn before its first leg. **One proposal needs sign-off: the
-development gate in §2.**
+which was withdrawn before its first leg.
 
 **Written after 1.3's development figures were seen, and it says so.** The design
 responds to them (model-1.4.md §1). That is exactly why the test is GW6 and GW7, and
@@ -5644,13 +5643,12 @@ The metric is `spearman_played`, for FU-73 §2's reason: nothing in 1.4 targets
 Once built, 1.4 is scored on GW2–GW5. **Nothing is changed after those figures are
 seen, and there is one revision only.**
 
-**Proposed rule:** **GO** if `1.4 − 1.2-availability` on `spearman_played` is
+**The rule, signed off 2026-09-22:** **GO** if `1.4 − 1.2-availability` on `spearman_played` is
 positive in **at least three of GW2–GW5**. That is the fitted strength model against
 the band, with the minutes term held equal. **NO-GO otherwise.** On NO-GO, FU-74 is
 closed as not run, `component/1.2` stays default, and no candidate is spent on GW6.
-`[gap: the threshold is proposed, not signed off. Three of four was chosen over "mean
-> 0" because one gameweek dominated 1.3's mean (GW3, −0.081). It must be fixed
-before the build's figures exist.]`
+Three of four was chosen over "mean > 0", because one gameweek dominated 1.3's mean
+(GW3, −0.081), and over "all four", which a small real gain could easily miss.
 
 **The gate reads only that one comparison.** `1.4 − 1.2`, §1's comparison, is not
 read on GW2–GW5 for go/no-go. Doing so would make GW2–GW5 a second criterion.
