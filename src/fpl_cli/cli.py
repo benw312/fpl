@@ -50,7 +50,7 @@ from fpl_cli.domain.projections import (
 )
 from fpl_cli.domain.rules import validate_squad as validate_squad_players
 from fpl_cli.domain.squad import best_xi, objective_points, to_ledger_payload, validate_squad_file, xi_value
-from fpl_cli.domain.strength import BandedTeamRates
+from fpl_cli.domain.strength import BandedTeamRates, FittedTeamRates
 from fpl_cli.domain import variants
 from fpl_cli.domain.transfers import (
     Ledger,
@@ -1300,8 +1300,35 @@ _DEFAULT_EVALUATE_MODELS: tuple[str, ...] = (
     "component/1.1-price",
     "component/1.2",
     "component/1.2-availability",
+    # FU-73 §4: both halves of 1.3 scored in the same run as their controls.
+    "component/1.3-fixtures",
+    "component/1.3",
     "official-ep/1.0",
 )
+
+
+def _report_strength_fit(built: object) -> None:
+    """One line per fitted-strength model: what it fitted on, or why it fell
+    back to the banded model. model-1.3.md §3.2 requires the fallback be
+    recorded, and a figure quoted for `component/1.3` is not interpretable
+    without knowing which strength model actually produced it."""
+    rates_model = getattr(built, "rates_model", None)
+    if not isinstance(rates_model, FittedTeamRates):
+        return
+    fit = rates_model.fit
+    name = getattr(built, "name", "?")
+    if fit.fallback:
+        print(
+            f"[yellow]{name}: fitted strength fell back to banded — {fit.fallback} "
+            f"({fit.matches} results before GW{fit.target_event}).[/yellow]"
+        )
+        return
+    print(
+        f"{name}: fitted strength on {fit.matches} results before GW{fit.target_event} — "
+        f"mu {fit.mu:.3f}, home {fit.home_factor:.3f}, away {fit.away_factor:.3f}, "
+        f"prior {fit.prior_goals_attack / fit.mu:.1f} games (attack), "
+        f"{fit.prior_goals_defence / fit.mu:.1f} games (defence)."
+    )
 
 
 @plan_app.command("evaluate")
@@ -1387,6 +1414,7 @@ def evaluate_plan(
             fixtures_stale=fixtures_result.stale,
             fixtures_fetched_at=fixtures_result.fetched_at,
         )
+        _report_strength_fit(built)
         try:
             projections = _project_single_event(built, player_ids, event)
         except ValueError as exc:

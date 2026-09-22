@@ -1008,6 +1008,12 @@ class ComponentProjection:
         # — it names the strategy class, not the constants. See variants.py.
         return self._version or f"component/1.0+{self._rates_model.name}"
 
+    @property
+    def rates_model(self) -> TeamRatesModel:
+        """Read-only, so `plan evaluate` can report what a fitted strength model
+        found on the capture (model-1.3.md §3.2: a fallback is recorded)."""
+        return self._rates_model
+
     def project(self, players: Sequence[int], events: Sequence[int]) -> dict[tuple[int, int], Projection]:
         result: dict[tuple[int, int], Projection] = {}
         for player_id in players:
