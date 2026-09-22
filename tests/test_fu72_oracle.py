@@ -7,8 +7,10 @@ scored through `apply_transfers`, and its scorer must equal `objective_points`.
 
 The league is built so each rule binds. The squad was bought at £4.0m and is now
 £5.0m, so it sells at £4.5m (`selling_price`'s 50% fee), not £5.0m. Every club
-already holds three. The good MID costs £5.7m, one more than a sale plus the
-£1.0m bank reaches, so it can never be bought.
+already holds three. The good MID costs £5.7m, £0.2m more than a sale plus the
+£1.0m bank reaches, so it can never be bought. CheapDEF (£5.0m) and CheapFWD
+(£4.9m) are affordable together, just: £1.0m + 2 × £4.5m − £9.9m = £0.1m. So a
+second GW3 transfer is possible, and it gains exactly the 4 points a hit costs.
 
 Every test names the mutation it must fail against. Each was run against that
 mutation before being kept. Skipped without the `oracle` extra.
@@ -41,7 +43,7 @@ CHEAP_FWD, DEAR_MID, CHEAP_DEF = 16, 17, 18
 def _league():
     snapshot = _bootstrap_snapshot()
     extras = [
-        Player(id=CHEAP_FWD, web_name="CheapFWD", team=1, element_type=4, now_cost=54),
+        Player(id=CHEAP_FWD, web_name="CheapFWD", team=1, element_type=4, now_cost=49),
         Player(id=DEAR_MID, web_name="DearMID", team=2, element_type=3, now_cost=57),
         Player(id=CHEAP_DEF, web_name="CheapDEF", team=3, element_type=2, now_cost=50),
     ]
@@ -60,10 +62,13 @@ def _league():
 
 
 # Base players score 2 a week; the extras score well. GW4's numbers make selling
-# again worth considering.
+# again worth considering. The club limit binds on the best move: DEF 7 is the
+# only defender in CheapDEF's club and scores 6, so buying CheapDEF legally means
+# selling 7. Without the limit the same move would sell a 2-point defender from
+# another club and keep 7. FWD 15 plays the same role for CheapFWD.
 _POINTS = {
-    3: {**{pid: 2 for pid in range(1, 16)}, CHEAP_FWD: 9, DEAR_MID: 15, CHEAP_DEF: 7},
-    4: {**{pid: 2 for pid in range(1, 16)}, 4: 6, CHEAP_FWD: 1, DEAR_MID: 15, CHEAP_DEF: 8},
+    3: {**{pid: 2 for pid in range(1, 16)}, 7: 6, 15: 5, CHEAP_FWD: 9, DEAR_MID: 15, CHEAP_DEF: 7},
+    4: {**{pid: 2 for pid in range(1, 16)}, 4: 6, 7: 6, 15: 5, CHEAP_FWD: 1, DEAR_MID: 15, CHEAP_DEF: 8},
 }
 
 
