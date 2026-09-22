@@ -50,14 +50,54 @@ from fpl_cli.domain.projections import (
     RateShrinkageConfig,
     legacy_rate_config,
 )
+from fpl_cli.domain import season_prior
 from fpl_cli.domain.strength import (
     BAND_MULTIPLIERS,
     LEAGUE_MEAN_GOALS,
     BandedTeamRates,
     FittedTeamRates,
+    SeasonPrior,
     TeamRatesModel,
     fit_team_strength,
 )
+
+# model-1.4.md §2: what a `fitted` strength model takes from the previous season.
+# "none" is 1.3; "venue" is change A alone (1.4-venue); "venue+ratings" adds
+# change B (1.4).
+SEASON_PRIOR_MODES = ("none", "venue", "venue+ratings")
+
+
+def season_prior_table_digest() -> str:
+    """sha256 over every value in the generated season_prior module, so a
+    variant's digest moves if the table is regenerated with different numbers."""
+    table = {
+        "season": season_prior.SEASON,
+        "mu": season_prior.MU,
+        "home_factor": season_prior.HOME_FACTOR,
+        "away_factor": season_prior.AWAY_FACTOR,
+        "ratings": {str(code): list(pair) for code, pair in sorted(season_prior.RATINGS.items())},
+        "relegated": list(season_prior.RELEGATED),
+        "promoted_prior": list(season_prior.PROMOTED_PRIOR),
+    }
+    payload = json.dumps(table, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _season_prior_for(snapshot: BootstrapSnapshot, mode: str) -> SeasonPrior | None:
+    if mode == "none":
+        return None
+    venue = (season_prior.HOME_FACTOR, season_prior.AWAY_FACTOR)
+    if mode == "venue":
+        return SeasonPrior(mu=season_prior.MU, venue=venue)
+    # A club whose code the previous season does not know is promoted, and
+    # takes the relegated clubs' mean (model-1.4.md §2.2). That includes a club
+    # with no code at all, which only synthetic tests produce.
+    ratings = {
+        club_id: season_prior.RATINGS.get(club.code, season_prior.PROMOTED_PRIOR) if club.code is not None
+        else season_prior.PROMOTED_PRIOR
+        for club_id, club in snapshot.clubs.items()
+    }
+    return SeasonPrior(mu=season_prior.MU, venue=venue, ratings=ratings)
 
 
 @dataclass(frozen=True)
@@ -73,12 +113,19 @@ class StrengthConfig:
     band_multipliers: Mapping[int, float] = field(default_factory=lambda: dict(BAND_MULTIPLIERS))
     league_mean_goals: float = LEAGUE_MEAN_GOALS
     home_advantage: float = 1.0
+    # Only meaningful for `fitted`. Omitted from `as_dict` at "none", so 1.3's
+    # digests do not move — the same rule `structure` follows.
+    season_prior: str = "none"
 
     def build(self, snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture] = ()) -> TeamRatesModel:
         """`fitted` keeps the banded arguments because it falls back to exactly
         that model when the fit cannot be identified (model-1.3.md §3.2) — so
         they are still constants of the variant, and the digest still covers
         them. The fitted ratings are data, refitted per capture, and are not."""
+        if self.season_prior not in SEASON_PRIOR_MODES:
+            raise ValueError(f"No season-prior mode {self.season_prior!r}; one of {SEASON_PRIOR_MODES}.")
+        if self.season_prior != "none" and self.name != "fitted":
+            raise ValueError("A season prior applies only to the 'fitted' strength model.")
         if self.name not in ("banded", "fitted"):
             raise ValueError(
                 f"No strength model named {self.name!r}. Only 'banded' and 'fitted' exist; "
@@ -92,7 +139,9 @@ class StrengthConfig:
         )
         if self.name == "banded":
             return banded
-        return FittedTeamRates(fit_team_strength(snapshot, fixtures), banded)
+        return FittedTeamRates(
+            fit_team_strength(snapshot, fixtures, prior=_season_prior_for(snapshot, self.season_prior)), banded
+        )
 
 
 @dataclass(frozen=True)
@@ -162,6 +211,14 @@ class ModelVariant:
                 "band_multipliers": {str(k): v for k, v in sorted(self.strength.band_multipliers.items())},
                 "league_mean_goals": self.strength.league_mean_goals,
                 "home_advantage": self.strength.home_advantage,
+                **(
+                    {}
+                    if self.strength.season_prior == "none"
+                    else {
+                        "season_prior": self.strength.season_prior,
+                        "season_prior_table": season_prior_table_digest(),
+                    }
+                ),
             },
             "rates": self.rates.as_dict(),
         }
@@ -572,6 +629,54 @@ COMPONENT_V13 = register(
             "component/1.2-availability with the fitted team-strength model: S6(a) "
             "removed and the difficulty band replaced. FU-73 decides whether it "
             "becomes default, at GW6 and GW7."
+        ),
+    )
+)
+
+
+# --- component/1.4 and component/1.4-venue (FU-74) ------------------------------
+#
+# **Registered together, before GW6, under FU-74, signed off before either
+# existed.** 1.3's fitted model lost all six fixture readings on GW2-GW5
+# (model-1.3.md §7); the suspected cause is its unshrunk current-season home
+# factor. model-1.4.md §2 takes two things from the 2025-26 season instead:
+#
+#   1.4-venue = 1.3        with 2025-26's venue factors fixed        (change A)
+#   1.4       = 1.4-venue  with ratings shrunk toward 2025-26's     (change B)
+#
+# so `1.4-venue − 1.3` is change A, `1.4 − 1.4-venue` is change B, and
+# `1.4 − 1.2-availability` is the whole fitted model against the band — the
+# comparison FU-74 §2's gate reads. Everything but `season_prior` is taken from
+# 1.3, so none of the three can drift from the others.
+#
+# **The prior table is inside the digest** (`season_prior_table`), so
+# regenerating season_prior.py with different numbers is a different model.
+
+COMPONENT_V14_VENUE = register(
+    ModelVariant(
+        name="component/1.4-venue",
+        family="component",
+        strength=replace(_FITTED, season_prior="venue"),
+        rates=COMPONENT_V13.rates,
+        structure=COMPONENT_V13.structure,
+        note=(
+            "component/1.3 with 2025-26's home/away factors fixed in place of the "
+            "current season's unshrunk fit. Decomposes 1.4; not a candidate default."
+        ),
+    )
+)
+
+COMPONENT_V14 = register(
+    ModelVariant(
+        name="component/1.4",
+        family="component",
+        strength=replace(_FITTED, season_prior="venue+ratings"),
+        rates=COMPONENT_V13.rates,
+        structure=COMPONENT_V13.structure,
+        note=(
+            "component/1.4-venue with club ratings shrunk toward 2025-26's (promoted "
+            "clubs: the relegated clubs' mean). FU-74 decides whether it becomes "
+            "default, at GW6 and GW7, if its development gate says GO."
         ),
     )
 )

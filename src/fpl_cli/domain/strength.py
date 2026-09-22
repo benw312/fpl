@@ -98,11 +98,15 @@ _FIT_MAX_ITERATIONS = 1000
 class TeamStrengthFit:
     """What the fit found on one capture, kept so a run can report it.
 
-    `attack` and `defence` are multipliers on the league mean with prior mean 1.
-    `defence` is a *conceding* multiplier: above 1 concedes more than average.
-    `prior_goals_*` is the gamma prior's strength in pseudo-goals; divide by
-    `mu` for pseudo-games. `fallback` is None when the fit was used, otherwise
-    the reason `BandedTeamRates` was used instead (model-1.3.md §3.2).
+    `attack` and `defence` are multipliers on the league mean. `defence` is a
+    *conceding* multiplier: above 1 concedes more than average. `prior_goals_*`
+    is the gamma prior's strength in pseudo-goals at a prior mean of 1; divide by
+    `mu` for pseudo-games.
+
+    Two different fallbacks, kept apart because they mean different models:
+    `fallback` (1.3, model-1.3.md §3.2) says `BandedTeamRates` was used instead;
+    `prior_unchanged` (1.4, model-1.4.md §2.2) says the season prior was used
+    as it stands, with no current-season update.
     """
 
     matches: int
@@ -117,6 +121,22 @@ class TeamStrengthFit:
     attack: dict[int, float]
     defence: dict[int, float]
     fallback: str | None
+    prior_unchanged: str | None = None
+
+
+@dataclass(frozen=True)
+class SeasonPrior:
+    """Everything 1.4 takes from the previous season (model-1.4.md §2).
+
+    `venue` is the fixed (home, away) factor pair — change A. `ratings` maps a
+    *current* club id to its (attack, defence) prior mean — change B — or is
+    None when only the venue is taken. `mu` stands in only when the current
+    season has no results at all to fit a mean from.
+    """
+
+    mu: float
+    venue: tuple[float, float]
+    ratings: dict[int, tuple[float, float]] | None = None
 
 
 def _results_before(fixtures: Sequence[Fixture], target_event: int | None) -> list[Fixture]:
@@ -138,15 +158,52 @@ def _results_before(fixtures: Sequence[Fixture], target_event: int | None) -> li
     ]
 
 
-def fit_team_strength(snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) -> TeamStrengthFit:
-    """model-1.3.md §3.2, as fixed by FU-73. Every number is fitted from match
-    results or set by the fallback rule; nothing here is chosen."""
+def fit_team_strength(
+    snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture], *, prior: SeasonPrior | None = None
+) -> TeamStrengthFit:
+    """Fit the snapshot's clubs on results strictly before its next event."""
     target_event = next((gameweek.id for gameweek in snapshot.events if gameweek.is_next), None)
-    results = _results_before(fixtures, target_event)
-    teams = sorted(snapshot.clubs)
-    flat = {team: 1.0 for team in teams}
+    return fit_results(
+        _results_before(fixtures, target_event), sorted(snapshot.clubs), target_event=target_event, prior=prior
+    )
+
+
+def fit_results(
+    results: Sequence[Fixture],
+    teams: Sequence[int],
+    *,
+    target_event: int | None = None,
+    prior: SeasonPrior | None = None,
+) -> TeamStrengthFit:
+    """model-1.3.md §3.2, and with `prior` model-1.4.md §2. Every number is
+    fitted from match results or set by a fallback rule; nothing is chosen.
+
+    `results` must already be filtered — `fit_team_strength` does that for a
+    capture; `tools/prior_season.py` passes a whole finished season.
+    """
+    prior_means = prior.ratings if prior is not None and prior.ratings is not None else None
+    means = {team: (prior_means or {}).get(team, (1.0, 1.0)) for team in teams}
+    prior_attack_mean = {team: means[team][0] for team in teams}
+    prior_defence_mean = {team: means[team][1] for team in teams}
 
     def fallen_back(reason: str, **measured: float) -> TeamStrengthFit:
+        if prior_means is not None:
+            # 1.4: no update is possible, so the season prior stands as it is.
+            return TeamStrengthFit(
+                matches=len(results),
+                target_event=target_event,
+                mu=measured.get("mu", prior.mu),
+                home_factor=prior.venue[0],
+                away_factor=prior.venue[1],
+                excess_attack=measured.get("excess_attack", 0.0),
+                excess_defence=measured.get("excess_defence", 0.0),
+                prior_goals_attack=None,
+                prior_goals_defence=None,
+                attack=dict(prior_attack_mean),
+                defence=dict(prior_defence_mean),
+                fallback=None,
+                prior_unchanged=reason,
+            )
         return TeamStrengthFit(
             matches=len(results),
             target_event=target_event,
@@ -157,8 +214,8 @@ def fit_team_strength(snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) 
             excess_defence=measured.get("excess_defence", 0.0),
             prior_goals_attack=None,
             prior_goals_defence=None,
-            attack=dict(flat),
-            defence=dict(flat),
+            attack={team: 1.0 for team in teams},
+            defence={team: 1.0 for team in teams},
             fallback=reason,
         )
 
@@ -170,8 +227,13 @@ def fit_team_strength(snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) 
     mu = (sum(home_goals) + sum(away_goals)) / (2 * len(results))
     if mu <= 0:
         return fallen_back("no goals scored in any finished fixture")
-    home_factor = statistics.fmean(home_goals) / mu
-    away_factor = statistics.fmean(away_goals) / mu
+    if prior is not None:
+        # Change A: last season's venue factors, fixed — not refitted from
+        # this season's handful of matches (model-1.4.md §2.1).
+        home_factor, away_factor = prior.venue
+    else:
+        home_factor = statistics.fmean(home_goals) / mu
+        away_factor = statistics.fmean(away_goals) / mu
 
     scored: dict[int, list[int]] = {}
     conceded: dict[int, list[int]] = {}
@@ -184,16 +246,23 @@ def fit_team_strength(snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) 
     # Method of moments on raw per-team means, no opponent adjustment — the
     # simplification §3.2 states. Sampling variance of a mean of n Poisson(mu)
     # counts is mu/n; what the spread exceeds that by is between-team variance.
+    # Without a season prior the spread is measured about the mean (1.3); with
+    # one, about each club's prior expectation mu * r_i (1.4, §2.2).
     games_per_team = statistics.fmean(len(goals) for goals in scored.values())
     sampling = mu / games_per_team
 
-    def excess(per_team: dict[int, list[int]]) -> float:
+    def excess(per_team: dict[int, list[int]], centre: dict[int, float]) -> float:
         if len(per_team) < 2:
             return 0.0
-        return statistics.pvariance([statistics.fmean(goals) for goals in per_team.values()]) - sampling
+        if prior_means is None:
+            return statistics.pvariance([statistics.fmean(goals) for goals in per_team.values()]) - sampling
+        return (
+            statistics.fmean((statistics.fmean(goals) - mu * centre[team]) ** 2 for team, goals in per_team.items())
+            - sampling
+        )
 
-    excess_attack = excess(scored)
-    excess_defence = excess(conceded)
+    excess_attack = excess(scored, prior_attack_mean)
+    excess_defence = excess(conceded, prior_defence_mean)
     measured = {
         "mu": mu,
         "home_factor": home_factor,
@@ -204,13 +273,14 @@ def fit_team_strength(snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) 
     if excess_attack <= 0 or excess_defence <= 0:
         return fallen_back("between-team excess variance <= 0: no spread to estimate", **measured)
 
-    # Gamma(a, a) prior on each multiplier: mean 1, variance 1/a. Matching that
-    # variance to excess/mu^2 gives a = mu^2/excess, in pseudo-goals.
+    # Gamma prior on each multiplier with mean r and variance s2 = excess/mu^2:
+    # shape r^2/s2, rate r/s2. At r = 1 both are mu^2/excess pseudo-goals, which
+    # is 1.3's prior exactly.
     prior_attack = mu * mu / excess_attack
     prior_defence = mu * mu / excess_defence
 
-    attack = dict(flat)
-    defence = dict(flat)
+    attack = dict(prior_attack_mean)
+    defence = dict(prior_defence_mean)
     for _ in range(_FIT_MAX_ITERATIONS):
         exposure_attack = {team: 0.0 for team in teams}
         exposure_defence = {team: 0.0 for team in teams}
@@ -228,10 +298,13 @@ def fit_team_strength(snapshot: BootstrapSnapshot, fixtures: Sequence[Fixture]) 
             observed_defence[h] += fixture.team_a_score
             observed_defence[a] += fixture.team_h_score
         new_attack = {
-            team: (observed_attack[team] + prior_attack) / (exposure_attack[team] + prior_attack) for team in teams
+            team: (observed_attack[team] + prior_attack * prior_attack_mean[team] ** 2)
+            / (exposure_attack[team] + prior_attack * prior_attack_mean[team])
+            for team in teams
         }
         new_defence = {
-            team: (observed_defence[team] + prior_defence) / (exposure_defence[team] + prior_defence)
+            team: (observed_defence[team] + prior_defence * prior_defence_mean[team] ** 2)
+            / (exposure_defence[team] + prior_defence * prior_defence_mean[team])
             for team in teams
         }
         change = max(

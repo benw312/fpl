@@ -1303,6 +1303,9 @@ _DEFAULT_EVALUATE_MODELS: tuple[str, ...] = (
     # FU-73 §4: both halves of 1.3 scored in the same run as their controls.
     "component/1.3-fixtures",
     "component/1.3",
+    # FU-74 §4: 1.4 and its decomposition twin, beside every control.
+    "component/1.4-venue",
+    "component/1.4",
     "official-ep/1.0",
 )
 
@@ -1320,6 +1323,12 @@ def _report_strength_fit(built: object) -> None:
     if fit.fallback:
         print(
             f"[yellow]{name}: fitted strength fell back to banded — {fit.fallback} "
+            f"({fit.matches} results before GW{fit.target_event}).[/yellow]"
+        )
+        return
+    if fit.prior_unchanged:
+        print(
+            f"[yellow]{name}: 2025-26 prior used unchanged — {fit.prior_unchanged} "
             f"({fit.matches} results before GW{fit.target_event}).[/yellow]"
         )
         return
