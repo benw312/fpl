@@ -25,6 +25,12 @@ dev = [
   "pytest>=8,<9",
   "respx>=0.21,<1",
 ]
+# FU-72: the plan oracle in tools/ solves the true optimum as a MILP (scipy's
+# milp, i.e. HiGHS). Diagnostics only — nothing under src/ may import scipy, and
+# its tests skip when it is absent.
+oracle = [
+  "scipy>=1.11,<2",
+]
 
 [project.scripts]
 fpl = "fpl_cli.cli:app"
