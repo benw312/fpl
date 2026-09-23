@@ -1787,7 +1787,7 @@ concern, this one was CLI wiring for `optimise`.
 
 **Progress: 2026-09-22** — **demoted again.** The 2026-09-21 review promoted this
 entry because FU-72's step A needed it. That need is gone: `tools/fu72_plan_oracle.py`
-calls `optimise()` directly, and the beam cost only 3 and 0 points against the exact
+calls `optimise()` directly, and the beam cost at most 3 points against the exact
 optimum of the planner's own move space (fu-72-results.md §2). The entry is back to
 being a user-facing convenience. The code is unchanged and still has none of the
 three flags.
@@ -5331,7 +5331,8 @@ MILP optimum from scipy/HiGHS under the `oracle` extra; the CLI never imports it
 MILP plan is replayed through `apply_transfers` and reproduces its own objective
 exactly. Over GW2–4 and GW3–5, measured in realised points:
 - **The forecast accounts for about 60% of the gap:** +91 and +105 for a perfect forecast.
-- **The search is close to exact:** the beam costs 3 and 0.
+- **The search is close to exact:** the beam costs at most 3. A 4-hour wide-beam run
+  reaches the exact optimum in both windows. FU-72 §2 estimated that run at 54 minutes.
 - **Decay, terminal value and the hit cap cost 0 to 1.** The hit cap,
   `max_hit = 4`, is a sixth cause that §1 did not list.
 - **The two-transfer limit is worth about 65, but only under certainty.** That is an

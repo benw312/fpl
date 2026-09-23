@@ -19,7 +19,7 @@ prefix for each input as it loads them. `component/1.2` is at digest
 | O1 | same search, perfect forecast | 322 | 316 |
 | O2 | + decay 1.0, ft_value 0 | 322 | 315 |
 | O3 | + hit cap removed | 322 | 315 |
-| O4 | + beam 50, first moves 400 (81× cost) | O4_W2 | O4_W3 |
+| O4 | + beam 50, first moves 400 | 325 | 316 |
 | **M2** | **exact optimum, ≤ 2 transfers a gameweek** | **325** | **316** |
 | **M∞** | **exact optimum, full transfer rules** | **389** | **381** |
 
@@ -35,6 +35,7 @@ equalled the MILP's objective exactly. Solve times were 1–4 s.
 | 1 + 5: decay and terminal value | O2 − O1 | 0 | −1 |
 | 6: the default hit cap, `max_hit = 4` (new) | O3 − O2 | 0 | 0 |
 | 4: the beam | M2 − O3 | +3 | +1 |
+| 4, cross-check: wide beam against the optimum | M2 − O4 | 0 | 0 |
 | 3: at most two transfers a gameweek | M∞ − M2 | +64 | +65 |
 | 2: chips | — | *not measured* | *not measured* |
 | **Headline: shipped plan against the best achievable** | M∞ − P0 | **158** | **170** |
@@ -42,14 +43,18 @@ equalled the MILP's objective exactly. Solve times were 1–4 s.
 ### What this says
 
 - **The search is not where points are lost.** Within its own move space, the
-  planner fed a perfect forecast came within **3 and 0 points** of the exact
+  planner fed a perfect forecast came within **3 points** (GW2–4) and **0–1** (GW3–5, O1 and O3) of the exact
   optimum. Decay, the terminal free-transfer value and the hit cap moved nothing
   measurable (0, −1, 0). The −1 is almost certainly beam path dependence:
   changing the decay reorders what the beam keeps. Under a perfect forecast, with
   decay 1.0 and ft_value 0, a path's score *is* its realised total, so an aligned
   objective cannot prefer a worse plan it can see. **FU-72's worry,
   "are we polishing the wrong half?", is answered no.** The optimiser is close to
-  exact for what it is given.
+  exact for what it is given. **Widening the beam closes the rest:** O4 reaches the
+  exact optimum in both windows. But each O4 run took **about 4.1 hours** (14,793 s
+  and 14,861 s). FU-72 §2 estimated about 54 minutes from `optimizer.py`'s expansion
+  formula, so the formula understates wall time at this width by about 4.5×. Beam 4
+  is the right default: it costs at most 3 points for about 1/370th of the time.
 - **The forecast is where the points are.** A perfect forecast is worth **+91 and
   +105** to the planner as built: about **60%** of the headline gap in each window.
 - **The shipped program barely beats doing nothing.** P0 − HOLD is **−2 and +23**.
