@@ -303,6 +303,28 @@ def sync(archive_dir: ArchiveDirOption = None) -> None:
         )
 
 
+def club_lookup(teams) -> dict[str, int]:
+    """Case-folded `--club` keys: every full name, plus every short name that
+    is unambiguous (FU-68).
+
+    `players list` renders `short_name`, so a user reaches for "LIV" first. The
+    collision rule is structural rather than chosen from this season's data:
+    a full name always wins, because it is the unambiguous identifier. A short
+    name shared by two clubs, or equal to another club's full name, is left out
+    rather than guessed, and the user gets the "unknown club" message, which
+    lists both forms.
+    """
+    lookup = {team.name.lower(): team.id for team in teams}
+    short: dict[str, set[int]] = {}
+    for team in teams:
+        if team.short_name:
+            short.setdefault(team.short_name.lower(), set()).add(team.id)
+    for key, ids in short.items():
+        if len(ids) == 1 and key not in lookup:
+            lookup[key] = next(iter(ids))
+    return lookup
+
+
 @players_app.command("list")
 def list_players(
     position: str | None = typer.Option(None, "--position", help="GKP, DEF, MID, or FWD."),
@@ -315,7 +337,7 @@ def list_players(
     """List players from the latest available snapshot."""
     snapshot = load_snapshot(resolve_snapshot_path(snapshot_path)).snapshot
     positions = {item.singular_name_short.upper(): item.id for item in snapshot.element_types}
-    clubs = {item.name.lower(): item.id for item in snapshot.teams}
+    clubs = club_lookup(snapshot.teams)
     players = snapshot.elements
     if position:
         position_id = positions.get(position.upper())
@@ -328,9 +350,11 @@ def list_players(
             # FU-17: an unknown club used to fall through to an empty list, which
             # is indistinguishable from a club that genuinely matched nothing.
             # The valid set is known here — it came from the snapshot four lines
-            # up — so name it rather than leaving the user to guess. `--club`
-            # matches full names only, so the list also discloses that (FU-68).
-            known = ", ".join(sorted(item.name for item in snapshot.teams))
+            # up — so name it rather than leaving the user to guess, with the
+            # short name each also answers to (FU-68).
+            known = ", ".join(
+                sorted(f"{item.name} ({item.short_name})" if item.short_name else item.name for item in snapshot.teams)
+            )
             raise typer.BadParameter(f"Unknown club {club!r}. Known clubs: {known}")
         players = [player for player in players if player.team == club_id]
     if name:
