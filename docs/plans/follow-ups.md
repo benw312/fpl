@@ -5770,3 +5770,62 @@ be revisited against a GW2–GW5 figure for 1.4, or against a GW6 or GW7 figure.
 attempt needs new development data, which means our own captures from GW6 onwards,
 and a fresh pre-registration.
 
+
+## FU-75 — Pre-registration: a points-based criterion for replacing the default
+
+**Status: DRAFT, 2026-10-01 — not binding until Ben signs it off.** Plan
+[points-criterion.md](points-criterion.md); noise study
+[points-criterion-noise.md](points-criterion-noise.md). **Why:** the prize bounds
+(forecast-prize-results.md) show that Spearman rewards the half of the forecast that
+does not move the plan. A minutes oracle lifts `spearman_all` to about 0.9 for zero
+points. This entry replaces Spearman with realised plan points as the decision
+metric for the default model. **Choices marked `[Ben]` are open.**
+
+### 1. The measurement
+
+For each named window (three gameweeks, settled and clean in FU-50 §2's sense):
+
+- Draw **N** squads with `tools/points_criterion.py`: ownership-weighted, from the
+  window's pre-deadline capture, seed `20261001 + window`. Each squad starts with
+  one free transfer.
+- Score the default search's plan for the candidate and for the incumbent on
+  realised points, and take the **paired** difference per squad.
+- **N = `[Ben]`.** The proposal is 200, which gives a standard error of about 0.7–1.1
+  on GW2–5's spread, at about 80 min per window.
+
+### 2. The criterion
+
+The candidate replaces the incumbent if and only if the mean paired difference is
+**`[Ben]`** in each of the two named legs. The options:
+- **(a)** strictly positive, as in FU-50/FU-60;
+- **(b)** greater than 2 standard errors of that leg's own mean.
+
+(a) passes a candidate with no real effect about 25% of the time over two legs. (b)
+about 0.05%, but it misses real effects smaller than about 2 points. The threshold
+is a chosen constant, so it is fixed here, before any candidate figure exists.
+
+### 3. The legs
+
+**`[Ben]`.**
+- **Overlapping:** GW8–10 and GW9–11, decided after GW11 settles. Faster, but the
+  legs share two gameweeks.
+- **Disjoint:** GW8–10 and GW11–13, decided after GW13. Independent, but slower.
+
+### 4. The first candidate
+
+**`[Ben]`.** The attacking-rate model does not exist yet. The criterion can be
+exercised now on a variant that already exists:
+- `component/1.1-price`, or
+- `component/1.2-availability`, which FU-60 §6.2 noted had no criterion of its own.
+
+The noise study's −2 for 1.2 against 1.1-price is development data and motivates
+this choice. It is not evidence for the result.
+
+### 5. Unchanged from earlier entries
+
+- **Clean** has FU-50 §2's meaning.
+- **The incumbent is the registered default** (`component/1.2`), as FU-73 §3 set out.
+- **Digests are recorded at registration** and compared at each leg.
+- **Nothing is re-read against a result** (FU-50 §5).
+- **Spearman is still reported, as a diagnostic.**
+
