@@ -36,3 +36,17 @@ def test_tied_predictions_share_one_fitted_value() -> None:
     fitted = isotonic([1.0, 1.0, 2.0], [0, 6, 9])
     assert fitted[0] == fitted[1] == 3.0
     assert fitted[2] == 9.0
+
+
+def test_the_expected_conceded_penalty_matches_the_models_own_sum() -> None:
+    """Oracles F and H swap the realised conceded points for E[floor(k/2)],
+    k ~ Poisson(xGC). It must be the same quantity the model computes for its own
+    `xp_conceded`, or the swap would change more than the luck.
+
+    Mutation: `k // 3` (or any other unit) in `_poisson_floor_half`."""
+    from fpl_cli.domain.projections import _poisson_pmf  # noqa: PLC0415
+    from forecast_prize import _poisson_floor_half  # noqa: PLC0415
+
+    for rate in (0.0, 0.4, 1.3, 2.9):
+        expected = sum(_poisson_pmf(k, rate) * (k // 2) for k in range(25))
+        assert abs(_poisson_floor_half(rate) - expected) < 1e-12
