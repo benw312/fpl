@@ -707,6 +707,15 @@ enabler. Least visible in pre-season, most damaging late.
 
 ## FU-12 — `rich.print` and `console.print` are mixed arbitrarily
 
+**Status: closed** — `task/fu-12-one-console`, 2026-09-22, stacked on
+`task/fu-71-project-any-variant`. **Checked in the source:** `cli.py` no longer
+imports `rich.print`. All 15 bare `print(` calls now go through `console.print`, and
+`error_console` is unchanged. `builder.py` and `presentation.py` had none. The removed
+import is replaced by a one-line comment rather than deleted, so no `cli.py` line
+moves and this file's citations are undisturbed. `tests/test_one_console.py` checks
+the source's AST, so a bare `print` added back fails the suite. **Unblocks FU-13**,
+as the entry said. The body below is left as written.
+
 **Deferred from:** [optimizer-ux.md](optimizer-ux.md), §8 (CLI audit).
 
 `cli.py:12` does `from rich import print`, shadowing the builtin, *and* `cli.py:64`
