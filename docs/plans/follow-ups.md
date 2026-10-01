@@ -5770,3 +5770,68 @@ be revisited against a GW2–GW5 figure for 1.4, or against a GW6 or GW7 figure.
 attempt needs new development data, which means our own captures from GW6 onwards,
 and a fresh pre-registration.
 
+
+## FU-75 — Pre-registration: a points-based criterion for replacing the default
+
+**Status: binding from 2026-10-01.** Ben signed off every choice before any leg's
+gameweek was played (GW8's deadline is 2026-10-23T17:30Z) and before any candidate
+figure on a test window existed. Plan [points-criterion.md](points-criterion.md);
+noise study [points-criterion-noise.md](points-criterion-noise.md). **Why:** the prize
+bounds (forecast-prize-results.md) show that Spearman rewards the half of the
+forecast that does not move the plan. A minutes oracle lifts `spearman_all` to about
+0.9 for zero points. **Realised plan points replace Spearman as the decision metric
+for the default model.**
+
+### 1. The measurement
+
+For each leg, a three-gameweek window that must be settled and clean in FU-50 §2's
+sense, checked from the pre-deadline capture and re-confirmed against the settled
+payloads:
+
+- Draw **N = 200** squads with `tools/points_criterion.py`: ownership-weighted, from
+  the window's own pre-deadline capture, seed **`20261001 + window`**. Each squad
+  starts with one free transfer.
+- Score the default search's plan for the candidate and for the incumbent on
+  realised points, and take the **paired** difference per squad.
+
+### 2. The criterion
+
+**The candidate replaces the incumbent if and only if, in each leg, the mean paired
+difference exceeds 2 standard errors of that leg's own mean** (sd / √200). A model
+with no real effect clears both legs about 0.05% of the time. A real gain of about 2
+points clears each leg about half the time. That trade is accepted, and the threshold
+is not revisited against a result.
+
+### 3. The legs
+
+**GW8–10 and GW11–13, disjoint**, so the legs are independent. The decision comes
+after GW13 settles. If either window is not clean, this entry does not substitute
+another: it lapses, and a new pre-registration is needed.
+
+### 4. The candidate and the incumbent
+
+**Candidate `component/1.2-availability`** (digest `c6143ceb6826`): 1.2 without
+S6(a), the unstable part, keeping the S1–S5 correctness fixes. FU-60 §6.2 noted that
+it had no criterion of its own. **Incumbent `component/1.2`** (`4f479b2253cc`), the
+registered default. The noise study's −2 for 1.2 against 1.1-price is development
+data and motivates the choice. It is not evidence for the result.
+
+### 5. Frozen until the decision
+
+- **Both digests**, compared again at each leg.
+- **The harness logic, by sha256:**
+  - `tools/points_criterion.py` `7521328b78464aec4872e22fb5aab4558805cf93e76400db4f2449f0fa96660e`
+  - `tools/fu72_plan_oracle.py` `a6725370a0c563b6b8b864544965f8ced66212f3b842458f004e120b5efe10d4`
+  - `tools/calibration_report.py` may gain `RUNS` rows for the new pinned trios
+    (GW8–GW13) and nothing else.
+- **The planner's defaults** — decay 0.84, ft_value 1.5, max_hit 4, beam 4, first
+  moves 50, `K_ENUM` 2. Both models use the same planner, so a change would not
+  bias the pairing, but it would change what is measured. It is frozen anyway.
+
+### 6. Unchanged from earlier entries
+
+- **Nothing is re-read against a result**, including declining to act on a result
+  that meets the criterion (FU-50 §5, FU-73 §6).
+- **Spearman is still reported, as a diagnostic.**
+- **A later candidate**, such as the attacking-rate model, needs its own
+  registration naming its own legs. This entry covers one candidate.
