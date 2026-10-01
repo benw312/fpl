@@ -102,7 +102,7 @@ def projection_table(
     caption = [
         f"Next {horizon} = mean xP per gameweek over {span}, with total fixtures in brackets.",
         start_note,
-        "UNVALIDATED — these projections have never been scored against realised points.",
+        "UNVALIDATED — scored on settled gameweeks, but not calibrated; see docs/plans/*-evaluation.md.",
     ]
     if suppressed:
         caption.insert(
@@ -351,10 +351,10 @@ def optimise_header(
     if unvalidated:
         lines.append(
             Text(
-                f"! UNVALIDATED — {model_name} has never been scored against realised points.\n"
+                f"! UNVALIDATED — {model_name}'s plans are not shown to beat holding reliably (docs/plans/fu-72-results.md).\n"
                 f"  Run `fpl plan evaluate --event {last_finished_event}` before trusting the magnitudes below."
                 if last_finished_event is not None
-                else f"! UNVALIDATED — {model_name} has never been scored against realised points.",
+                else f"! UNVALIDATED — {model_name}'s plans are not shown to beat holding reliably (docs/plans/fu-72-results.md).",
                 style="bold yellow",
             )
         )

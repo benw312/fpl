@@ -19,8 +19,10 @@ projection models rank it first, and names where the dissenters placed it. On th
 run pasted below it says UNSTABLE — one model of three, the other two ranking that
 move 18th and 16th. That is the tool working, not failing.
 
-It is not an autopilot, and the projections underneath it have been scored
-against exactly one gameweek, which is not validation. The search is exact about
+It is not an autopilot. The projections underneath it have been scored on every
+settled gameweek since GW2, and its plans on realised points (FU-72, FU-75), and
+neither is validation: on GW2–GW5 its plans beat holding only modestly, and the
+forecast, not the search, is where the points are lost. The search is exact about
 what it is given; what it is given is a model whose every constant was chosen by
 hand rather than fitted to data. Optimising precisely over an unvalidated objective produces a
 precise answer to the wrong question, which is why the run prints an UNVALIDATED

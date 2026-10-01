@@ -113,7 +113,7 @@ def test_optimise_plan_recommends_the_hand_computed_best_swap(
     assert "HOLD (no transfers)" in out
     assert "5.0" in out  # hold's GW2 gross points
     assert "robustness:" in out
-    assert "UNVALIDATED" in out
+    assert "UNVALIDATED" in out and "never been scored" not in out  # false since GW2
     # FU-28 is closed: dominance pruning is exact, so the header must no
     # longer carry the banner admitting it isn't. Inverted rather than
     # deleted — the banner's absence is part of what the fix delivers.
