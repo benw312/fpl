@@ -57,7 +57,7 @@ XG_PEN = 0.76  # [the conventional xG of a penalty]
 HALF_LIFE = 2.0  # [prototype choice, gameweeks; not tuned]
 IDEAS = ("A last-season prior", "B penalty takers", "C recency")
 # --oracles: the attack/defence split of forecast_prize.py's H and I, over many squads.
-ORACLES = ("H defence chance quality", "I attack chance quality")
+ORACLES = ("I attack chance quality", "I-DEF defenders only", "I-MID/FWD only")
 
 
 def _last_season() -> dict[int, tuple[float, float, float]]:
@@ -157,8 +157,13 @@ def _context(window: int, oracles: bool = False):
         forecasts = {"1.2": base}
         if oracles:
             from forecast_prize import model_terms_replaced  # noqa: PLC0415
-            forecasts[ORACLES[0]] = model_terms_replaced(base, lives, events, snapshot, defence=True)
-            forecasts[ORACLES[1]] = model_terms_replaced(base, lives, events, snapshot, defence=False)
+            # H (defence) was measured at +2.0/+0.6 and is not re-run; I is kept
+            # as a reproduction check, beside its split by position.
+            forecasts[ORACLES[0]] = model_terms_replaced(base, lives, events, snapshot, defence=False)
+            forecasts[ORACLES[1]] = model_terms_replaced(base, lives, events, snapshot, defence=False,
+                                                         positions=frozenset({"DEF"}))
+            forecasts[ORACLES[2]] = model_terms_replaced(base, lives, events, snapshot, defence=False,
+                                                         positions=frozenset({"MID", "FWD"}))
         else:
             for idea in IDEAS:
                 forecasts[idea] = prototype(model, base, snapshot, window, idea)
@@ -185,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--squads", type=int, default=40)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--out", default=None)
-    parser.add_argument("--oracles", action="store_true", help="score H and I (oracles) instead of A-C")
+    parser.add_argument("--oracles", action="store_true", help="score oracle I and its split by position instead of A-C")
     args = parser.parse_args(argv)
 
     for window in args.windows:
