@@ -15,6 +15,14 @@ exactly as FU-72 scores plans, alongside the evaluation harness's Spearman figur
     E  chance quality D, but goal and assist points replaced by realised xG and
                       xA valued at the position's scoring -- the chances each
                       player actually got, without the finishing luck
+    F  defence luck   D, but clean-sheet and goals-conceded points replaced by
+                      their expectation under Poisson(realised xGC while on the
+                      pitch) -- the chances conceded, without the keeper's luck
+    G  all chance quality  E and F together
+    H  defence only   1.2 as shipped, but its clean-sheet and conceded terms
+                      replaced by their expectation under realised xGC
+    I  attack only    1.2 as shipped, but its attack term replaced by realised
+                      xG/xA at their point values
 
 A and B are ceilings and C is a proxy for a cheap real change. None of them is a
 criterion, and nothing here changes a model.
@@ -29,6 +37,7 @@ Usage: python tools/forecast_prize.py --window 2
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -136,6 +145,81 @@ def chance_quality_oracle(
     return result
 
 
+def _poisson_floor_half(rate: float) -> float:
+    """E[floor(k/2)] for k ~ Poisson(rate): FPL's goals-conceded penalty unit."""
+    pmf, total = math.exp(-rate), 0.0
+    for k in range(0, 25):
+        if k:
+            pmf *= rate / k
+        total += pmf * (k // 2)
+    return total
+
+
+def defence_luck_removed(
+    forecast: Mapping[tuple[int, int], Projection], lives: Mapping[int, object], events: Sequence[int], snapshot
+) -> dict[tuple[int, int], Projection]:
+    """F/G helper: swap each player's realised clean-sheet and conceded points
+    for their expectation under his realised xGC. Applied to D's or E's
+    forecast, whose xp_total already holds the realised components."""
+    scoring = snapshot.raw["game_config"]["scoring"]
+    position_of = {p.id: snapshot.positions[p.element_type].singular_name_short for p in snapshot.elements}
+    result: dict[tuple[int, int], Projection] = {}
+    for event in events:
+        actual = actuals_from_live_event(lives[event])
+        stats = {element.id: element.stats for element in lives[event].elements}
+        for key, projection in forecast.items():
+            if key[1] != event:
+                continue
+            outcome = actual.get(key[0])
+            if outcome is None:
+                result[key] = projection
+                continue
+            s, pos = stats[key[0]], position_of[key[0]]
+            xgc = float(s.get("expected_goals_conceded") or 0)
+            minutes = float(s.get("minutes") or 0)
+            expected_cs = (math.exp(-xgc) if minutes >= 60 else 0.0) * scoring["clean_sheets"][pos]
+            expected_gc = _poisson_floor_half(xgc) * scoring["goals_conceded"][pos] if minutes > 0 else 0.0
+            realised = outcome.component_points.get("xp_clean_sheet", 0.0) + outcome.component_points.get("xp_conceded", 0.0)
+            result[key] = replace(projection, xp_total=projection.xp_total - realised + expected_cs + expected_gc)
+    return result
+
+
+def model_terms_replaced(
+    forecast: Mapping[tuple[int, int], Projection],
+    lives: Mapping[int, object],
+    events: Sequence[int],
+    snapshot,
+    *,
+    defence: bool,
+) -> dict[tuple[int, int], Projection]:
+    """H (defence=True) or I (defence=False): one modelled half swapped for its
+    chance-quality truth, everything else left as 1.2 modelled it."""
+    scoring = snapshot.raw["game_config"]["scoring"]
+    position_of = {p.id: snapshot.positions[p.element_type].singular_name_short for p in snapshot.elements}
+    result: dict[tuple[int, int], Projection] = {}
+    for event in events:
+        stats = {element.id: element.stats for element in lives[event].elements}
+        for key, projection in forecast.items():
+            if key[1] != event:
+                continue
+            s, pos = stats.get(key[0]), position_of[key[0]]
+            if s is None:
+                result[key] = projection
+                continue
+            minutes = float(s.get("minutes") or 0)
+            if defence:
+                xgc = float(s.get("expected_goals_conceded") or 0)
+                truth = (math.exp(-xgc) if minutes >= 60 else 0.0) * scoring["clean_sheets"][pos]
+                truth += _poisson_floor_half(xgc) * scoring["goals_conceded"][pos] if minutes > 0 else 0.0
+                modelled = projection.xp_clean_sheet + projection.xp_conceded
+            else:
+                truth = (float(s.get("expected_goals") or 0) * scoring["goals_scored"][pos]
+                         + float(s.get("expected_assists") or 0) * scoring["assists"])
+                modelled = projection.xp_attack
+            result[key] = replace(projection, xp_total=projection.xp_total - modelled + truth)
+    return result
+
+
 def ep_next_forecast(snapshot, events: Sequence[int]) -> dict[tuple[int, int], Projection]:
     ep = {player.id: float(player.ep_next or 0.0) for player in snapshot.elements}
     return perfect_forecast(snapshot, {event: ep for event in events}, events)
@@ -173,6 +257,12 @@ def main(argv: list[str] | None = None) -> int:
         "C   ep_next across window": ep_next_forecast(snapshot, events),
         "D   rates oracle (1.2 appearance kept)": rates_oracle(shipped, lives, events),
         "E   chance quality (D, xG/xA for goals)": chance_quality_oracle(shipped, lives, events, snapshot),
+        "F   defence luck removed (D, xGC for CS)": defence_luck_removed(
+            rates_oracle(shipped, lives, events), lives, events, snapshot),
+        "G   all chance quality (E + F)": defence_luck_removed(
+            chance_quality_oracle(shipped, lives, events, snapshot), lives, events, snapshot),
+        "H   defence chance quality only": model_terms_replaced(shipped, lives, events, snapshot, defence=True),
+        "I   attack chance quality only": model_terms_replaced(shipped, lives, events, snapshot, defence=False),
         "O1  perfect forecast": oracle,
     }
     hold = realise(start, {}, events, snapshot, rules, oracle).total
