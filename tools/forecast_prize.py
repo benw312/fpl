@@ -191,9 +191,11 @@ def model_terms_replaced(
     snapshot,
     *,
     defence: bool,
+    positions: frozenset[str] | None = None,
 ) -> dict[tuple[int, int], Projection]:
     """H (defence=True) or I (defence=False): one modelled half swapped for its
-    chance-quality truth, everything else left as 1.2 modelled it."""
+    chance-quality truth, everything else left as 1.2 modelled it. `positions`
+    restricts the swap to those positions (the attack split by position)."""
     scoring = snapshot.raw["game_config"]["scoring"]
     position_of = {p.id: snapshot.positions[p.element_type].singular_name_short for p in snapshot.elements}
     result: dict[tuple[int, int], Projection] = {}
@@ -203,7 +205,7 @@ def model_terms_replaced(
             if key[1] != event:
                 continue
             s, pos = stats.get(key[0]), position_of[key[0]]
-            if s is None:
+            if s is None or (positions is not None and pos not in positions):
                 result[key] = projection
                 continue
             minutes = float(s.get("minutes") or 0)
