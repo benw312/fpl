@@ -65,6 +65,33 @@ quality is worth about +28 to +39 points per squad over three weeks. Knowing eac
 team's defensive chance quality is worth about nothing, within noise. The one-squad
 −35 was that squad, not defence.
 
+### 2.1 — The attacking prize, split by position (40 squads, 2026-10-02)
+
+Asked by Ben: does xG/xA cover defenders, given full-backs who make regular
+attacking returns? **Yes.** The model applies xG/xA to every outfield position, and
+a defender's goal is worth 6. Over GW1–5, defenders took **21% of realised
+attacking points** and **24% of the expected ones**, as much as forwards. And 1.2
+predicts them worst: Spearman against realised chance quality is 0.22 for
+defenders, 0.45 for midfielders and 0.57 for forwards, among players who played,
+GW2–5 pooled.
+
+| perfect attacking chance quality for… | GW2–4 | GW3–5 |
+|---|---|---|
+| everyone (I; reproduces §2 exactly) | +28.0 (se 2.6) | +38.6 (se 3.1) |
+| **defenders only** | **+25.1** (se 1.6; 40 + / 0 −) | **+20.4** (se 2.6; 35 + / 4 −) |
+| midfielders and forwards only | +22.0 (se 2.1) | +37.4 (se 3.2) |
+
+**Defenders' attack alone is worth 20–25 points per squad over three weeks,**
+comparable to midfielders' and forwards' combined in one window. That is out of
+proportion to their 21–24% share of attacking points, because it is where 1.2 is
+weakest. The parts do not add up to the whole: a plan has only so many transfers,
+so the two halves compete for them.
+
+`[gap: why defenders, specifically, is inferred. A few full-backs generate most
+defensive xG/xA, and a price-and-position prior cannot tell a full-back from a
+centre-back. Testing that needs a role signal: last season's per-player rates, or
+set-piece duty.]`
+
 ## 3 — Defenders: what exists, and what our data says
 
 **Yes, "expected clean sheets" exist.** The standard construction is Poisson:
@@ -107,7 +134,9 @@ predictable enough to matter is unmeasured.]`
    improve calibration, not plans (forecast-prize-results.md's B: calibration is
    worth about 0). Do it only as a correctness fix, if at all. Defcon is the one
    defensive question left open.
-2. **Attack is where to build.** The target is per-match attacking chance quality.
+2. **Attack is where to build, and defenders' attack is the best first target**
+   (§2.1). It is worth 20–25 points per squad alone, and it is the half 1.2
+   predicts worst. The target is per-match attacking chance quality.
    Of the three ideas, **A (last-season prior) is the only one that moves plans**,
    and it is the natural first candidate under FU-75's method. It needs a fresh
    pre-registration with the last-season weight fixed in advance (or set by the
@@ -120,3 +149,8 @@ predictable enough to matter is unmeasured.]`
    measures. Bound it the same way before building.
 4. **B and C:** B (penalty bonus) does nothing measurable. C (recency) cannot be
    tested before about GW10.
+5. **Candidate role signals for defenders, not yet bounded:**
+   - last season's per-player xG/xA (A, restricted to defenders);
+   - `corners_and_indirect_freekicks_order` and `direct_freekicks_order`, for
+     full-backs' assists;
+   - a full-back / centre-back split inferred from last season's xA share.
