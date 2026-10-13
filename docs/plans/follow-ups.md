@@ -2788,6 +2788,15 @@ argument and is recorded as such, not presented as a measured improvement.]*
 
 ## FU-48 — `doubtful_chance` is unreachable: every non-`a` status publishes a percentage
 
+**Status: closed** — `task/fu-48-document-fallback`, 2026-10-13. Ben chose option 2:
+keep it, and say what it is. **Checked in the source:** `DEFAULT_DOUBTFUL_CHANCE = 0.75`
+is unchanged, so no variant digest moves. An inline comment on its own line now marks
+it as a deliberate fallback for a case the API has not produced (0 bare `"d"` in 203).
+It is on the same line so that no cited `projections.py` line moves. Deleting it was
+declined, because a future bare `"d"` would fall through to 0.0 (ruled out) silently.
+The `chance_of_playing_this_round` route (FU-21) is unchanged. The body below is left
+as written.
+
 **Deferred from:** `task/model-versioning`, while choosing the parameter for its test
 fixture variant. Filed here rather than left as a gap comment in
 `domain/variants.py`, because it is a projections question adjacent to FU-47, not a
