@@ -5564,6 +5564,17 @@ data and motivates the choice. It is not evidence for the result.
 
 ## FU-76 — Pre-registration: defender attacking signals, against the incumbent, at GW8–10 and GW11–13
 
+**Progress: 2026-10-13** — **§2 applied to the development run** (40 squads, paired
+against 1.2, 3,128 s):
+- **A-DEF: −2.25 (se 2.3) at GW2–4 and +1.20 (se 2.2) at GW3–5. Not positive in both,
+  so not a candidate.**
+- **S-DEF: +0.10 (se 0.1) and +0.33 (se 0.2). Positive in both, so it is the
+  candidate.** It changed the outcome for only 1 and 3 of 40 squads, so its effect is
+  small, and clearing more than 2 standard errors at N = 200 will be hard. That is
+  recorded as an expectation, not a re-reading: §2's rule is applied as written.
+**Left before 2026-10-23T17:30Z:** register `component/1.2-def-setpiece` on 1.2,
+verify it reproduces the prototype on the GW2–5 captures, and record its digest here.
+
 **Status: binding from 2026-10-13.** Ben signed off every choice before the
 development figures it selects on existed. The 40-squad run of
 `tools/attack_prize.py --defenders` was in progress at commit time. **The candidate
