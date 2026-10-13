@@ -55,13 +55,18 @@ entries say about the code *now*. Working on an FU means updating its entry
   Say what was checked **in the source**, not what the commit message claimed,
   and where the fix diverged from the entry, say how. The file's header
   specifies the format; follow it there rather than restating it here.
-- **Update the entry *and* the header's open-entry table.** They are two
-  records of the same fact and they drift apart silently.
+- **The entry is the only record.** Its state line sits directly under its
+  heading, so the header's `grep` gives Ben a one-screen overview. There is no
+  open-entry table: it was dropped on 2026-10-13 as double-handling, and its
+  history is in `docs/plans/follow-ups-history.md`. Do not reintroduce a second
+  record of an entry's state.
+- New entries get a one-line heading that says what the problem or decision is.
 - Numbering never shifts, so closed entries stay in place.
 
 **This is the file's recurring failure, not a hypothetical.** FU-15 and FU-21
 each sat closed-in-code and unmarked for fifteen and ten days, while the
-header's own findings list claimed no entry was in that state. Both were found
+header's own findings list (now in follow-ups-history.md) claimed no entry
+was in that state. Both were found
 by accident on 2026-09-12. An entry that overstates what is still broken costs
 a future session the work of rediscovering it is already done.
 
