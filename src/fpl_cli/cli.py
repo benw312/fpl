@@ -1383,6 +1383,7 @@ def evaluate_plan(
     event: int = typer.Option(..., "--event", help="Gameweek to evaluate against actual results."),
     model: EvaluateModelsOption = None,
     snapshot_path: SnapshotOption = None,
+    allow_provisional: Annotated[bool, typer.Option("--allow-provisional", help="Score actuals that are not yet final (FU-49).")] = False,
 ) -> None:
     """Score projection models against a finished gameweek's actual points.
 
@@ -1430,6 +1431,12 @@ def evaluate_plan(
         )
 
     _report_live_provenance(live_result)
+    if not live_result.provenance.settled and not allow_provisional:
+        # FU-49 (Ben, 2026-10-13): refuse by default. The warning alone was the
+        # weakest option, because the number gets copied and the warning does not.
+        error_console.print(f"GW{event} is not settled; refusing to score provisional actuals. "
+                            "Wait for FPL to settle it, or pass --allow-provisional.")
+        raise typer.Exit(1)
 
     fixtures = fixtures_result.fixtures
     actuals = actuals_from_live_event(live_result.live)
