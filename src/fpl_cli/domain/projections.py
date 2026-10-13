@@ -28,7 +28,7 @@ DEFAULT_START_PRIORS: dict[str, float] = {"GKP": 0.85, "DEF": 0.65, "MID": 0.55,
 DEFAULT_MINS_PER_START_PRIOR = 75.0
 DEFAULT_P_SUB_APPEARANCE = 0.35
 DEFAULT_MINS_PER_SUB = 20.0
-DEFAULT_DOUBTFUL_CHANCE = 0.75
+DEFAULT_DOUBTFUL_CHANCE = 0.75  # FU-48: fallback only, kept on purpose -- FPL has published a % for every "d" seen (0 bare of 203)
 DEFAULT_BONUS_SHRINKAGE_MINUTES = 450.0
 
 # DEF and MID measured empirically (Verification: 0 mismatches at the
