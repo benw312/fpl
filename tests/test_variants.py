@@ -60,6 +60,8 @@ EXPECTED_DIGESTS = {
     # prior table's own digest, so a regenerated table moves these.
     "component/1.4-venue": "c9e603c9afbe",
     "component/1.4": "be140444dd50",
+    # FU-76's candidate, pinned at registration before GW8's deadline.
+    "component/1.2-def-setpiece": "b2621435c398",
 }
 
 # `component/1.2` added a `structure` field to `ModelVariant` and **no digest
@@ -84,6 +86,7 @@ EXPECTED_VERSIONS = {
     "component/1.3": "component/1.3+fitted",
     "component/1.4-venue": "component/1.4-venue+fitted",
     "component/1.4": "component/1.4+fitted",
+    "component/1.2-def-setpiece": "component/1.2-def-setpiece+banded",
 }
 
 

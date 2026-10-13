@@ -344,3 +344,34 @@ def test_alcaraz_shaped_input_is_bounded_by_the_prior() -> None:
     position_prior = priors.position[("dc", "MID")]
     assert rates.dc < 3 * position_prior
     assert rates.dc == pytest.approx((270.0 * 1 + position_prior * 90) / 91)
+
+
+def test_fu76_set_piece_uplift_reaches_only_defenders_with_duty() -> None:
+    """FU-76 S-DEF: +uplift raw xA/90 for a DEF with any set-piece duty, and for
+    nobody else; at the default 0.0 the config is a no-op.
+
+    Mutations: dropping the `position == "DEF"` condition (a MID with duty then
+    moves); dropping the duty test (a DEF without duty moves)."""
+    from dataclasses import replace as _replace  # noqa: PLC0415
+
+    from fpl_cli.api.models import Player  # noqa: PLC0415
+    from fpl_cli.domain import variants  # noqa: PLC0415
+    from fpl_cli.domain.projections import shrunk_rates  # noqa: PLC0415
+
+    config = variants.get("component/1.2").rates
+    uplifted = _replace(config, defender_set_piece_xa=0.048)
+    from conftest import _bootstrap_snapshot  # noqa: PLC0415
+    from fpl_cli.domain.projections import build_rate_priors  # noqa: PLC0415
+
+    priors = build_rate_priors(_bootstrap_snapshot(), config)
+    base = dict(id=900, web_name="X", team=1, now_cost=50, minutes=900, expected_assists_per_90=0.05)
+    with_duty = Player(element_type=2, corners_and_indirect_freekicks_order=1, **base)
+    no_duty = Player(element_type=2, **base)
+    mid_duty = Player(element_type=3, direct_freekicks_order=1, **base)
+
+    def xa(player, position, cfg):
+        return shrunk_rates(player, position, priors, cfg).xa
+
+    assert xa(with_duty, "DEF", uplifted) > xa(with_duty, "DEF", config)
+    assert xa(no_duty, "DEF", uplifted) == xa(no_duty, "DEF", config)
+    assert xa(mid_duty, "MID", uplifted) == xa(mid_duty, "MID", config)

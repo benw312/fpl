@@ -682,6 +682,26 @@ COMPONENT_V14 = register(
 )
 
 
+# --- component/1.2-def-setpiece (FU-76) ------------------------------------------
+#
+# FU-76's one candidate after its §2 gate: 1.2 with +0.048 raw xA per 90 for
+# defenders who have any corner, indirect or direct free-kick duty. The uplift is
+# 2025-26's (0.101 against 0.053 xA/90, defenders with 900+ minutes, n = 15 and 113),
+# written as the same expression the prototype in tools/attack_prize.py used, so
+# the reproduction check is exact. Differs from 1.2 in exactly one field.
+
+COMPONENT_V12_DEF_SETPIECE = register(
+    ModelVariant(
+        name="component/1.2-def-setpiece",
+        family="component",
+        strength=COMPONENT_V12.strength,
+        rates=replace(COMPONENT_V12.rates, defender_set_piece_xa=0.101 - 0.053),
+        structure=COMPONENT_V12.structure,
+        note="component/1.2 plus FU-76's set-piece xA uplift for defenders. FU-76 decides it at GW8-10 and GW11-13.",
+    )
+)
+
+
 # --- A test fixture, not a candidate model -----------------------------------
 #
 # This variant exists to prove two registered variants can coexist and be

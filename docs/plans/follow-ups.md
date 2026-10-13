@@ -5572,8 +5572,14 @@ against 1.2, 3,128 s):
   candidate.** It changed the outcome for only 1 and 3 of 40 squads, so its effect is
   small, and clearing more than 2 standard errors at N = 200 will be hard. That is
   recorded as an expectation, not a re-reading: §2's rule is applied as written.
-**Left before 2026-10-23T17:30Z:** register `component/1.2-def-setpiece` on 1.2,
-verify it reproduces the prototype on the GW2–5 captures, and record its digest here.
+**Registered 2026-10-13, before GW8's deadline:** `component/1.2-def-setpiece`, digest
+**`b2621435c398`**. It is 1.2 with `defender_set_piece_xa` = 0.101 − 0.053 in the rate
+config, and differs from 1.2 in that one field. 1.2's digest is unchanged
+(`4f479b2253cc`). It **reproduces the prototype exactly** on the GW2–5 captures: the
+largest difference is 4.4e−16, and it changes 13–17 defenders a gameweek.
+`tests/test_rate_shrinkage.py` checks that the uplift reaches only defenders with set-piece
+duty (two mutations demonstrated). **Nothing remains before the legs**, except keeping
+the captures running.
 
 **Status: binding from 2026-10-13.** Ben signed off every choice before the
 development figures it selects on existed. The 40-squad run of

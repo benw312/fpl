@@ -257,6 +257,7 @@ class RateShrinkageConfig:
     rates: Mapping[str, RatePrior] = field(default_factory=dict)
     band_prior_minutes: float = 900.0
     band_width: int = 5
+    defender_set_piece_xa: float = 0.0  # FU-76 S-DEF: raw xA/90 added for set-piece defenders
 
     def __post_init__(self) -> None:
         unknown = set(self.rates) - set(SHRINKABLE_RATES)
@@ -278,6 +279,8 @@ class RateShrinkageConfig:
             },
             "band_prior_minutes": self.band_prior_minutes,
             "band_width": self.band_width,
+            # Omitted at 0, like `structure`, so every pre-FU-76 digest holds.
+            **({"defender_set_piece_xa": self.defender_set_piece_xa} if self.defender_set_piece_xa else {}),
         }
 
 
@@ -434,9 +437,12 @@ def shrunk_rates(
     for rate in SHRINKABLE_RATES:
         setting = config.rates.get(rate, RatePrior())
         prior = priors.prior_for(rate, position, player.now_cost, setting.prior_source)
-        values[rate] = shrink_rate(
-            _raw_rate(player, rate), float(player.minutes), prior, setting.prior_minutes
-        )
+        raw = _raw_rate(player, rate)
+        if rate == "xa" and position == "DEF" and config.defender_set_piece_xa and (
+            player.corners_and_indirect_freekicks_order is not None or player.direct_freekicks_order is not None
+        ):
+            raw += config.defender_set_piece_xa  # FU-76 S-DEF
+        values[rate] = shrink_rate(raw, float(player.minutes), prior, setting.prior_minutes)
     return _ShrunkRates(**values)
 
 
