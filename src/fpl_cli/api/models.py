@@ -31,6 +31,9 @@ class Player(BaseModel):
     # the whole of S2. `selected_by_percent` is float-as-string like `form`.
     chance_of_playing_this_round: int | None = None
     selected_by_percent: str = "0.0"
+    # FU-76: set-piece duty, published per player (1 = first choice); None = no duty.
+    corners_and_indirect_freekicks_order: int | None = None
+    direct_freekicks_order: int | None = None
 
     # Projection inputs (docs/plans/projections-v1.md). Previously dropped
     # silently by extra="ignore" above.
