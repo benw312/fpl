@@ -5835,3 +5835,55 @@ data and motivates the choice. It is not evidence for the result.
 - **Spearman is still reported, as a diagnostic.**
 - **A later candidate**, such as the attacking-rate model, needs its own
   registration naming its own legs. This entry covers one candidate.
+
+
+## FU-76 — Pre-registration: defender attacking signals, against the incumbent, at GW8–10 and GW11–13
+
+**Status: binding from 2026-10-13.** Ben signed off every choice before the
+development figures it selects on existed. The 40-squad run of
+`tools/attack_prize.py --defenders` was in progress at commit time. **The candidate
+set is decided by §2's rule, applied mechanically to that run.** Evidence:
+attack-defence-prize.md §2.1. Perfect attacking chance quality for defenders alone is
+worth +25 and +20 per squad, and 1.2 predicts defenders' attack worst (Spearman 0.22
+against chance quality).
+
+### 1. The signals (each changes defenders only; every other position keeps 1.2's rates)
+
+- **A-DEF — last-season prior.** Each defender's xG and xA are pooled with his own
+  2025-26 totals, matched by FPL `code`, with **w = 1**: last season's minutes count
+  the same as this season's. Then 1.2's own shrinkage is applied. Source:
+  `~/fpl-pinned/2025-26-players_raw.csv`, sha256 `412ce017…`.
+- **S-DEF — set-piece duty.** A defender with any corner, indirect or direct
+  free-kick duty in the capture gets **+0.048 xA per 90**. That is the 2025-26
+  uplift (0.101 against 0.053 xA/90, n = 15 and 113, defenders with 900+ minutes),
+  fitted on last season, not on our metric.
+
+### 2. Which become candidates — fixed before the development figures
+
+**Each signal whose development mean, paired against 1.2 over 40 squads, is strictly
+positive in *both* GW2–4 and GW3–5 becomes a candidate.** If neither qualifies, this
+entry closes without a test. No other reading of the development run is allowed:
+not the size, not a near-miss, not a change of weight.
+
+### 3. The candidates and the criterion
+
+- **Base:** each candidate is `component/1.2` plus its signal, registered as
+  `component/1.2-def-prior` and/or `component/1.2-def-setpiece`. The comparison with
+  1.2 therefore measures the defender change and nothing else.
+- **Before GW8's deadline (2026-10-23T17:30Z):** the registered variant must
+  reproduce the prototype's projections on the GW2–5 captures, and its digest is
+  recorded here.
+- **Criterion:** FU-75's, unchanged.
+  - The FU-75 harness: N = 200 ownership-weighted squads, seed `20261001 + window`,
+    paired against `component/1.2`.
+  - **The mean must exceed 2 standard errors in each of GW8–10 and GW11–13.**
+  - Clean windows are required. If a window is not clean, the entry lapses.
+- **Two candidates do not loosen anything.** Each is judged on its own. If both
+  clear, Ben chooses the default with a new entry. Combining them is a separate
+  registration.
+
+### 4. Frozen, as FU-75 §5
+
+The harness and the planner defaults are frozen as FU-75 §5 states. The candidates'
+digests are added at registration. Nothing is re-read against a result.
+
