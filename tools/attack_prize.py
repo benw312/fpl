@@ -56,6 +56,13 @@ P_PEN = 0.15  # [assumption: ~0.3 penalties a match, so ~0.15 per team-match; no
 XG_PEN = 0.76  # [the conventional xG of a penalty]
 HALF_LIFE = 2.0  # [prototype choice, gameweeks; not tuned]
 IDEAS = ("A last-season prior", "B penalty takers", "C recency")
+# --defenders: role signals for full-backs (attack-defence-prize.md §2.1, §4.5).
+# Both change defenders only; every other position keeps 1.2's rates exactly.
+DEFENDER_IDEAS = ("A-DEF last-season prior", "S-DEF set-piece duty")
+# Fitted on 2025-26, not on our metric: defenders with >= 900 minutes and any
+# corner/indirect or direct free-kick duty averaged 0.101 xA/90 against 0.053
+# without (n = 15 and 113). Thin, and stated as such.
+SET_PIECE_XA_UPLIFT = 0.101 - 0.053
 # --oracles: the attack/defence split of forecast_prize.py's H and I, over many squads.
 ORACLES = ("I attack chance quality", "I-DEF defenders only", "I-MID/FWD only")
 
@@ -90,7 +97,7 @@ def raw_inputs(snapshot, window: int, idea: str) -> dict[int, tuple[float, float
     # `Player` does not parse `code` or `penalties_order`; a measurement reads
     # them from the raw payload rather than widening the shipped model.
     raw = {e["id"]: e for e in snapshot.raw["elements"]}
-    if idea.startswith("A"):
+    if idea.startswith("A"):  # also A-DEF; prototype() restricts it to defenders
         last = _last_season()
         for p in snapshot.elements:
             xg, xa, mins = float(p.expected_goals or 0), float(p.expected_assists or 0), float(p.minutes)
@@ -103,6 +110,12 @@ def raw_inputs(snapshot, window: int, idea: str) -> dict[int, tuple[float, float
         for p in snapshot.elements:
             bonus = P_PEN * XG_PEN if raw[p.id].get("penalties_order") == 1 else 0.0
             out[p.id] = (float(p.expected_goals_per_90) + bonus, float(p.expected_assists_per_90), float(p.minutes))
+    elif idea.startswith("S-DEF"):
+        for p in snapshot.elements:
+            e = raw[p.id]
+            duty = e.get("corners_and_indirect_freekicks_order") is not None or e.get("direct_freekicks_order") is not None
+            bonus = SET_PIECE_XA_UPLIFT if duty else 0.0
+            out[p.id] = (float(p.expected_goals_per_90), float(p.expected_assists_per_90) + bonus, float(p.minutes))
     elif idea.startswith("C"):
         totals: dict[int, list[float]] = {}
         for event, stats in _history(window):
@@ -125,6 +138,10 @@ def prototype(model, base, snapshot, window: int, idea: str):
     factor: dict[int, float] = {}
     for p in snapshot.elements:
         position = snapshot.positions[p.element_type].singular_name_short
+        if idea.endswith("-DEF") or "-DEF " in idea:
+            if position != "DEF":
+                factor[p.id] = 1.0
+                continue
         old = shrunk_rates(p, position, model._rate_priors, model._rate_config)
         settings = model._rate_config.rates
         prior_xg = model._rate_priors.prior_for("xg", position, p.now_cost, settings["xg"].prior_source)
@@ -146,7 +163,7 @@ def prototype(model, base, snapshot, window: int, idea: str):
 _CACHE: dict = {}
 
 
-def _context(window: int, oracles: bool = False):
+def _context(window: int, oracles: bool = False, defenders: bool = False):
     if window not in _CACHE:
         events = [window + k for k in range(HORIZON)]
         snapshot, fixtures, _ = load(window, PINNED)
@@ -164,6 +181,9 @@ def _context(window: int, oracles: bool = False):
                                                          positions=frozenset({"DEF"}))
             forecasts[ORACLES[2]] = model_terms_replaced(base, lives, events, snapshot, defence=False,
                                                          positions=frozenset({"MID", "FWD"}))
+        elif defenders:
+            for idea in DEFENDER_IDEAS:
+                forecasts[idea] = prototype(model, base, snapshot, window, idea)
         else:
             for idea in IDEAS:
                 forecasts[idea] = prototype(model, base, snapshot, window, idea)
@@ -173,8 +193,8 @@ def _context(window: int, oracles: bool = False):
 
 
 def _score(task):
-    window, squad, oracles = task
-    snapshot, events, rules, oracle, forecasts, _ = _context(window, oracles)
+    window, squad, oracles, defenders = task
+    snapshot, events, rules, oracle, forecasts, _ = _context(window, oracles, defenders)
     state = starting_state(squad, snapshot, window)
     row = {"window": window, "HOLD": realise(state, {}, events, snapshot, rules, oracle).total}
     for name, forecast in forecasts.items():
@@ -190,11 +210,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--squads", type=int, default=40)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--defenders", action="store_true", help="score the defender role-signal prototypes")
     parser.add_argument("--oracles", action="store_true", help="score oracle I and its split by position instead of A-C")
     args = parser.parse_args(argv)
 
     for window in args.windows:
-        snapshot, events, _, _, forecasts, live = _context(window, args.oracles)
+        snapshot, events, _, _, forecasts, live = _context(window, args.oracles, args.defenders)
         actual = actuals_from_live_event(live)
         print(f"GW{window} Spearman (played / all) at the window's first gameweek:")
         for name, forecast in forecasts.items():
@@ -202,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             r = evaluate_model(first, actual, model_name=name)
             print(f"  {name:22s} {r.spearman_played:.4f} / {r.spearman_all:.4f}")
 
-    tasks = [(w, s, args.oracles) for w in args.windows for s in sample_squads(load(w, PINNED)[0], args.squads, DEFAULT_SEED + w)]
+    tasks = [(w, s, args.oracles, args.defenders) for w in args.windows for s in sample_squads(load(w, PINNED)[0], args.squads, DEFAULT_SEED + w)]
     started = time.monotonic()
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         rows = list(pool.map(_score, tasks, chunksize=1))
@@ -211,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         sub = [r for r in rows if r["window"] == window]
         print(f"\nwindow GW{window}-GW{window + HORIZON - 1}, {len(sub)} squads; 1.2 − HOLD "
               f"{statistics.fmean(r['1.2'] - r['HOLD'] for r in sub):+.2f}")
-        for idea in (ORACLES if args.oracles else IDEAS):
+        for idea in (ORACLES if args.oracles else DEFENDER_IDEAS if args.defenders else IDEAS):
             d = [r[idea] - r["1.2"] for r in sub]
             sd = statistics.stdev(d)
             print(f"  {idea:22s} − 1.2: mean {statistics.fmean(d):+6.2f}  se {sd / math.sqrt(len(d)):5.2f}  "
