@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import typer
 
 from fpl_cli import cli
 from fpl_cli.api import snapshots
@@ -497,8 +498,17 @@ def test_plan_evaluate_actually_reports_provenance(
     # evaluation rather than exiting early.
     monkeypatch.setattr(cli, "DEFAULT_ARCHIVE_DIR", tmp_path / "archive")
 
-    cli.evaluate_plan(event=1, snapshot_path=None)
+    cli.evaluate_plan(event=1, snapshot_path=None, allow_provisional=True)  # FU-49: opted in
 
     out = capsys.readouterr().out
     assert "GW1 actuals are NOT final" in out
     assert "not a backtest" in out
+
+    # FU-49: without the flag, the same unsettled payload is refused before any
+    # table is printed. Mutation: deleting the refusal block in `evaluate_plan`.
+    with pytest.raises(typer.Exit) as refused:
+        cli.evaluate_plan(event=1, snapshot_path=None)
+    assert refused.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "--allow-provisional" in captured.err
+    assert "Spearman" not in captured.out

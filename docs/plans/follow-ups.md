@@ -2918,6 +2918,15 @@ of it.]`
 
 ## FU-49 — `plan evaluate` warns that the actuals are provisional and scores them anyway
 
+**Status: closed** — `task/fu-49-refuse-provisional`, 2026-10-13. Ben chose option 2.
+**Checked in the source:** `evaluate_plan` now refuses unsettled actuals (exit 1, with
+a message naming `--allow-provisional` on stderr), immediately after
+`_report_live_provenance` and before anything is projected or printed.
+`--allow-provisional` restores the old behaviour, warning included. It is declared with
+`Annotated`, so a direct call defaults to a real `False`, not to a truthy
+`OptionInfo`. `tests/test_event_live_gate.py` asserts both arms; the refusal assertion
+was shown failing with the check removed. The body below is left as written.
+
 **Deferred from:** the GW2 evaluation of 2026-09-01, which stopped at its own pre-flight
 check. Filed rather than fixed because that session was a measurement task and this is a
 command-surface decision with three defensible answers, none of them obviously right.
