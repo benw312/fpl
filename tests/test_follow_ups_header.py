@@ -1,5 +1,8 @@
 """FU-69: `follow-ups.md`'s header states numbers about itself, by hand.
 
+The open-entry table and its row-count assertion were dropped on 2026-10-13 (Ben:
+double-handling; each entry's own Status line is the record).
+
 On 2026-09-12 three were wrong at once — the table row count said "twenty-two"
 against 25, the citation count said 62 against 103, and the blank-line count
 said 13 above a list of 14. One of the three was introduced by the sweep that
@@ -7,7 +10,7 @@ was correcting the other two, which is the argument for checking them.
 
 **What this guards, and what it emphatically does not.** Every assertion here
 is arithmetic over the document plus a file read. None of them judges whether a
-citation says what the entry claims. `cli.py:1021` is cited six times as
+citation says what the entry claims. `cli.py:1021` was cited six times as
 `_report_live_provenance`, which lives at `:1229`; it lands on a substantive
 line throughout and **this suite passes it**. That class of drift is invisible
 here and is the reason the header still says a full reconciliation is deferred.
@@ -40,7 +43,6 @@ BLOCK = re.compile(
     r"<!--\s*broken-citations:start\s*-->(.*?)<!--\s*broken-citations:end\s*-->",
     re.S,
 )
-TABLE_ROW = re.compile(r"^\|\s*FU-\d+\s*\|")
 
 # A cited line carries no information if it is one of these. The list is
 # deliberately short: anything longer starts excluding real one-token lines.
@@ -206,21 +208,6 @@ def test_the_stated_citation_total_matches_the_document() -> None:
         "The counting rule is stated in the header and implemented in `citations()` — "
         "if they have diverged, fix the one that is wrong rather than the number."
     )
-
-
-def test_the_stated_table_row_count_matches_the_table() -> None:
-    """The figure that was wrong by three on 2026-09-12.
-
-    Mutation it must fail against: adding an `| FU-N |` row without updating
-    the stated count. Demonstrated failing.
-    """
-    stated = stated_number(r"all (\d+) rows below were re-checked")
-    actual = sum(1 for line in FOLLOW_UPS.read_text(encoding="utf-8").splitlines() if TABLE_ROW.match(line))
-
-    assert stated == actual, f"the header says {stated} table rows; the table has {actual}"
-
-
-# --- the guard on the guard --------------------------------------------------
 
 
 @pytest.mark.parametrize(
