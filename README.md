@@ -1,5 +1,8 @@
 # FPL CLI
 
+[![tests](https://github.com/benw312/fpl/actions/workflows/tests.yml/badge.svg)](https://github.com/benw312/fpl/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A command-line planner for **Fantasy Premier League**. It projects every
 player's points gameweek by gameweek, searches multi-week transfer plans with
 a custom optimiser, and scores its own forecasts against what actually
@@ -12,7 +15,7 @@ never changes your team.
 respx · SciPy (MILP oracle)
 
 **At a glance:** ~8,600 lines of application code · ~13,000 lines of tests ·
-507 tests, no network needed · 13 registered projection models · 40+ written
+500+ tests, no network needed · 13 registered projection models · 40+ written
 design documents
 
 ---
