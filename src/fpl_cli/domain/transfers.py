@@ -23,7 +23,7 @@ class TransferRules:
     # game_config.scoring, so unlike squad size, budget and club limits it
     # cannot be re-derived from the snapshot. A future-season change would go
     # undetected — there is no API field to compare against. Re-check each
-    # season; see README "Rules that are hardcoded" and docs/plans/transfers.md.
+    # season; see docs/TECHNICAL.md "Rules that are hardcoded" and docs/plans/transfers.md.
     points_per_extra_transfer: int = 4
     # [inference: implied by the field name max_extra_free_transfers ("extra"
     # relative to an unstated base) — the base itself is never stated.]

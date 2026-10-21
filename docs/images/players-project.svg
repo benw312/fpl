@@ -1,0 +1,178 @@
+<svg class="rich-terminal" viewBox="0 0 897 782.0" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-2000255258-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-2000255258-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-2000255258-r1 { fill: #98a84b;font-weight: bold }
+.terminal-2000255258-r2 { fill: #c5c8c6 }
+.terminal-2000255258-r3 { fill: #c5c8c6;font-style: italic; }
+.terminal-2000255258-r4 { fill: #c5c8c6;font-weight: bold }
+.terminal-2000255258-r5 { fill: #868887;font-style: italic; }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-2000255258-clip-terminal">
+      <rect x="0" y="0" width="877.4" height="731.0" />
+    </clipPath>
+    <clipPath id="terminal-2000255258-line-0">
+    <rect x="0" y="1.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-1">
+    <rect x="0" y="25.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-2">
+    <rect x="0" y="50.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-3">
+    <rect x="0" y="74.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-4">
+    <rect x="0" y="99.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-5">
+    <rect x="0" y="123.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-6">
+    <rect x="0" y="147.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-7">
+    <rect x="0" y="172.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-8">
+    <rect x="0" y="196.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-9">
+    <rect x="0" y="221.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-10">
+    <rect x="0" y="245.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-11">
+    <rect x="0" y="269.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-12">
+    <rect x="0" y="294.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-13">
+    <rect x="0" y="318.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-14">
+    <rect x="0" y="343.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-15">
+    <rect x="0" y="367.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-16">
+    <rect x="0" y="391.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-17">
+    <rect x="0" y="416.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-18">
+    <rect x="0" y="440.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-19">
+    <rect x="0" y="465.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-20">
+    <rect x="0" y="489.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-21">
+    <rect x="0" y="513.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-22">
+    <rect x="0" y="538.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-23">
+    <rect x="0" y="562.7" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-24">
+    <rect x="0" y="587.1" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-25">
+    <rect x="0" y="611.5" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-26">
+    <rect x="0" y="635.9" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-27">
+    <rect x="0" y="660.3" width="878.4" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2000255258-line-28">
+    <rect x="0" y="684.7" width="878.4" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#292929" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="895" height="780" rx="8"/><text class="terminal-2000255258-title" fill="#c5c8c6" text-anchor="middle" x="447" y="27">fpl&#160;players&#160;project</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#terminal-2000255258-clip-terminal)">
+    
+    <g class="terminal-2000255258-matrix">
+    <text class="terminal-2000255258-r1" x="0" y="20" textLength="512.4" clip-path="url(#terminal-2000255258-line-0)">$&#160;fpl&#160;players&#160;project&#160;--top&#160;15&#160;--horizon&#160;4</text><text class="terminal-2000255258-r2" x="878.4" y="20" textLength="12.2" clip-path="url(#terminal-2000255258-line-0)">
+</text><text class="terminal-2000255258-r3" x="0" y="44.4" textLength="658.8" clip-path="url(#terminal-2000255258-line-1)">&#160;Projected&#160;points&#160;|&#160;GW8–GW11&#160;|&#160;component/1.2+banded&#160;|&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="44.4" textLength="12.2" clip-path="url(#terminal-2000255258-line-1)">
+</text><text class="terminal-2000255258-r3" x="0" y="68.8" textLength="658.8" clip-path="url(#terminal-2000255258-line-2)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;2026_27&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="68.8" textLength="12.2" clip-path="url(#terminal-2000255258-line-2)">
+</text><text class="terminal-2000255258-r2" x="0" y="93.2" textLength="658.8" clip-path="url(#terminal-2000255258-line-3)">┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━┳━━━━━━━━┓</text><text class="terminal-2000255258-r2" x="878.4" y="93.2" textLength="12.2" clip-path="url(#terminal-2000255258-line-3)">
+</text><text class="terminal-2000255258-r2" x="0" y="117.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-4)">┃</text><text class="terminal-2000255258-r4" x="24.4" y="117.6" textLength="305" clip-path="url(#terminal-2000255258-line-4)">Player&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="341.6" y="117.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-4)">┃</text><text class="terminal-2000255258-r4" x="366" y="117.6" textLength="36.6" clip-path="url(#terminal-2000255258-line-4)">GW8</text><text class="terminal-2000255258-r2" x="414.8" y="117.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-4)">┃</text><text class="terminal-2000255258-r4" x="439.2" y="117.6" textLength="85.4" clip-path="url(#terminal-2000255258-line-4)">&#160;Next&#160;4</text><text class="terminal-2000255258-r2" x="536.8" y="117.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-4)">┃</text><text class="terminal-2000255258-r4" x="561.2" y="117.6" textLength="73.2" clip-path="url(#terminal-2000255258-line-4)">Start%</text><text class="terminal-2000255258-r2" x="646.6" y="117.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-4)">┃</text><text class="terminal-2000255258-r2" x="878.4" y="117.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-4)">
+</text><text class="terminal-2000255258-r2" x="0" y="142" textLength="658.8" clip-path="url(#terminal-2000255258-line-5)">┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━╇━━━━━━━━┩</text><text class="terminal-2000255258-r2" x="878.4" y="142" textLength="12.2" clip-path="url(#terminal-2000255258-line-5)">
+</text><text class="terminal-2000255258-r2" x="0" y="166.4" textLength="658.8" clip-path="url(#terminal-2000255258-line-6)">│&#160;Haaland&#160;·&#160;MCI&#160;·&#160;FWD&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;6.0&#160;│&#160;6.0&#160;(4)&#160;│&#160;&#160;&#160;&#160;94%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="166.4" textLength="12.2" clip-path="url(#terminal-2000255258-line-6)">
+</text><text class="terminal-2000255258-r2" x="0" y="190.8" textLength="658.8" clip-path="url(#terminal-2000255258-line-7)">│&#160;Mbeumo&#160;·&#160;MUN&#160;·&#160;MID&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;5.3&#160;│&#160;5.0&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="190.8" textLength="12.2" clip-path="url(#terminal-2000255258-line-7)">
+</text><text class="terminal-2000255258-r2" x="0" y="215.2" textLength="658.8" clip-path="url(#terminal-2000255258-line-8)">│&#160;Saka&#160;·&#160;ARS&#160;·&#160;MID&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;5.2&#160;│&#160;5.1&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="215.2" textLength="12.2" clip-path="url(#terminal-2000255258-line-8)">
+</text><text class="terminal-2000255258-r2" x="0" y="239.6" textLength="658.8" clip-path="url(#terminal-2000255258-line-9)">│&#160;Thomas&#160;·&#160;COV&#160;·&#160;DEF&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.7&#160;│&#160;4.6&#160;(4)&#160;│&#160;&#160;&#160;&#160;96%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="239.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-9)">
+</text><text class="terminal-2000255258-r2" x="0" y="264" textLength="658.8" clip-path="url(#terminal-2000255258-line-10)">│&#160;B.Fernandes&#160;·&#160;MUN&#160;·&#160;MID&#160;&#160;&#160;│&#160;4.5&#160;│&#160;4.3&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="264" textLength="12.2" clip-path="url(#terminal-2000255258-line-10)">
+</text><text class="terminal-2000255258-r2" x="0" y="288.4" textLength="658.8" clip-path="url(#terminal-2000255258-line-11)">│&#160;Tavernier&#160;·&#160;BOU&#160;·&#160;MID&#160;&#160;&#160;&#160;&#160;│&#160;4.5&#160;│&#160;4.8&#160;(4)&#160;│&#160;&#160;&#160;&#160;92%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="288.4" textLength="12.2" clip-path="url(#terminal-2000255258-line-11)">
+</text><text class="terminal-2000255258-r2" x="0" y="312.8" textLength="658.8" clip-path="url(#terminal-2000255258-line-12)">│&#160;Ødegaard&#160;·&#160;ARS&#160;·&#160;MID&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.4&#160;│&#160;4.4&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="312.8" textLength="12.2" clip-path="url(#terminal-2000255258-line-12)">
+</text><text class="terminal-2000255258-r2" x="0" y="337.2" textLength="658.8" clip-path="url(#terminal-2000255258-line-13)">│&#160;João&#160;Pedro&#160;·&#160;CHE&#160;·&#160;FWD&#160;&#160;&#160;&#160;│&#160;4.4&#160;│&#160;4.2&#160;(4)&#160;│&#160;&#160;&#160;&#160;85%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="337.2" textLength="12.2" clip-path="url(#terminal-2000255258-line-13)">
+</text><text class="terminal-2000255258-r2" x="0" y="361.6" textLength="658.8" clip-path="url(#terminal-2000255258-line-14)">│&#160;Rogers&#160;·&#160;CHE&#160;·&#160;MID&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.4&#160;│&#160;4.2&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="361.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-14)">
+</text><text class="terminal-2000255258-r2" x="0" y="386" textLength="658.8" clip-path="url(#terminal-2000255258-line-15)">│&#160;Calvert-Lewin&#160;·&#160;LEE&#160;·&#160;FWD&#160;│&#160;4.3&#160;│&#160;4.3&#160;(4)&#160;│&#160;&#160;&#160;&#160;94%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="386" textLength="12.2" clip-path="url(#terminal-2000255258-line-15)">
+</text><text class="terminal-2000255258-r2" x="0" y="410.4" textLength="658.8" clip-path="url(#terminal-2000255258-line-16)">│&#160;Groß&#160;·&#160;BHA&#160;·&#160;MID&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.2&#160;│&#160;4.4&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="410.4" textLength="12.2" clip-path="url(#terminal-2000255258-line-16)">
+</text><text class="terminal-2000255258-r2" x="0" y="434.8" textLength="658.8" clip-path="url(#terminal-2000255258-line-17)">│&#160;Gonzalo&#160;·&#160;FUL&#160;·&#160;FWD&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.2&#160;│&#160;3.9&#160;(4)&#160;│&#160;&#160;&#160;&#160;92%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="434.8" textLength="12.2" clip-path="url(#terminal-2000255258-line-17)">
+</text><text class="terminal-2000255258-r2" x="0" y="459.2" textLength="658.8" clip-path="url(#terminal-2000255258-line-18)">│&#160;Hall&#160;·&#160;NEW&#160;·&#160;DEF&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.1&#160;│&#160;4.0&#160;(4)&#160;│&#160;&#160;&#160;&#160;97%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="459.2" textLength="12.2" clip-path="url(#terminal-2000255258-line-18)">
+</text><text class="terminal-2000255258-r2" x="0" y="483.6" textLength="658.8" clip-path="url(#terminal-2000255258-line-19)">│&#160;Bogle&#160;·&#160;LEE&#160;·&#160;DEF&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.0&#160;│&#160;4.0&#160;(4)&#160;│&#160;&#160;&#160;&#160;96%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="483.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-19)">
+</text><text class="terminal-2000255258-r2" x="0" y="508" textLength="658.8" clip-path="url(#terminal-2000255258-line-20)">│&#160;Thiago&#160;·&#160;BRE&#160;·&#160;FWD&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;│&#160;4.0&#160;│&#160;3.8&#160;(4)&#160;│&#160;&#160;&#160;&#160;92%&#160;│</text><text class="terminal-2000255258-r2" x="878.4" y="508" textLength="12.2" clip-path="url(#terminal-2000255258-line-20)">
+</text><text class="terminal-2000255258-r2" x="0" y="532.4" textLength="658.8" clip-path="url(#terminal-2000255258-line-21)">└───────────────────────────┴─────┴─────────┴────────┘</text><text class="terminal-2000255258-r2" x="878.4" y="532.4" textLength="12.2" clip-path="url(#terminal-2000255258-line-21)">
+</text><text class="terminal-2000255258-r5" x="0" y="556.8" textLength="658.8" clip-path="url(#terminal-2000255258-line-22)">&#160;&#160;Next&#160;4&#160;=&#160;mean&#160;xP&#160;per&#160;gameweek&#160;over&#160;GW8–GW11,&#160;with&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="556.8" textLength="12.2" clip-path="url(#terminal-2000255258-line-22)">
+</text><text class="terminal-2000255258-r5" x="0" y="581.2" textLength="658.8" clip-path="url(#terminal-2000255258-line-23)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;total&#160;fixtures&#160;in&#160;brackets.&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="581.2" textLength="12.2" clip-path="url(#terminal-2000255258-line-23)">
+</text><text class="terminal-2000255258-r5" x="0" y="605.6" textLength="658.8" clip-path="url(#terminal-2000255258-line-24)">&#160;&#160;Start%&#160;=&#160;modelled&#160;probability&#160;of&#160;starting.&#160;Not&#160;an&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="605.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-24)">
+</text><text class="terminal-2000255258-r5" x="0" y="630" textLength="658.8" clip-path="url(#terminal-2000255258-line-25)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;interval,&#160;and&#160;not&#160;calibrated.&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="630" textLength="12.2" clip-path="url(#terminal-2000255258-line-25)">
+</text><text class="terminal-2000255258-r5" x="0" y="654.4" textLength="658.8" clip-path="url(#terminal-2000255258-line-26)">&#160;&#160;105&#160;unavailable&#160;players&#160;hidden&#160;(cannot&#160;be&#160;bought).&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="654.4" textLength="12.2" clip-path="url(#terminal-2000255258-line-26)">
+</text><text class="terminal-2000255258-r5" x="0" y="678.8" textLength="658.8" clip-path="url(#terminal-2000255258-line-27)">&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;--include-unavailable&#160;shows&#160;them.&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="678.8" textLength="12.2" clip-path="url(#terminal-2000255258-line-27)">
+</text><text class="terminal-2000255258-r5" x="0" y="703.2" textLength="658.8" clip-path="url(#terminal-2000255258-line-28)">&#160;&#160;UNVALIDATED&#160;—&#160;scored&#160;on&#160;settled&#160;gameweeks,&#160;but&#160;not&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="703.2" textLength="12.2" clip-path="url(#terminal-2000255258-line-28)">
+</text><text class="terminal-2000255258-r5" x="0" y="727.6" textLength="658.8" clip-path="url(#terminal-2000255258-line-29)">&#160;&#160;&#160;&#160;&#160;calibrated;&#160;see&#160;docs/plans/*-evaluation.md.&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2000255258-r2" x="878.4" y="727.6" textLength="12.2" clip-path="url(#terminal-2000255258-line-29)">
+</text>
+    </g>
+    </g>
+</svg>

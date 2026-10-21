@@ -48,7 +48,7 @@ from fpl_cli import cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
-README_MD = REPO_ROOT / "README.md"
+README_MD = REPO_ROOT / "docs" / "TECHNICAL.md"  # the technical reference; README.md is the showcase
 SRC_ROOT = REPO_ROOT / "src" / "fpl_cli"
 
 TOP_LEVEL = "top level"
@@ -117,7 +117,7 @@ _TABLE_ROW = re.compile(r"^\|(?P<first>[^|]*)\|")
 def architecture_section(text: str) -> str:
     """The `## Architecture` section of the README, up to the next heading."""
     match = re.search(r"^## Architecture$(.*?)^## ", text, flags=re.M | re.S)
-    assert match is not None, "README.md has no `## Architecture` section"
+    assert match is not None, "docs/TECHNICAL.md has no `## Architecture` section"
     return match.group(1)
 
 
@@ -243,10 +243,10 @@ def test_readme_architecture_matches_the_tree() -> None:
     drift = structure_drift(
         README_MD.read_text(encoding="utf-8"),
         parser=parse_architecture,
-        document="README.md",
+        document="docs/TECHNICAL.md",
     )
 
-    assert not drift, "README.md's Architecture table disagrees with src/fpl_cli/:\n  " + "\n  ".join(
+    assert not drift, "docs/TECHNICAL.md's Architecture table disagrees with src/fpl_cli/:\n  " + "\n  ".join(
         drift
     )
 
@@ -612,7 +612,7 @@ _NUMBER_WORDS = {
 def commands_section(text: str) -> str:
     """The `## Commands` section of the README, up to the next heading."""
     match = re.search(r"^## Commands$(.*?)^## ", text, flags=re.M | re.S)
-    assert match is not None, "README.md has no `## Commands` section"
+    assert match is not None, "docs/TECHNICAL.md has no `## Commands` section"
     return match.group(1)
 
 
@@ -722,9 +722,9 @@ def test_readme_commands_match_the_app() -> None:
     deferring would have meant fixing it after it broke.
     """
     visible, hidden = app_commands(cli.app)
-    drift = command_drift(README_MD.read_text(encoding="utf-8"), visible, hidden)
+    drift = command_drift(README_MD.read_text(encoding="utf-8"), visible, hidden, document="docs/TECHNICAL.md")
 
-    assert not drift, "README.md's Commands table disagrees with the Typer app:\n  " + "\n  ".join(
+    assert not drift, "docs/TECHNICAL.md's Commands table disagrees with the Typer app:\n  " + "\n  ".join(
         drift
     )
 
