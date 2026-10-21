@@ -149,3 +149,7 @@ The full design rationale, measured results and known issues are in
 - User-fixed transfer schedules, to reach three or more transfers in a gameweek.
 - Machine-learned projections, once enough leak-free gameweeks have accumulated
   to train and test against.
+
+## License
+
+[MIT](LICENSE) © 2026 Ben Wallbridge
